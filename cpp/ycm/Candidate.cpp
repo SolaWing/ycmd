@@ -25,23 +25,10 @@ using boost::algorithm::all;
 using boost::algorithm::is_lower;
 
 namespace YouCompleteMe {
+  
 
-namespace {
 
-LetterNode *FirstUppercaseNode( const std::list< LetterNode *> &list ) {
-  LetterNode *node = NULL;
-  foreach( LetterNode * current_node, list ) {
-    if ( current_node->LetterIsUppercase() ) {
-      node = current_node;
-      break;
-    }
-  }
-  return node;
-}
-
-} // unnamed namespace
-
-std::string GetWordBoundaryChars( const std::string &text ) {
+std::string GetWordBoundaryChars( const std::string &text, std::vector<unsigned short> &indexes) {
   std::string result;
 
   for ( uint i = 0; i < text.size(); ++i ) {
@@ -57,11 +44,17 @@ std::string GetWordBoundaryChars( const std::string &text ) {
          is_good_uppercase ||
          is_alpha_after_punctuation ) {
       result.push_back( tolower( text[ i ] ) );
+      indexes.push_back(i);
     }
   }
 
   return result;
 }
+  
+std::string GetWordBoundaryChars( const std::string &text) {
+  std::vector<unsigned short> indexes;
+  return GetWordBoundaryChars(text, indexes);
+};
 
 
 Bitset LetterBitsetFromString( const std::string &text ) {
@@ -73,48 +66,141 @@ Bitset LetterBitsetFromString( const std::string &text ) {
   return letter_bitset;
 }
 
-
+#define kContinueFactor 0.5 //the bigger the factor is, the more score continue match get
+#define kMinScore 50        //make result more stable.
+  
+//the bigger the factor is, the more score word boundary char get
+//if more than 1, the word length may be ignored
+#define kWBCFactor 0.7
 Candidate::Candidate( const std::string &text )
   :
   text_( text ),
-  word_boundary_chars_( GetWordBoundaryChars( text ) ),
-  text_is_lowercase_( all( text, is_lower() ) ),
-  letters_present_( LetterBitsetFromString( text ) ),
-  root_node_( new LetterNode( text ) ) {
+  letters_present_( LetterBitsetFromString( text ) )
+{
+  GetWordBoundaryChars(text, wbc_indexes_);
+  wbc_indexes_.push_back(text.size());
+  wbc_indexes_.shrink_to_fit();
+  
+  // calculate total score
+  int base_score = text.size() + kMinScore;
+  totalScore_ = (base_score + kMinScore + 1) * text.size() / 2;
 }
 
 
 Result Candidate::QueryMatchResult( const std::string &query,
                                     bool case_sensitive ) const {
-  LetterNode *node = root_node_.get();
-  int index_sum = 0;
+  double index_sum = 0; // total score
 
-  foreach ( char letter, query ) {
-    const std::list< LetterNode *> *list = node->NodeListForLetter( letter );
+  std::string::const_iterator query_iter = query.begin(), query_end = query.end();
+  if ( query_iter == query_end) 
+    return Result( true, &text_, totalScore_ - index_sum);
 
-    if ( !list )
-      return Result( false );
+  int index = 0, candidate_len = text_.size();
+  
+  // score related
+  // each char score is base_score * scoreFactor
+  // base_score is candidate_len - index
+  
+  // scoreFactor will increase when match,
+  //  and drop to 1 when unmatch
+  
+  // wbc_index is word boundary index,
+  //  if match a word at begin, score will * wordLength
+  //  this give word divide query high score.
+  double scoreFactor = 1;
+  int base_score = candidate_len + kMinScore;
+  std::vector<unsigned short>::const_iterator wbc_index = wbc_indexes_.begin();
 
-    if ( case_sensitive ) {
-      // When the query letter is uppercase, then we force an uppercase match
-      // but when the query letter is lowercase, then it can match both an
-      // uppercase and a lowercase letter. This is by design and it's much
-      // better than forcing lowercase letter matches.
-      node = IsUppercase( letter ) ?
-             FirstUppercaseNode( *list ) :
-             list->front();
+  if (case_sensitive){
+    // only case sensitive when the query char is upper
+      
+    // When the query letter is uppercase, then we force an uppercase match
+    // but when the query letter is lowercase, then it can match both an
+    // uppercase and a lowercase letter. This is by design and it's much
+    // better than forcing lowercase letter matches.
+    char candidate_char, query_char;
+    bool query_char_not_upper = false;
 
-      if ( !node )
-        return Result( false );
-    } else {
-      node = list->front();
+    query_char = *query_iter;
+    if ( !IsUppercase(query_char) ) query_char_not_upper = true;
+    
+    while (index < candidate_len){
+      candidate_char = text_[index];
+      // candi_char convert to lower if query is lower
+      if ( query_char_not_upper && IsUppercase(candidate_char) ) 
+        candidate_char += kUpperToLowerCount;
+
+      // match
+      if ( candidate_char == query_char ){
+        // score related
+        if (index == *wbc_index){
+          // match word begin, get extra score
+          int wordLen =*(wbc_index + 1) - *wbc_index;
+          index_sum += kMinScore * wordLen * kWBCFactor;
+          ++wbc_index;
+        }
+        index_sum += base_score * scoreFactor;
+        // match will increase continueFactor
+        scoreFactor += kContinueFactor;
+        
+        // move to next query char
+        ++query_iter;
+        // complete, return result
+        if ( query_iter == query_end ) 
+          return Result( true, &text_,  totalScore_ - index_sum);
+
+        // not complete, reset query char state
+        query_char = *query_iter;
+        if ( !IsUppercase(query_char) ) query_char_not_upper = true;
+        else query_char_not_upper = false;
+      
+      }else
+        // score related
+        scoreFactor = 1.0; // drop to 1 when not match
+      --base_score;   //base_score reduce when index increase
+      //wbc_index must not before index
+      if (index == *wbc_index) ++wbc_index;
+      
+      ++index;
     }
+  }else{
+    // the notion is similar to above,
+    // except this always use lowercase to compare
+    char candidate_char, query_char;
 
-    index_sum += node->Index();
+    query_char = *query_iter;
+    if ( IsUppercase(query_char) ) query_char += kUpperToLowerCount;
+
+    while (index < candidate_len){
+      candidate_char = text_[index];
+      if ( IsUppercase(candidate_char) ) candidate_char += kUpperToLowerCount;
+
+      if (candidate_char == query_char){
+        // score related
+        if (index == *wbc_index){
+          int wordLen =*(wbc_index + 1) - *wbc_index;
+          index_sum += kMinScore * wordLen * kWBCFactor;
+          ++wbc_index;
+        }
+        index_sum += base_score * scoreFactor;
+        scoreFactor += kContinueFactor;
+        
+        ++query_iter;
+        if ( query_iter == query_end ) 
+          return Result( true, &text_,  totalScore_ - index_sum);
+
+        query_char = *query_iter;
+        if ( IsUppercase(query_char) ) query_char += kUpperToLowerCount;
+        // score related
+      }else
+        scoreFactor = 1.0;
+      --base_score;
+      if (index == *wbc_index) ++wbc_index;
+      
+      ++index;
+    }
   }
-
-  return Result( true, &text_, text_is_lowercase_, index_sum,
-                 word_boundary_chars_, query );
+  return Result(false);
 }
 
 } // namespace YouCompleteMe

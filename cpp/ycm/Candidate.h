@@ -57,10 +57,10 @@ public:
 
 private:
   std::string text_;
-  std::string word_boundary_chars_;
-  bool text_is_lowercase_;
   Bitset letters_present_;
-  boost::scoped_ptr< LetterNode > root_node_;
+  int totalScore_;
+  // word boundary indexes
+  std::vector<unsigned short> wbc_indexes_;
 };
 
 } // namespace YouCompleteMe

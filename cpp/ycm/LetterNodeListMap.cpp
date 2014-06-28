@@ -21,16 +21,25 @@
 
 namespace YouCompleteMe {
 
-bool IsUppercase( char letter ) {
-  return 'A' <= letter && letter <= 'Z';
-}
+const int kNumLetters = NUM_LETTERS;
+//static const int kLettersIndexStart = 0;
+//static const int kNumbersIndexStart = 26;
+const int kUpperToLowerCount = 'a'-'A';
+
+    // map char to range 0-63
+const char charIndex[256] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,37,38,39,40,41,42,43,39,44,45,46,47,48,49,50,51,27,28,29,30,31,32,33,34,35,36,52,53,54,55,56,57,58,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,44,42,45,41,49,39,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,44,43,45,49,37};
 
 
 int IndexForChar( char letter ) {
-  if ( IsUppercase( letter ) )
-    return letter + ( 'a' - 'A' );
-
-  return letter;
+    return charIndex[(unsigned char)letter];
+//  if (letter < ' ') return 0;
+//  if (letter < 'A') return letter - ' ';
+//  if (letter <= 'Z') letter += 'a' - 'A';
+//  return letter - 58;
+//  if ( IsUppercase( letter ) )
+//    return letter + ( 'a' - 'A' );
+//
+//  return letter;
 }
 
 

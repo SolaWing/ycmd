@@ -29,12 +29,12 @@ public:
 
   Result( bool is_subsequence,
           const std::string *text,
-          bool text_is_lowercase,
-          int char_match_index_sum,
-          const std::string &word_boundary_chars,
-          const std::string &query );
+          int char_match_distance
+  );
 
-  bool operator< ( const Result &other ) const;
+  inline bool operator< ( const Result &other ) const{
+    return char_match_distance_ < other.char_match_distance_;
+  }
 
   inline bool IsSubsequence() const {
     return is_subsequence_;
@@ -45,13 +45,6 @@ public:
   }
 
 private:
-  void SetResultFeaturesFromQuery(
-    const std::string &query,
-    const std::string &word_boundary_chars );
-
-  // true when the query for which the result was created was an empty string;
-  // in these cases we just use a lexicographic comparison
-  bool query_is_empty_;
 
   // true when the characters of the query are a subsequence of the characters
   // in the candidate text, e.g. the characters "abc" are a subsequence for
@@ -59,27 +52,8 @@ private:
   // then 'b' then 'c') in the first string but not in the second.
   bool is_subsequence_;
 
-  // true when the first character of the query and the candidate match
-  bool first_char_same_in_query_and_text_;
-
-  // number of word boundary matches / number of chars in query
-  double ratio_of_word_boundary_chars_in_query_;
-
-  // number of word boundary matches / number of all word boundary chars
-  double word_boundary_char_utilization_;
-
-  // true when the query is a prefix of the candidate string, e.g. "foo" query
-  // for "foobar" candidate.
-  bool query_is_candidate_prefix_;
-
-  // true when the candidate text is all lowercase, e.g. "foo" candidate.
-  bool text_is_lowercase_;
-
-  // The sum of the indexes of all the letters the query "hit" in the candidate
-  // text. For instance, the result for the query "abc" in the candidate
-  // "012a45bc8" has char_match_index_sum of 3 + 6 + 7 = 16 because those are
-  // the char indexes of those letters in the candidate string.
-  int char_match_index_sum_;
+  // the distance to match the candidate, the front, word begin char, continue chars will get more close
+  int char_match_distance_;
 
   // points to the full candidate text
   const std::string *text_;
