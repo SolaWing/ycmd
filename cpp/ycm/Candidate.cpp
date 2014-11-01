@@ -31,6 +31,7 @@ namespace YouCompleteMe {
 std::string GetWordBoundaryChars( const std::string &text, std::vector<unsigned short> &indexes) {
   std::string result;
 
+  // first letter, first upper letter, letter after _ will be consider as a word boundary char
   for ( uint i = 0; i < text.size(); ++i ) {
     bool is_first_char_but_not_punctuation = i == 0 && !ispunct( text[ i ] );
     bool is_good_uppercase = i > 0 &&
@@ -81,7 +82,7 @@ Candidate::Candidate( const std::string &text )
   wbc_indexes_.push_back(text.size());
   wbc_indexes_.shrink_to_fit();
   
-  // calculate total score
+  // calculate total score, it's only contain base score
   int base_score = text.size() + kMinScore;
   totalScore_ = (base_score + kMinScore + 1) * text.size() / 2;
 }
@@ -108,6 +109,7 @@ Result Candidate::QueryMatchResult( const std::string &query,
   //  if match a word at begin, score will * wordLength
   //  this give word divide query high score.
   double scoreFactor = 1;
+  int change_case_count = 0;
   int base_score = candidate_len + kMinScore;
   std::vector<unsigned short>::const_iterator wbc_index = wbc_indexes_.begin();
 
@@ -120,6 +122,7 @@ Result Candidate::QueryMatchResult( const std::string &query,
     // better than forcing lowercase letter matches.
     char candidate_char, query_char;
     bool query_char_not_upper = false;
+    bool change_case;
 
     query_char = *query_iter;
     if ( !IsUppercase(query_char) ) query_char_not_upper = true;
@@ -127,8 +130,11 @@ Result Candidate::QueryMatchResult( const std::string &query,
     while (index < candidate_len){
       candidate_char = text_[index];
       // candi_char convert to lower if query is lower
-      if ( query_char_not_upper && IsUppercase(candidate_char) ) 
-        candidate_char += kUpperToLowerCount;
+      change_case = false;
+      if ( query_char_not_upper && IsUppercase(candidate_char) ) {
+        candidate_char += kUpperToLowerCount; // change to lower case
+        change_case = true;
+      }
 
       // match
       if ( candidate_char == query_char ){
@@ -140,6 +146,7 @@ Result Candidate::QueryMatchResult( const std::string &query,
           ++wbc_index;
         }
         index_sum += base_score * scoreFactor;
+        if ( change_case ) ++change_case_count;
         // match will increase continueFactor
         scoreFactor += kContinueFactor;
         
@@ -147,7 +154,7 @@ Result Candidate::QueryMatchResult( const std::string &query,
         ++query_iter;
         // complete, return result
         if ( query_iter == query_end ) 
-          return Result( true, &text_,  totalScore_ - index_sum);
+          return Result( true, &text_,  totalScore_ - index_sum + change_case_count);
 
         // not complete, reset query char state
         query_char = *query_iter;
@@ -157,6 +164,7 @@ Result Candidate::QueryMatchResult( const std::string &query,
       }else
         // score related
         scoreFactor = 1.0; // drop to 1 when not match
+
       --base_score;   //base_score reduce when index increase
       //wbc_index must not before index
       if (index == *wbc_index) ++wbc_index;
@@ -166,14 +174,14 @@ Result Candidate::QueryMatchResult( const std::string &query,
   }else{
     // the notion is similar to above,
     // except this always use lowercase to compare
-    char candidate_char, query_char;
+    char candidate_char, query_char, origin_candidate_char;
 
     query_char = *query_iter;
-    if ( IsUppercase(query_char) ) query_char += kUpperToLowerCount;
+    if ( IsUppercase(query_char) ) query_char += kUpperToLowerCount; // change case
 
     while (index < candidate_len){
-      candidate_char = text_[index];
-      if ( IsUppercase(candidate_char) ) candidate_char += kUpperToLowerCount;
+      origin_candidate_char = candidate_char = text_[index];
+      if ( IsUppercase(candidate_char) ) candidate_char += kUpperToLowerCount; //change case
 
       if (candidate_char == query_char){
         // score related
@@ -184,16 +192,18 @@ Result Candidate::QueryMatchResult( const std::string &query,
         }
         index_sum += base_score * scoreFactor;
         scoreFactor += kContinueFactor;
+        if (origin_candidate_char != *query_iter) ++change_case_count;
         
         ++query_iter;
         if ( query_iter == query_end ) 
-          return Result( true, &text_,  totalScore_ - index_sum);
+          return Result( true, &text_,  totalScore_ - index_sum + change_case_count);
 
         query_char = *query_iter;
         if ( IsUppercase(query_char) ) query_char += kUpperToLowerCount;
         // score related
       }else
         scoreFactor = 1.0;
+
       --base_score;
       if (index == *wbc_index) ++wbc_index;
       

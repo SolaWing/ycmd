@@ -29,6 +29,7 @@ namespace YouCompleteMe {
 
 // This differs from what we expect from the ClangCompleter. That one should
 // return results for an empty query.
+    
 TEST( IdentifierCompleterTest, EmptyQueryNoResults ) {
   EXPECT_THAT( IdentifierCompleter(
                  StringVector(
@@ -238,6 +239,15 @@ TEST( IdentifierCompleterTest, PreferLowercaseCandidate ) {
                    "FooBar" ) ).CandidatesForQuery( "oba" ),
                ElementsAre( "fooBar",
                             "FooBar" ) );
+    
+  EXPECT_THAT( IdentifierCompleter(
+                 StringVector(
+                   "CCLog",
+                   "CCLOG",
+                   "cclog") ).CandidatesForQuery( "ccl" ),
+               ElementsAre( "cclog",
+                            "CCLOG",
+                            "CCLog") );
 }
 
 TEST( IdentifierCompleterTest, ShorterAndLowercaseWins ) {
