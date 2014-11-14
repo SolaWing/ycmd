@@ -142,3 +142,4 @@ TEST( ClangCompleterTest, GetDocString ) {
 
 } // namespace YouCompleteMe
 
+

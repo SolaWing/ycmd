@@ -184,6 +184,7 @@ std::vector< CompletionData > TranslationUnit::CandidatesForLocation(
                           const_cast<CXUnsavedFile *>( unsaved ),
                           cxunsaved_files.size(),
                           completionOptions() ),
+                         //CXCodeComplete_IncludeMacros|CXCodeComplete_IncludeBriefComments
     clang_disposeCodeCompleteResults );
 
   std::vector< CompletionData > candidates = ToCompletionDataVector(
