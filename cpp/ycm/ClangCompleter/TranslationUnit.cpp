@@ -387,6 +387,9 @@ void TranslationUnit::UpdateLatestDiagnostics() {
     if ( diagnostic.kind_ != INFORMATION )
       latest_diagnostics_.push_back( diagnostic );
   }
+    std::stable_sort(latest_diagnostics_.begin(), latest_diagnostics_.end(), [](const Diagnostic &a, const Diagnostic &b){
+        return a.kind_ > b.kind_;
+    });
 }
 
 namespace {
