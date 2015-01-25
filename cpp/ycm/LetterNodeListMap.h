@@ -35,6 +35,9 @@ int IndexForChar( char letter );
 inline bool IsUppercase( char letter ){
   return 'A' <= letter && letter <= 'Z';    
 }
+inline bool IsLowercase(char letter){
+  return 'a' <= letter && letter <= 'z';
+}
 
 class LetterNodeListMap : boost::noncopyable {
 public:

@@ -67,12 +67,13 @@ Bitset LetterBitsetFromString( const std::string &text ) {
   return letter_bitset;
 }
 
-#define kContinueFactor 0.5 //the bigger the factor is, the more score continue match get
+#define kContinueFactor 0.25 //the bigger the factor is, the more score continue match get
 #define kMinScore 50        //make result more stable.
   
 //the bigger the factor is, the more score word boundary char get
 //if more than 1, the word length may be ignored
 #define kWBCFactor 0.7
+#define kEndCharFactor 0.3
 Candidate::Candidate( const std::string &text )
   :
   text_( text ),
@@ -99,116 +100,95 @@ Result Candidate::QueryMatchResult( const std::string &query,
   int index = 0, candidate_len = text_.size();
   
   // score related
-  // each char score is base_score * scoreFactor
+  // each char score is base_score
   // base_score is candidate_len - index
   
-  // scoreFactor will increase when match,
-  //  and drop to 1 when unmatch
+  // continueCount will increase when match,
+  //  and drop to 0 when unmatch
+  //  when end or drop to 0, continueCount give bonus score
   
   // wbc_index is word boundary index,
   //  if match a word at begin, score will * wordLength
   //  this give word divide query high score.
-  double scoreFactor = 1;
+  
+  // the last char will get extra bonus
+  int continueCount = 0;
   int change_case_count = 0;
   int base_score = candidate_len + kMinScore;
   std::vector<unsigned short>::const_iterator wbc_index = wbc_indexes_.begin();
 
-  if (case_sensitive){
-    // only case sensitive when the query char is upper
-      
-    // When the query letter is uppercase, then we force an uppercase match
-    // but when the query letter is lowercase, then it can match both an
-    // uppercase and a lowercase letter. This is by design and it's much
-    // better than forcing lowercase letter matches.
-    char candidate_char, query_char;
-    bool query_char_not_upper = false;
-    bool change_case;
-
-    query_char = *query_iter;
-    if ( !IsUppercase(query_char) ) query_char_not_upper = true;
+  // if case_sensitive, only case sensitive when the query char is upper
     
-    while (index < candidate_len){
-      candidate_char = text_[index];
-      // candi_char convert to lower if query is lower
-      change_case = false;
-      if ( query_char_not_upper && IsUppercase(candidate_char) ) {
-        candidate_char += kUpperToLowerCount; // change to lower case
+  // When the query letter is uppercase, then we force an uppercase match
+  // but when the query letter is lowercase, then it can match both an
+  // uppercase and a lowercase letter. This is by design and it's much
+  // better than forcing lowercase letter matches.
+  char candidate_char, query_char;
+  bool change_case;
+  bool match;
+
+  query_char = *query_iter;
+  while (index < candidate_len){
+    candidate_char = text_[index];
+    match = false;
+    change_case = false;
+    if (candidate_char == query_char) match = true;
+    else{
+      if (case_sensitive){
+        if (IsLowercase(query_char) && candidate_char + kUpperToLowerCount == query_char){
+          change_case = true;
+          match = true;
+        }
+      }
+      else if ((IsLowercase(query_char) && candidate_char + kUpperToLowerCount == query_char)
+               || (IsUppercase(query_char) && query_char + kUpperToLowerCount == candidate_char)){
         change_case = true;
+        match = true;
+      }
+    }
+    // match
+#define ContinueScore \
+(continueCount * continueCount * base_score * kContinueFactor)
+    if ( match ){
+      // score related
+      if (index == *wbc_index){
+        // match word begin, get extra score
+        int wordLen =*(wbc_index + 1) - *wbc_index;
+        index_sum += kMinScore * wordLen * kWBCFactor;
+        ++wbc_index;
+      }
+      index_sum += base_score;
+      if ( change_case ) ++change_case_count;
+      // match will increase continueFactor
+      ++continueCount;
+      
+      // move to next query char
+      ++query_iter;
+      // complete, return result
+      if ( query_iter == query_end ) {
+        if (continueCount > 1){
+          index_sum += ContinueScore;
+        }
+        // match last char, get extra bonus
+        if (index == candidate_len - 1) index_sum += kMinScore * candidate_len * kEndCharFactor;
+        return Result( true, &text_,  totalScore_ - index_sum + change_case_count);
       }
 
-      // match
-      if ( candidate_char == query_char ){
-        // score related
-        if (index == *wbc_index){
-          // match word begin, get extra score
-          int wordLen =*(wbc_index + 1) - *wbc_index;
-          index_sum += kMinScore * wordLen * kWBCFactor;
-          ++wbc_index;
-        }
-        index_sum += base_score * scoreFactor;
-        if ( change_case ) ++change_case_count;
-        // match will increase continueFactor
-        scoreFactor += kContinueFactor;
-        
-        // move to next query char
-        ++query_iter;
-        // complete, return result
-        if ( query_iter == query_end ) 
-          return Result( true, &text_,  totalScore_ - index_sum + change_case_count);
-
-        // not complete, reset query char state
-        query_char = *query_iter;
-        if ( !IsUppercase(query_char) ) query_char_not_upper = true;
-        else query_char_not_upper = false;
-      
-      }else
-        // score related
-        scoreFactor = 1.0; // drop to 1 when not match
-
-      --base_score;   //base_score reduce when index increase
-      //wbc_index must not before index
-      if (index == *wbc_index) ++wbc_index;
-      
-      ++index;
+      // not complete, reset query char state
+      query_char = *query_iter;
+    }else {
+      if (continueCount > 1){
+        index_sum += ContinueScore;
+      }
+      // score related
+      continueCount = 0; // drop to 0 when not match
     }
-  }else{
-    // the notion is similar to above,
-    // except this always use lowercase to compare
-    char candidate_char, query_char, origin_candidate_char;
-
-    query_char = *query_iter;
-    if ( IsUppercase(query_char) ) query_char += kUpperToLowerCount; // change case
-
-    while (index < candidate_len){
-      origin_candidate_char = candidate_char = text_[index];
-      if ( IsUppercase(candidate_char) ) candidate_char += kUpperToLowerCount; //change case
-
-      if (candidate_char == query_char){
-        // score related
-        if (index == *wbc_index){
-          int wordLen =*(wbc_index + 1) - *wbc_index;
-          index_sum += kMinScore * wordLen * kWBCFactor;
-          ++wbc_index;
-        }
-        index_sum += base_score * scoreFactor;
-        scoreFactor += kContinueFactor;
-        if (origin_candidate_char != *query_iter) ++change_case_count;
-        
-        ++query_iter;
-        if ( query_iter == query_end ) 
-          return Result( true, &text_,  totalScore_ - index_sum + change_case_count);
-
-        query_char = *query_iter;
-        if ( IsUppercase(query_char) ) query_char += kUpperToLowerCount;
-        // score related
-      }else
-        scoreFactor = 1.0;
-
-      --base_score;
-      if (index == *wbc_index) ++wbc_index;
-      
-      ++index;
-    }
+    
+    --base_score;   //base_score reduce when index increase
+    //wbc_index must not before index
+    if (index == *wbc_index) ++wbc_index;
+    
+    ++index;
   }
   return Result(false);
 }
