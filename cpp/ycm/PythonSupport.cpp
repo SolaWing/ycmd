@@ -43,8 +43,12 @@ std::string GetUtf8String( const boost::python::object &string_or_unicode ) {
 
   if ( to_string.check() )
     return to_string();
-
+#if PY_VERSION_HEX >= 0x03000000
   return extract< std::string >( str( string_or_unicode ).encode( "utf8" ) );
+#else
+  // FIX unicode str which contains non-ASCII char
+  return boost::python::extract<std::string>(string_or_unicode.attr("encode")(boost::python::api::object("utf8")));
+#endif
 }
 
 std::vector< const Candidate * > CandidatesFromObjectList(

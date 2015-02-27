@@ -210,12 +210,13 @@ CompletionData::CompletionData( const CXCompletionResult &completion_result ) {
   .append( " " )
   .append( everything_except_return_type_ )
   .append( "\n" );
+
   doc_string_ = YouCompleteMe::CXStringToString(
                   clang_getCompletionBriefComment( completion_string ) );
   //auto&& briefComment = YouCompleteMe::CXStringToString(clang_getCompletionBriefComment(completion_string));
-  //if (!briefComment.empty()){
-  //  detailed_info_.append("\t").append( boost::move(briefComment)).append("\n");
-  //}
+  if (!doc_string_.empty()){
+    detailed_info_.append("\t").append( doc_string_).append("\n");
+  }
 }
 
 
@@ -241,6 +242,11 @@ void CompletionData::ExtractDataFromChunk( CXCompletionString completion_string,
     }
 
     else if ( saw_function_params && kind == CXCompletionChunk_RightParen ) {
+      // in objc complete declared method, there have multi paren.
+      // if not set false, everything_except_return_type_ will
+      // have space at right but doesn't have at left
+      saw_left_paren = false;
+      saw_function_params = false;
       everything_except_return_type_.append( " " );
     }
 
