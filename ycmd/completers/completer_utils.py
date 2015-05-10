@@ -133,8 +133,8 @@ DEFAULT_FILETYPE_TRIGGERS = {
   'objc' : ['->',
             '.',
             r're!\[[_a-zA-Z]+\w*\s',    # bracketed calls
-            r're!^\s*[^\W\d]\w*\s',     # bracketless calls
-            r're!\[.*\]\s',             # method composition
+            #r're!^\s*[^\W\d]\w*\s',     # bracketless calls
+            r're!\W\[.+\]\s',             # method composition
            ],
   'ocaml' : ['.', '#'],
   'cpp,objcpp' : ['->', '.', '::'],
