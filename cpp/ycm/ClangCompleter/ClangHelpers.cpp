@@ -187,11 +187,7 @@ std::vector< CompletionData > ToCompletionDataVector(
       // If we have already seen this completion, then this is an overload of a
       // function we have seen. We add the signature of the overload to the
       // detailed information.
-      completions[ index ].detailed_info_
-      .append( data.return_type_ )
-      .append( " " )
-      .append( data.everything_except_return_type_ )
-      .append( "\n" );
+      completions[ index ].detailed_info_.append( data.detailed_info_ );
     }
   }
 

@@ -115,6 +115,7 @@ struct CompletionData {
 
 private:
 
+  // change for objc compatibility
   void ExtractDataFromChunk( CXCompletionString completion_string,
                              uint chunk_num,
                              bool &saw_left_paren,

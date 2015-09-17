@@ -173,6 +173,7 @@ std::string RemoveTrailingParens( std::string text ) {
 
 } // unnamed namespace
 
+//    int beforeCount = 0;
 
 CompletionData::CompletionData( const CXCompletionResult &completion_result ) {
   CXCompletionString completion_string = completion_result.CompletionString;
@@ -184,7 +185,7 @@ CompletionData::CompletionData( const CXCompletionResult &completion_result ) {
   bool saw_left_paren = false;
   bool saw_function_params = false;
   bool saw_placeholder = false;
-
+//    printf("before extract %d\n", beforeCount++);
   for ( uint j = 0; j < num_chunks; ++j ) {
     ExtractDataFromChunk( completion_string,
                           j,
@@ -202,9 +203,11 @@ CompletionData::CompletionData( const CXCompletionResult &completion_result ) {
   // show them as just "pos". This will never interfere with client code since
   // ANY C++ identifier with two consecutive underscores in it is
   // compiler-reserved.
-  everything_except_return_type_ =
-    RemoveTwoConsecutiveUnderscores(
-      boost::move( everything_except_return_type_ ) );
+
+//  show the underscore or I don't know it's kind and fuzz me
+//  everything_except_return_type_ =
+//    RemoveTwoConsecutiveUnderscores(
+//      boost::move( everything_except_return_type_ ) );
 
   detailed_info_.append( return_type_ )
   .append( " " )
@@ -213,6 +216,10 @@ CompletionData::CompletionData( const CXCompletionResult &completion_result ) {
 
   doc_string_ = YouCompleteMe::CXStringToString(
                   clang_getCompletionBriefComment( completion_string ) );
+  //auto&& briefComment = YouCompleteMe::CXStringToString(clang_getCompletionBriefComment(completion_string));
+  if (!doc_string_.empty()){
+    detailed_info_.append("\t").append( doc_string_).append("\n");
+  }
 }
 
 
@@ -223,6 +230,7 @@ void CompletionData::ExtractDataFromChunk( CXCompletionString completion_string,
                                            bool &saw_placeholder ) {
   CXCompletionChunkKind kind = clang_getCompletionChunkKind(
                                  completion_string, chunk_num );
+//    printf("%d %s\n",kind, ChunkToString(completion_string, chunk_num).c_str());
 
   if ( IsMainCompletionTextInfo( kind ) ) {
     if ( kind == CXCompletionChunk_LeftParen ) {
@@ -238,6 +246,11 @@ void CompletionData::ExtractDataFromChunk( CXCompletionString completion_string,
     }
 
     else if ( saw_function_params && kind == CXCompletionChunk_RightParen ) {
+      // in objc complete declared method, there have multi paren.
+      // if not set false, everything_except_return_type_ will
+      // have space at right but doesn't have at left
+      saw_left_paren = false;
+      saw_function_params = false;
       everything_except_return_type_.append( " " );
     }
 
@@ -273,6 +286,7 @@ void CompletionData::ExtractDataFromChunk( CXCompletionString completion_string,
     default:
       break;
   }
+
 }
 
 } // namespace YouCompleteMe

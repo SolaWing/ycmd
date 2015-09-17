@@ -29,8 +29,8 @@ namespace YouCompleteMe {
 
 enum DiagnosticKind {
   INFORMATION = 0,
-  ERROR,
-  WARNING
+  WARNING,
+  ERROR
 };
 
 /// Information about a replacement that can be made to the source to "fix" a

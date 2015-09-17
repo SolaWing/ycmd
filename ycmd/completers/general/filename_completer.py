@@ -26,7 +26,7 @@ from ycmd.completers.cpp.flags import Flags
 from ycmd.utils import ToUtf8IfNeeded, ToUnicodeIfNeeded, OnWindows
 from ycmd import responses
 
-EXTRA_INFO_MAP = { 1 : '[File]', 2 : '[Dir]', 3 : '[File&Dir]' }
+EXTRA_INFO_MAP = { 1 : '[File]', 2 : '[Dir]', 3 : '[File&Dir]', 4:'[Lib]', 5:'[Lib&File]', 6:'[Lib&Dir]', 7:'[FDL]' }
 
 
 class FilenameCompleter( Completer ):
@@ -135,22 +135,36 @@ class FilenameCompleter( Completer ):
   def GetPathsIncludeCase( self, path_dir, include_current_file_dir, filepath,
                            client_data ):
     paths = []
-    include_paths = self._flags.UserIncludePaths( filepath, client_data )
+    include_paths = self._flags.UserIncludePaths( filepath, client_data, True )
 
     if include_current_file_dir:
       include_paths.append( os.path.dirname( filepath ) )
 
     for include_path in include_paths:
-      unicode_path = ToUnicodeIfNeeded( os.path.join( include_path, path_dir ) )
       try:
-        # We need to pass a unicode string to get unicode strings out of
+        path = os.path.join(include_path, path_dir)
+        # for non-dir path, try add .framework/Headers if possible
+        if not os.path.isdir(path):
+          path = include_path
+          path_dirs = path_dir.split(os.path.sep)
+          for p in path_dirs[:-1]:
+            path = os.path.join(path, p)
+            if not os.path.isdir(path):
+              path += ".framework"
+              if os.path.isdir(path):
+                path = os.path.join(path, "Headers")
+              else: continue
+          path = os.path.join(path, path_dirs[-1])
+
+        unicode_path = ToUnicodeIfNeeded(path)
+        # We need to pass a unicode string to get unicode strings out of 
         # listdir.
         relative_paths = os.listdir( unicode_path )
       except:
-        relative_paths = []
+        continue
 
-      paths.extend( os.path.join( include_path, path_dir, relative_path ) for
-                    relative_path in relative_paths  )
+      paths.extend( os.path.join(unicode_path, relative_path) 
+          for relative_path in relative_paths )
 
     return sorted( set( paths ) )
 
@@ -204,10 +218,16 @@ def _GenerateCandidatesForPaths( absolute_paths ):
   basenames = []
   for absolute_path in absolute_paths:
     basename = os.path.basename( absolute_path )
+    is_framework = basename.endswith('.framework')
+    if is_framework:
+      basename = basename[:-10]
     if extra_info[ basename ] == 0:
       basenames.append( basename )
-    is_dir = os.path.isdir( absolute_path )
-    extra_info[ basename ] |= ( 2 if is_dir else 1 )
+    if is_framework:
+      extra_info[basename] |= 4
+    else:
+      is_dir = os.path.isdir( absolute_path )
+      extra_info[ basename ] |= ( 2 if is_dir else 1 )
 
   completion_dicts = []
   # Keep original ordering

@@ -63,8 +63,10 @@ class RequestWrap( object ):
     # Handling ''.splitlines() returning [] instead of ['']
     if contents is not None and len( contents ) == 0:
       return ''
-    return contents.splitlines()[ self._request[ 'line_num' ] - 1 ]
-
+    # fix last line index out of range error !
+    contents = contents.splitlines(); line = self._request[ 'line_num' ] - 1;
+    if line >= len(contents) : return ''
+    return ToUtf8IfNeeded(contents[line])
 
   def CompletionStartColumn( self ):
     try:

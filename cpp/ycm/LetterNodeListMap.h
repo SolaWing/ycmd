@@ -21,15 +21,23 @@
 #include <list>
 #include <boost/utility.hpp>
 #include <boost/array.hpp>
-
-#define NUM_LETTERS 128
+// 128 - 5 - 64 = 59
+#define NUM_LETTERS 59
 
 namespace YouCompleteMe {
 
 class LetterNode;
 
+extern const int kNumLetters;
+extern const int kUpperToLowerCount;
+
 int IndexForChar( char letter );
-bool IsUppercase( char letter );
+inline bool IsUppercase( char letter ){
+  return 'A' <= letter && letter <= 'Z';    
+}
+inline bool IsLowercase(char letter){
+  return 'a' <= letter && letter <= 'z';
+}
 
 class LetterNodeListMap : boost::noncopyable {
 public:

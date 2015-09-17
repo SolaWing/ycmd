@@ -39,11 +39,31 @@ class JediCompleter( Completer ):
 
   def __init__( self, user_options ):
     super( JediCompleter, self ).__init__( user_options )
-
+    self.in_query = False
 
   def SupportedFiletypes( self ):
     """ Just python """
     return [ 'python' ]
+
+  def ShouldUseNow(self, request_data):
+    # NOTE almost equal to super, except when cache is invalid, return False if self.in_query
+    if not self.ShouldUseNowInner( request_data ):
+      self._completions_cache.Invalidate()
+      return False
+
+    # We have to do the cache valid check and get the completions as part of one
+    # call because we have to ensure a different thread doesn't change the cache
+    # data.
+    cache_completions = self._completions_cache.GetCompletionsIfCacheValid(
+        request_data[ 'line_num' ],
+        request_data[ 'start_column' ] )
+
+    # If None, then the cache isn't valid and we know we should return true
+    if cache_completions is None:
+      return not self.in_query
+    else:
+      previous_results_were_valid = bool( cache_completions )
+      return previous_results_were_valid
 
 
   def _GetJediScript( self, request_data ):
@@ -74,7 +94,10 @@ class JediCompleter( Completer ):
 
 
   def ComputeCandidatesInner( self, request_data ):
+    self.in_query = True
     script = self._GetJediScript( request_data )
+    completions = script.completions()
+    self.in_query = False
     return [ responses.BuildCompletionData(
                 ToUtf8IfNeeded( completion.name ),
                 ToUtf8IfNeeded( completion.description ),

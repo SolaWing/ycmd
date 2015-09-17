@@ -184,6 +184,7 @@ std::vector< CompletionData > TranslationUnit::CandidatesForLocation(
                           const_cast<CXUnsavedFile *>( unsaved ),
                           cxunsaved_files.size(),
                           completionOptions() ),
+                         //CXCodeComplete_IncludeMacros|CXCodeComplete_IncludeBriefComments
     clang_disposeCodeCompleteResults );
 
   std::vector< CompletionData > candidates = ToCompletionDataVector(
@@ -391,6 +392,9 @@ void TranslationUnit::UpdateLatestDiagnostics() {
     if ( diagnostic.kind_ != INFORMATION )
       latest_diagnostics_.push_back( diagnostic );
   }
+    std::stable_sort(latest_diagnostics_.begin(), latest_diagnostics_.end(), [](const Diagnostic &a, const Diagnostic &b){
+        return a.kind_ > b.kind_;
+    });
 }
 
 namespace {

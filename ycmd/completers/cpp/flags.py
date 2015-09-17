@@ -97,13 +97,16 @@ class Flags( object ):
       return sanitized_flags
 
 
-  def UserIncludePaths( self, filename, client_data ):
+  def UserIncludePaths( self, filename, client_data, is_import = False ):
     flags = self.FlagsForFile( filename, client_data = client_data )
     if not flags:
       return []
 
     include_paths = []
     path_flags = [ '-isystem', '-I', '-iquote' ]
+    if is_import: 
+        path_flags.append('-F')
+        path_flags.append('-iframework')
 
     next_flag_is_include_path = False
     for flag in flags:
