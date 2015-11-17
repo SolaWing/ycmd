@@ -56,7 +56,8 @@ class JediCompleter( Completer ):
     # data.
     cache_completions = self._completions_cache.GetCompletionsIfCacheValid(
         request_data[ 'line_num' ],
-        request_data[ 'start_column' ] )
+        request_data[ 'start_column' ],
+        self.CompletionType( request_data ) )
 
     # If None, then the cache isn't valid and we know we should return true
     if cache_completions is None:
