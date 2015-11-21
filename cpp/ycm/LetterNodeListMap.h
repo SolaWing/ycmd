@@ -18,6 +18,8 @@
 #ifndef LETTERNODELISTMAP_H_BRK2UMC1
 #define LETTERNODELISTMAP_H_BRK2UMC1
 
+#include "DLLDefines.h"
+
 #include <list>
 #include <boost/utility.hpp>
 #include <boost/array.hpp>
@@ -31,9 +33,9 @@ class LetterNode;
 extern const int kNumLetters;
 extern const int kUpperToLowerCount;
 
-int IndexForChar( char letter );
+YCM_DLL_EXPORT int IndexForChar( char letter );
 inline bool IsUppercase( char letter ){
-  return 'A' <= letter && letter <= 'Z';    
+  return 'A' <= letter && letter <= 'Z';
 }
 inline bool IsLowercase(char letter){
   return 'a' <= letter && letter <= 'z';
@@ -42,7 +44,7 @@ inline bool IsLowercase(char letter){
 class LetterNodeListMap : boost::noncopyable {
 public:
   LetterNodeListMap();
-  ~LetterNodeListMap();
+  YCM_DLL_EXPORT ~LetterNodeListMap();
 
   bool HasLetter( char letter );
 

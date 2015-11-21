@@ -51,6 +51,17 @@ if ( USE_CLANG_COMPLETER AND
     set( CLANG_SHA256
          "057e56b445ac5dfbf0d5475badab374edebe8db5428001c8829340e40724b50d" )
     set( CLANG_FILENAME "${CLANG_DIRNAME}.tar.xz" )
+  elseif ( WIN32 )
+    if( 64_BIT_PLATFORM )
+      set( CLANG_DIRNAME "LLVM-${CLANG_VERSION}-win64" )
+      set( CLANG_SHA256
+           "04a393cf73bc7416c9903aa08f47f15c77cf475b22a607ac4b7493a658a11a3f" )
+    else()
+      set( CLANG_DIRNAME "LLVM-${CLANG_VERSION}-win32" )
+      set( CLANG_SHA256
+           "75933480c8f8e3ae3cf9281494bf0057e9e4cfae4315f59c468a4e850a86f544" )
+    endif()
+    set( CLANG_FILENAME "${CLANG_DIRNAME}.exe" )
   else()
     if ( 64_BIT_PLATFORM )
       # We MUST support the latest Ubuntu LTS release!
@@ -89,10 +100,28 @@ if ( USE_CLANG_COMPLETER AND
     message( "Downloading Clang ${CLANG_VERSION}" )
 
     set( CLANG_URL "http://llvm.org/releases/${CLANG_VERSION}" )
-    file(
-      DOWNLOAD "${CLANG_URL}/${CLANG_FILENAME}" "${CLANG_LOCAL_FILE}"
-      SHOW_PROGRESS EXPECTED_HASH SHA256=${CLANG_SHA256}
-    )
+
+    # Try to download Clang several times until successful to prevent failure
+    # from network issues on CI services.
+    set( DOWNLOAD_TRIES 3 )
+    set( DOWNLOAD_TRY 0 )
+    set( DOWNLOAD_ERROR 1 )
+
+    while( DOWNLOAD_ERROR AND DOWNLOAD_TRY LESS DOWNLOAD_TRIES )
+      file(
+        DOWNLOAD "${CLANG_URL}/${CLANG_FILENAME}" "${CLANG_LOCAL_FILE}"
+        STATUS DOWNLOAD_STATUS
+        SHOW_PROGRESS
+        EXPECTED_HASH SHA256=${CLANG_SHA256}
+      )
+      math( EXPR DOWNLOAD_TRY "${DOWNLOAD_TRY} + 1" )
+      list( GET DOWNLOAD_STATUS 0 DOWNLOAD_ERROR )
+    endwhile()
+
+    if( DOWNLOAD_ERROR )
+      message( FATAL_ERROR
+        "Could not download ${CLANG_URL}/${CLANG_FILENAME}" )
+    endif()
   else()
     message( "Using Clang archive: ${CLANG_LOCAL_FILE}" )
   endif()
@@ -103,16 +132,31 @@ if ( USE_CLANG_COMPLETER AND
     execute_process( COMMAND tar -xjf ${CLANG_FILENAME} )
   elseif( CLANG_FILENAME MATCHES ".+xz" )
     execute_process( COMMAND tar -xJf ${CLANG_FILENAME} )
+  elseif( CLANG_FILENAME MATCHES ".+exe" )
+    # Find 7-zip executable in the PATH and using the registry
+    find_program( 7Z_EXECUTABLE 7z PATHS
+      [HKEY_LOCAL_MACHINE\\SOFTWARE\\7-Zip;Path] )
+    if ( NOT 7Z_EXECUTABLE )
+      message( FATAL_ERROR
+        "7-zip is needed to extract the files from the Clang installer. "
+        "Install it and try again." )
+    endif()
+    execute_process( COMMAND ${7Z_EXECUTABLE} x ${CLANG_FILENAME} OUTPUT_QUIET )
   else()
     execute_process( COMMAND tar -xzf ${CLANG_FILENAME} )
   endif()
 
   # We need to set PATH_TO_LLVM_ROOT. To do that, we first have to find the
   # folder name the archive produced. It isn't the archive base name.
-  execute_process( COMMAND
-    find ${CMAKE_CURRENT_BINARY_DIR}/.. -maxdepth 1 -type d -name clang*
-    OUTPUT_VARIABLE PATH_TO_LLVM_ROOT
-    OUTPUT_STRIP_TRAILING_WHITESPACE )
+  # On Windows, the find command is not available so we directly set the path.
+  if ( WIN32 )
+    set( PATH_TO_LLVM_ROOT ${CMAKE_CURRENT_BINARY_DIR}/../$_OUTDIR )
+  else()
+    execute_process( COMMAND
+      find ${CMAKE_CURRENT_BINARY_DIR}/.. -maxdepth 1 -type d -name clang*
+      OUTPUT_VARIABLE PATH_TO_LLVM_ROOT
+      OUTPUT_STRIP_TRAILING_WHITESPACE )
+  endif()
 endif()
 
 if ( PATH_TO_LLVM_ROOT OR USE_SYSTEM_LIBCLANG OR EXTERNAL_LIBCLANG_PATH )

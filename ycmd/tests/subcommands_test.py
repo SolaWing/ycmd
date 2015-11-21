@@ -24,17 +24,20 @@ from .test_utils import ( Setup,
                           PathToTestFile,
                           StopOmniSharpServer,
                           WaitUntilOmniSharpServerReady,
-                          ChangeSpecificOptions )
+                          ChangeSpecificOptions,
+                          ErrorMatcher )
 from webtest import TestApp, AppError
 from nose.tools import eq_, with_setup
 from .. import handlers
 import bottle
 import re
 import os.path
+import httplib
 from pprint import pprint
 
 from hamcrest import ( assert_that, contains, has_entries, equal_to, raises, calling )
 
+from ycmd.completers.cpp.clang_completer import NO_DOCUMENTATION_MESSAGE
 
 bottle.debug( True )
 
@@ -84,6 +87,7 @@ def RunCompleterCommand_GoTo_Clang_ZeroBasedLineAndColumn_test():
       },
       app.post_json( '/run_completer_command', goto_data ).json )
 
+
 def _RunCompleterCommand_GoTo_all_Clang(filename, command, test):
   contents = open( PathToTestFile( filename ) ).read()
   app = TestApp( handlers.app )
@@ -116,6 +120,74 @@ def _RunCompleterCommand_GoTo_all_Clang(filename, command, test):
 
   eq_( response,
        app.post_json( '/run_completer_command', goto_data ).json )
+
+
+def _RunCompleterCommand_GoToInclude_Clang( command, test ):
+  app = TestApp( handlers.app )
+  app.post_json( '/load_extra_conf_file',
+                 { 'filepath': PathToTestFile( 'test-include',
+                                               '.ycm_extra_conf.py' ) } )
+  filepath = PathToTestFile( 'test-include', 'main.cpp' )
+  goto_data = BuildRequest( filepath = filepath,
+                            filetype = 'cpp',
+                            contents = open( filepath ).read(),
+                            command_arguments = [ command ],
+                            line_num = test[ 'request' ][ 0 ],
+                            column_num = test[ 'request' ][ 1 ] )
+
+  response = {
+    'filepath'   : PathToTestFile( 'test-include', test[ 'response' ] ),
+    'line_num'   : 1,
+    'column_num' : 1,
+  }
+
+  eq_( response,
+       app.post_json( '/run_completer_command', goto_data ).json )
+
+
+@with_setup( Setup )
+def RunCompleterCommand_GoToInclude_Clang_test():
+  tests = [
+    { 'request': [ 1, 1 ], 'response': 'a.hpp' },
+    { 'request': [ 2, 1 ], 'response': os.path.join( 'system', 'a.hpp' ) },
+    { 'request': [ 3, 1 ], 'response': os.path.join( 'quote',  'b.hpp' ) },
+    { 'request': [ 5, 1 ], 'response': os.path.join( 'system', 'c.hpp' ) },
+    { 'request': [ 6, 1 ], 'response': os.path.join( 'system', 'c.hpp' ) },
+  ]
+  for test in tests:
+    yield _RunCompleterCommand_GoToInclude_Clang, 'GoToInclude', test
+    yield _RunCompleterCommand_GoToInclude_Clang, 'GoTo', test
+    yield _RunCompleterCommand_GoToInclude_Clang, 'GoToImprecise', test
+
+
+@with_setup( Setup )
+def RunCompleterCommand_GoToInclude_Clang_Fail_test():
+  test = { 'request': [ 4, 1 ], 'response': '' }
+  assert_that(
+    calling( _RunCompleterCommand_GoToInclude_Clang ).with_args( 'GoToInclude',
+                                                                  test ),
+    raises( AppError, 'Include file not found.' ) )
+  assert_that(
+    calling( _RunCompleterCommand_GoToInclude_Clang ).with_args( 'GoTo', test ),
+    raises( AppError, 'Include file not found.' ) )
+  assert_that(
+    calling( _RunCompleterCommand_GoToInclude_Clang ).with_args(
+                                                        'GoToImprecise', test ),
+    raises( AppError, 'Include file not found.' ) )
+
+  test = { 'request': [ 7, 1 ], 'response': '' }
+  assert_that(
+    calling( _RunCompleterCommand_GoToInclude_Clang ).with_args( 'GoToInclude',
+                                                                  test ),
+    raises( AppError, 'Not an include/import line.' ) )
+  assert_that(
+    calling( _RunCompleterCommand_GoToInclude_Clang ).with_args( 'GoTo', test ),
+    raises( AppError, r'Can\\\'t jump to definition or declaration.' ) )
+  assert_that(
+    calling( _RunCompleterCommand_GoToInclude_Clang ).with_args(
+                                                        'GoToImprecise', test ),
+    raises( AppError, r'Can\\\'t jump to definition or declaration.' ) )
+
 
 @with_setup( Setup )
 def RunCompleterCommand_GoTo_all_Clang_test():
@@ -219,17 +291,23 @@ def RunCompleterCommand_GoTo_all_Clang_test():
           ['GoToImprecise'],                   \
           test
 
+
 def _RunCompleterCommand_Message_Clang(filename, test, command):
   contents = open( PathToTestFile( filename ) ).read()
   app = TestApp( handlers.app )
 
+  # We use the -fno-delayed-template-parsing flag to not delay
+  # parsing of templates on Windows.  This is the default on
+  # other platforms.  See the _ExtraClangFlags function in
+  # ycmd/completers/cpp/flags.py file for more information.
   common_args = {
     'completer_target'  : 'filetype_default',
     'command_arguments' : command,
     'compilation_flags' : ['-x',
                            'c++',
                            # C++11 flag is needed for lambda functions
-                           '-std=c++11'],
+                           '-std=c++11',
+                           '-fno-delayed-template-parsing'],
     'line_num'          : 10,
     'column_num'        : 3,
     'contents'          : contents,
@@ -326,6 +404,7 @@ def RunCompleterCommand_GetType_Clang_test():
           test,                               \
           ['GetType']
 
+
 @with_setup( Setup )
 def RunCompleterCommand_GetParent_Clang_test():
   tests = [
@@ -407,6 +486,7 @@ def _RunFixItTest_Clang( line, column, lang, file_name, check ):
   pprint( results )
   check( results )
 
+
 def _FixIt_Check_cpp11_Ins( results ):
   # First fixit
   #   switch(A()) { // expected-error{{explicit conversion to}}
@@ -431,6 +511,7 @@ def _FixIt_Check_cpp11_Ins( results ):
       'location' : has_entries( { 'line_num': 16, 'column_num': 3 } )
     } ) )
   } ) )
+
 
 def _FixIt_Check_cpp11_InsMultiLine( results ):
   # Similar to _FixIt_Check_cpp11_1 but inserts split across lines
@@ -457,6 +538,7 @@ def _FixIt_Check_cpp11_InsMultiLine( results ):
     } ) )
   } ) )
 
+
 def _FixIt_Check_cpp11_Del( results ):
   # Removal of ::
   assert_that( results, has_entries( {
@@ -474,6 +556,7 @@ def _FixIt_Check_cpp11_Del( results ):
     } ) )
   } ) )
 
+
 def _FixIt_Check_cpp11_Repl( results ):
   assert_that( results, has_entries( {
     'fixits': contains( has_entries ( {
@@ -489,6 +572,7 @@ def _FixIt_Check_cpp11_Repl( results ):
       'location' : has_entries( { 'line_num': 40, 'column_num': 6 } )
     } ) )
   } ) )
+
 
 def _FixIt_Check_cpp11_DelAdd( results ):
   assert_that( results, has_entries( {
@@ -513,6 +597,7 @@ def _FixIt_Check_cpp11_DelAdd( results ):
     } ) )
   } ) )
 
+
 def _FixIt_Check_objc( results ):
   assert_that( results, has_entries( {
     'fixits': contains( has_entries ( {
@@ -529,9 +614,11 @@ def _FixIt_Check_objc( results ):
     } ) )
   } ) )
 
+
 def _FixIt_Check_objc_NoFixIt( results ):
   # and finally, a warning with no fixits
   assert_that( results, equal_to( { 'fixits' : [] } ) )
+
 
 def _FixIt_Check_cpp11_MultiFirst( results ):
   assert_that( results, has_entries( {
@@ -572,6 +659,7 @@ def _FixIt_Check_cpp11_MultiFirst( results ):
     )
   } ) )
 
+
 def _FixIt_Check_cpp11_MultiSecond( results ):
   assert_that( results, has_entries( {
     'fixits': contains(
@@ -611,6 +699,7 @@ def _FixIt_Check_cpp11_MultiSecond( results ):
     )
   } ) )
 
+
 @with_setup( Setup )
 def RunCompleterCommand_FixIt_all_Clang_test():
   cfile = 'FixIt_Clang_cpp11.cpp'
@@ -645,6 +734,7 @@ def RunCompleterCommand_FixIt_all_Clang_test():
   for test in tests:
     yield _RunFixItTest_Clang, test[0], test[1], test[2], test[3], test[4]
 
+
 @with_setup( Setup )
 def RunCompleterCommand_GoTo_CsCompleter_Works_test():
   app = TestApp( handlers.app )
@@ -661,7 +751,7 @@ def RunCompleterCommand_GoTo_CsCompleter_Works_test():
   WaitUntilOmniSharpServerReady( app, filepath )
 
   goto_data = BuildRequest( completer_target = 'filetype_default',
-                            command_arguments = ['GoTo'],
+                            command_arguments = [ 'GoTo' ],
                             line_num = 9,
                             column_num = 15,
                             contents = contents,
@@ -694,7 +784,7 @@ def RunCompleterCommand_GoToImplementation_CsCompleter_Works_test():
   WaitUntilOmniSharpServerReady( app, filepath )
 
   goto_data = BuildRequest( completer_target = 'filetype_default',
-                            command_arguments = ['GoToImplementation'],
+                            command_arguments = [ 'GoToImplementation' ],
                             line_num = 13,
                             column_num = 13,
                             contents = contents,
@@ -727,7 +817,7 @@ def RunCompleterCommand_GoToImplementation_CsCompleter_NoImplementation_test():
   WaitUntilOmniSharpServerReady( app, filepath )
 
   goto_data = BuildRequest( completer_target = 'filetype_default',
-                            command_arguments = ['GoToImplementation'],
+                            command_arguments = [ 'GoToImplementation' ],
                             line_num = 17,
                             column_num = 13,
                             contents = contents,
@@ -762,7 +852,7 @@ def RunCompleterCommand_GoToImplementation_CsCompleter_InvalidLocation_test():
   WaitUntilOmniSharpServerReady( app, filepath )
 
   goto_data = BuildRequest( completer_target = 'filetype_default',
-                            command_arguments = ['GoToImplementation'],
+                            command_arguments = [ 'GoToImplementation' ],
                             line_num = 2,
                             column_num = 1,
                             contents = contents,
@@ -797,7 +887,7 @@ def RunCompleterCommand_GoToImplementationElseDeclaration_CsCompleter_NoImplemen
   WaitUntilOmniSharpServerReady( app, filepath )
 
   goto_data = BuildRequest( completer_target = 'filetype_default',
-                            command_arguments = ['GoToImplementationElseDeclaration'],
+                            command_arguments = [ 'GoToImplementationElseDeclaration' ],
                             line_num = 17,
                             column_num = 13,
                             contents = contents,
@@ -830,7 +920,7 @@ def RunCompleterCommand_GoToImplementationElseDeclaration_CsCompleter_SingleImpl
   WaitUntilOmniSharpServerReady( app, filepath )
 
   goto_data = BuildRequest( completer_target = 'filetype_default',
-                            command_arguments = ['GoToImplementationElseDeclaration'],
+                            command_arguments = [ 'GoToImplementationElseDeclaration' ],
                             line_num = 13,
                             column_num = 13,
                             contents = contents,
@@ -863,7 +953,7 @@ def RunCompleterCommand_GoToImplementationElseDeclaration_CsCompleter_MultipleIm
   WaitUntilOmniSharpServerReady( app, filepath )
 
   goto_data = BuildRequest( completer_target = 'filetype_default',
-                            command_arguments = ['GoToImplementationElseDeclaration'],
+                            command_arguments = [ 'GoToImplementationElseDeclaration' ],
                             line_num = 21,
                             column_num = 13,
                             contents = contents,
@@ -900,12 +990,12 @@ def RunCompleterCommand_GetType_CsCompleter_EmptyMessage_test():
   WaitUntilOmniSharpServerReady( app, filepath )
 
   gettype_data = BuildRequest( completer_target = 'filetype_default',
-                            command_arguments = ['GetType'],
-                            line_num = 1,
-                            column_num = 1,
-                            contents = contents,
-                            filetype = 'cs',
-                            filepath = filepath )
+                               command_arguments = [ 'GetType' ],
+                               line_num = 1,
+                               column_num = 1,
+                               contents = contents,
+                               filetype = 'cs',
+                               filepath = filepath )
 
   eq_( {
         u'message': u""
@@ -931,12 +1021,12 @@ def RunCompleterCommand_GetType_CsCompleter_VariableDeclaration_test():
   WaitUntilOmniSharpServerReady( app, filepath )
 
   gettype_data = BuildRequest( completer_target = 'filetype_default',
-                            command_arguments = ['GetType'],
-                            line_num = 4,
-                            column_num = 5,
-                            contents = contents,
-                            filetype = 'cs',
-                            filepath = filepath )
+                               command_arguments = [ 'GetType' ],
+                               line_num = 4,
+                               column_num = 5,
+                               contents = contents,
+                               filetype = 'cs',
+                               filepath = filepath )
 
   eq_( {
         u'message': u"string"
@@ -962,12 +1052,12 @@ def RunCompleterCommand_GetType_CsCompleter_VariableUsage_test():
   WaitUntilOmniSharpServerReady( app, filepath )
 
   gettype_data = BuildRequest( completer_target = 'filetype_default',
-                            command_arguments = ['GetType'],
-                            line_num = 5,
-                            column_num = 5,
-                            contents = contents,
-                            filetype = 'cs',
-                            filepath = filepath )
+                               command_arguments = [ 'GetType' ],
+                               line_num = 5,
+                               column_num = 5,
+                               contents = contents,
+                               filetype = 'cs',
+                               filepath = filepath )
 
   eq_( {
         u'message': u"string str"
@@ -993,12 +1083,12 @@ def RunCompleterCommand_GetType_CsCompleter_Constant_test():
   WaitUntilOmniSharpServerReady( app, filepath )
 
   gettype_data = BuildRequest( completer_target = 'filetype_default',
-                            command_arguments = ['GetType'],
-                            line_num = 4,
-                            column_num = 14,
-                            contents = contents,
-                            filetype = 'cs',
-                            filepath = filepath )
+                               command_arguments = [ 'GetType' ],
+                               line_num = 4,
+                               column_num = 14,
+                               contents = contents,
+                               filetype = 'cs',
+                               filepath = filepath )
 
   eq_( {
         u'message': u"System.String"
@@ -1008,11 +1098,108 @@ def RunCompleterCommand_GetType_CsCompleter_Constant_test():
   StopOmniSharpServer( app, filepath )
 
 
+@with_setup( Setup )
+def RunCompleterCommand_GetType_CsCompleter_DocsIgnored_test():
+  app = TestApp( handlers.app )
+  app.post_json( '/ignore_extra_conf_file',
+                 { 'filepath': PathToTestFile( '.ycm_extra_conf.py' ) } )
+  filepath = PathToTestFile( 'testy', 'GetTypeTestCase.cs' )
+  contents = open( filepath ).read()
+  event_data = BuildRequest( filepath = filepath,
+                             filetype = 'cs',
+                             contents = contents,
+                             event_name = 'FileReadyToParse' )
+
+  app.post_json( '/event_notification', event_data )
+  WaitUntilOmniSharpServerReady( app, filepath )
+
+  gettype_data = BuildRequest( completer_target = 'filetype_default',
+                               command_arguments = [ 'GetType' ],
+                               line_num = 9,
+                               column_num = 34,
+                               contents = contents,
+                               filetype = 'cs',
+                               filepath = filepath )
+
+  eq_( {
+        u'message': u"int GetTypeTestCase.an_int_with_docs;",
+      },
+      app.post_json( '/run_completer_command', gettype_data ).json )
+
+  StopOmniSharpServer( app, filepath )
+
+
+@with_setup( Setup )
+def RunCompleterCommand_GetDoc_CsCompleter_Works_Var_test():
+  app = TestApp( handlers.app )
+  app.post_json( '/ignore_extra_conf_file',
+                 { 'filepath': PathToTestFile( '.ycm_extra_conf.py' ) } )
+  filepath = PathToTestFile( 'testy', 'GetDocTestCase.cs' )
+  contents = open( filepath ).read()
+  event_data = BuildRequest( filepath = filepath,
+                             filetype = 'cs',
+                             contents = contents,
+                             event_name = 'FileReadyToParse' )
+
+  app.post_json( '/event_notification', event_data )
+  WaitUntilOmniSharpServerReady( app, filepath )
+
+  getdoc_data = BuildRequest( completer_target = 'filetype_default',
+                              command_arguments = [ 'GetDoc' ],
+                              line_num = 13,
+                              column_num = 28,
+                              contents = contents,
+                              filetype = 'cs',
+                              filepath = filepath )
+
+  eq_( {
+        'detailed_info': 'int GetDocTestCase.an_int;\n'
+                         'an integer, or something',
+      },
+      app.post_json( '/run_completer_command', getdoc_data ).json )
+
+  StopOmniSharpServer( app, filepath )
+
+
+@with_setup( Setup )
+def RunCompleterCommand_GetDoc_CsCompleter_Works_Func_test():
+  app = TestApp( handlers.app )
+  app.post_json( '/ignore_extra_conf_file',
+                 { 'filepath': PathToTestFile( '.ycm_extra_conf.py' ) } )
+  filepath = PathToTestFile( 'testy', 'GetDocTestCase.cs' )
+  contents = open( filepath ).read()
+  event_data = BuildRequest( filepath = filepath,
+                             filetype = 'cs',
+                             contents = contents,
+                             event_name = 'FileReadyToParse' )
+
+  app.post_json( '/event_notification', event_data )
+  WaitUntilOmniSharpServerReady( app, filepath )
+
+  getdoc_data = BuildRequest( completer_target = 'filetype_default',
+                              command_arguments = [ 'GetDoc' ],
+                              line_num = 33,
+                              column_num = 27,
+                              contents = contents,
+                              filetype = 'cs',
+                              filepath = filepath )
+
+  # It seems that Omnisharp server eats newlines
+  eq_( {
+        'detailed_info': 'int GetDocTestCase.DoATest();\n'
+                         ' Very important method. With multiple lines of '
+                         'commentary And Format- -ting',
+      },
+      app.post_json( '/run_completer_command', getdoc_data ).json )
+
+  StopOmniSharpServer( app, filepath )
+
+
 def _RunFixItTest_CsCompleter( line, column, expected_result ):
   app = TestApp( handlers.app )
   app.post_json( '/ignore_extra_conf_file',
                  { 'filepath': PathToTestFile( '.ycm_extra_conf.py' ) } )
-  filepath = PathToTestFile( 'testy/FixItTestCase.cs' )
+  filepath = PathToTestFile( 'testy', 'FixItTestCase.cs' )
   contents = open( filepath ).read()
   event_data = BuildRequest( filepath = filepath,
                              filetype = 'cs',
@@ -1023,7 +1210,7 @@ def _RunFixItTest_CsCompleter( line, column, expected_result ):
   WaitUntilOmniSharpServerReady( app, filepath )
 
   fixit_data = BuildRequest( completer_target = 'filetype_default',
-                             command_arguments = ['FixIt'],
+                             command_arguments = [ 'FixIt' ],
                              line_num = line,
                              column_num = column,
                              contents = contents,
@@ -1038,7 +1225,7 @@ def _RunFixItTest_CsCompleter( line, column, expected_result ):
 
 @with_setup( Setup )
 def RunCompleterCommand_FixIt_CsCompleter_RemoveSingleLine_test():
-  filepath = PathToTestFile( 'testy/FixItTestCase.cs' )
+  filepath = PathToTestFile( 'testy', 'FixItTestCase.cs' )
   _RunFixItTest_CsCompleter( 11, 1, {
     u'fixits': [
       {
@@ -1071,7 +1258,7 @@ def RunCompleterCommand_FixIt_CsCompleter_RemoveSingleLine_test():
 
 @with_setup( Setup )
 def RunCompleterCommand_FixIt_CsCompleter_MultipleLines_test():
-  filepath = PathToTestFile( 'testy/FixItTestCase.cs' )
+  filepath = PathToTestFile( 'testy', 'FixItTestCase.cs' )
   _RunFixItTest_CsCompleter( 19, 1, {
     u'fixits': [
       {
@@ -1104,7 +1291,7 @@ def RunCompleterCommand_FixIt_CsCompleter_MultipleLines_test():
 
 @with_setup( Setup )
 def RunCompleterCommand_FixIt_CsCompleter_SpanFileEdge_test():
-  filepath = PathToTestFile( 'testy/FixItTestCase.cs' )
+  filepath = PathToTestFile( 'testy', 'FixItTestCase.cs' )
   _RunFixItTest_CsCompleter( 1, 1, {
     u'fixits': [
       {
@@ -1137,7 +1324,7 @@ def RunCompleterCommand_FixIt_CsCompleter_SpanFileEdge_test():
 
 @with_setup( Setup )
 def RunCompleterCommand_FixIt_CsCompleter_AddTextInLine_test():
-  filepath = PathToTestFile( 'testy/FixItTestCase.cs' )
+  filepath = PathToTestFile( 'testy', 'FixItTestCase.cs' )
   _RunFixItTest_CsCompleter( 9, 1, {
     u'fixits': [
       {
@@ -1170,7 +1357,7 @@ def RunCompleterCommand_FixIt_CsCompleter_AddTextInLine_test():
 
 @with_setup( Setup )
 def RunCompleterCommand_FixIt_CsCompleter_ReplaceTextInLine_test():
-  filepath = PathToTestFile( 'testy/FixItTestCase.cs' )
+  filepath = PathToTestFile( 'testy', 'FixItTestCase.cs' )
   _RunFixItTest_CsCompleter( 10, 1, {
     u'fixits': [
       {
@@ -1261,7 +1448,8 @@ def DefinedSubcommands_Works_test():
 
   eq_( [ 'GoToDefinition',
          'GoToDeclaration',
-         'GoTo' ],
+         'GoTo',
+         'GetDoc' ],
        app.post_json( '/defined_subcommands', subcommands_data ).json )
 
 
@@ -1272,7 +1460,8 @@ def DefinedSubcommands_WorksWhenNoExplicitCompleterTargetSpecified_test():
 
   eq_( [ 'GoToDefinition',
          'GoToDeclaration',
-         'GoTo' ],
+         'GoTo',
+         'GetDoc' ],
        app.post_json( '/defined_subcommands', subcommands_data ).json )
 
 
@@ -1291,7 +1480,7 @@ def RunCompleterCommand_GetType_TypescriptCompleter_test():
   app.post_json( '/event_notification', event_data )
 
   gettype_data = BuildRequest( completer_target = 'filetype_default',
-                               command_arguments = ['GetType'],
+                               command_arguments = [ 'GetType' ],
                                line_num = 12,
                                column_num = 1,
                                contents = contents,
@@ -1318,7 +1507,7 @@ def RunCompleterCommand_GetType_HasNoType_TypescriptCompleter_test():
   app.post_json( '/event_notification', event_data )
 
   gettype_data = BuildRequest( completer_target = 'filetype_default',
-                               command_arguments = ['GetType'],
+                               command_arguments = [ 'GetType' ],
                                line_num = 2,
                                column_num = 1,
                                contents = contents,
@@ -1327,3 +1516,476 @@ def RunCompleterCommand_GetType_HasNoType_TypescriptCompleter_test():
 
   assert_that( calling( app.post_json ).with_args( '/run_completer_command', gettype_data ),
                raises( AppError, 'RuntimeError.*No content available' ) )
+
+
+@with_setup( Setup )
+def RunCompleterCommand_GetDoc_TypescriptCompleter_Works_Method_test():
+  app = TestApp( handlers.app )
+
+  filepath = PathToTestFile( 'test.ts' )
+  contents = open( filepath ).read()
+
+  event_data = BuildRequest( filepath = filepath,
+                             filetype = 'typescript',
+                             contents = contents,
+                             event_name = 'BufferVisit' )
+
+  app.post_json( '/event_notification', event_data )
+
+  gettype_data = BuildRequest( completer_target = 'filetype_default',
+                               command_arguments = [ 'GetDoc' ],
+                               line_num = 29,
+                               column_num = 9,
+                               contents = contents,
+                               filetype = 'typescript',
+                               filepath = filepath )
+
+  eq_( {
+         'detailed_info': '(method) Bar.testMethod(): void\n\n'
+                          'Method documentation',
+       },
+       app.post_json( '/run_completer_command', gettype_data ).json )
+
+
+@with_setup( Setup )
+def RunCompleterCommand_GetDoc_TypescriptCompleter_Works_Class_test():
+  app = TestApp( handlers.app )
+
+  filepath = PathToTestFile( 'test.ts' )
+  contents = open( filepath ).read()
+
+  event_data = BuildRequest( filepath = filepath,
+                             filetype = 'typescript',
+                             contents = contents,
+                             event_name = 'BufferVisit' )
+
+  app.post_json( '/event_notification', event_data )
+
+  gettype_data = BuildRequest( completer_target = 'filetype_default',
+                               command_arguments = [ 'GetDoc' ],
+                               line_num = 31,
+                               column_num = 2,
+                               contents = contents,
+                               filetype = 'typescript',
+                               filepath = filepath )
+
+  eq_( {
+         'detailed_info': 'class Bar\n\n'
+                          'Class documentation\n\n'
+                          'Multi-line',
+       },
+       app.post_json( '/run_completer_command', gettype_data ).json )
+
+
+@with_setup( Setup )
+def RunCompleterCommand_GetDoc_ClangCompleter_Variable_test():
+  app = TestApp( handlers.app )
+
+  filepath = PathToTestFile( 'GetDoc_Clang.cc' )
+  contents = open( filepath ).read()
+
+  event_data = BuildRequest( filepath = filepath,
+                             filetype = 'cpp',
+                             compilation_flags = [ '-x', 'c++' ],
+                             line_num = 70,
+                             column_num = 24,
+                             contents = contents,
+                             command_arguments = [ 'GetDoc' ],
+                             completer_target = 'filetype_default' )
+
+  response = app.post_json( '/run_completer_command', event_data ).json
+
+  pprint( response )
+
+  eq_( response, {
+    'detailed_info': """\
+char a_global_variable
+This really is a global variable.
+Type: char
+Name: a_global_variable
+---
+This really is a global variable.
+
+The first line of comment is the brief.""" } )
+
+
+@with_setup( Setup )
+def RunCompleterCommand_GetDoc_ClangCompleter_Method_test():
+  app = TestApp( handlers.app )
+
+  filepath = PathToTestFile( 'GetDoc_Clang.cc' )
+  contents = open( filepath ).read()
+
+  event_data = BuildRequest( filepath = filepath,
+                             filetype = 'cpp',
+                             compilation_flags = [ '-x', 'c++' ],
+                             line_num = 22,
+                             column_num = 13,
+                             contents = contents,
+                             command_arguments = [ 'GetDoc' ],
+                             completer_target = 'filetype_default' )
+
+  response = app.post_json( '/run_completer_command', event_data ).json
+
+  pprint( response )
+
+  eq_( response, {
+    'detailed_info': """\
+char with_brief()
+brevity is for suckers
+Type: char ()
+Name: with_brief
+---
+
+This is not the brief.
+
+\\brief brevity is for suckers
+
+This is more information
+""" } )
+
+
+@with_setup( Setup )
+def RunCompleterCommand_GetDoc_ClangCompleter_Namespace_test():
+  app = TestApp( handlers.app )
+
+  filepath = PathToTestFile( 'GetDoc_Clang.cc' )
+  contents = open( filepath ).read()
+
+  event_data = BuildRequest( filepath = filepath,
+                             filetype = 'cpp',
+                             compilation_flags = [ '-x', 'c++' ],
+                             line_num = 65,
+                             column_num = 14,
+                             contents = contents,
+                             command_arguments = [ 'GetDoc' ],
+                             completer_target = 'filetype_default' )
+
+  response = app.post_json( '/run_completer_command', event_data ).json
+
+  pprint( response )
+
+  eq_( response, {
+    'detailed_info': """\
+namespace Test {}
+This is a test namespace
+Type: 
+Name: Test
+---
+This is a test namespace""" } )
+
+
+@with_setup( Setup )
+def RunCompleterCommand_GetDoc_ClangCompleter_Undocumented_test():
+  app = TestApp( handlers.app )
+
+  filepath = PathToTestFile( 'GetDoc_Clang.cc' )
+  contents = open( filepath ).read()
+
+  event_data = BuildRequest( filepath = filepath,
+                             filetype = 'cpp',
+                             compilation_flags = [ '-x', 'c++' ],
+                             line_num = 81,
+                             column_num = 17,
+                             contents = contents,
+                             command_arguments = [ 'GetDoc' ],
+                             completer_target = 'filetype_default' )
+
+  response = app.post_json( '/run_completer_command',
+                            event_data,
+                            expect_errors = True )
+
+  eq_( response.status_code, httplib.INTERNAL_SERVER_ERROR )
+
+  assert_that( response.json,
+               ErrorMatcher( ValueError, NO_DOCUMENTATION_MESSAGE ) )
+
+
+@with_setup( Setup )
+def RunCompleterCommand_GetDoc_ClangCompleter_NoCursor_test():
+  app = TestApp( handlers.app )
+
+  filepath = PathToTestFile( 'GetDoc_Clang.cc' )
+  contents = open( filepath ).read()
+
+  event_data = BuildRequest( filepath = filepath,
+                             filetype = 'cpp',
+                             compilation_flags = [ '-x', 'c++' ],
+                             line_num = 1,
+                             column_num = 1,
+                             contents = contents,
+                             command_arguments = [ 'GetDoc' ],
+                             completer_target = 'filetype_default' )
+
+  response = app.post_json( '/run_completer_command',
+                            event_data,
+                            expect_errors = True )
+
+  eq_( response.status_code, httplib.INTERNAL_SERVER_ERROR )
+
+  assert_that( response.json,
+               ErrorMatcher( ValueError, NO_DOCUMENTATION_MESSAGE ) )
+
+
+# Following tests repeat the tests above, but without re-parsing the file
+@with_setup( Setup )
+def RunCompleterCommand_GetDocQuick_ClangCompleter_Variable_test():
+  app = TestApp( handlers.app )
+
+  filepath = PathToTestFile( 'GetDoc_Clang.cc' )
+  contents = open( filepath ).read()
+
+  app.post_json( '/event_notification',
+                 BuildRequest(filepath = filepath,
+                              filetype = 'cpp',
+                              compilation_flags = [ '-x', 'c++' ],
+                              contents = contents,
+                              event_name = 'FileReadyToParse' ) )
+
+  event_data = BuildRequest( filepath = filepath,
+                             filetype = 'cpp',
+                             compilation_flags = [ '-x', 'c++' ],
+                             line_num = 70,
+                             column_num = 24,
+                             contents = contents,
+                             command_arguments = [ 'GetDocQuick' ],
+                             completer_target = 'filetype_default' )
+
+  response = app.post_json( '/run_completer_command', event_data ).json
+
+  pprint( response )
+
+  eq_( response, {
+    'detailed_info': """\
+char a_global_variable
+This really is a global variable.
+Type: char
+Name: a_global_variable
+---
+This really is a global variable.
+
+The first line of comment is the brief.""" } )
+
+
+@with_setup( Setup )
+def RunCompleterCommand_GetDocQuick_ClangCompleter_Method_test():
+  app = TestApp( handlers.app )
+
+  filepath = PathToTestFile( 'GetDoc_Clang.cc' )
+  contents = open( filepath ).read()
+
+  app.post_json( '/event_notification',
+                 BuildRequest(filepath = filepath,
+                              filetype = 'cpp',
+                              compilation_flags = [ '-x', 'c++' ],
+                              contents = contents,
+                              event_name = 'FileReadyToParse' ) )
+
+  event_data = BuildRequest( filepath = filepath,
+                             filetype = 'cpp',
+                             compilation_flags = [ '-x', 'c++' ],
+                             line_num = 22,
+                             column_num = 13,
+                             contents = contents,
+                             command_arguments = [ 'GetDocQuick' ],
+                             completer_target = 'filetype_default' )
+
+  response = app.post_json( '/run_completer_command', event_data ).json
+
+  pprint( response )
+
+  eq_( response, {
+    'detailed_info': """\
+char with_brief()
+brevity is for suckers
+Type: char ()
+Name: with_brief
+---
+
+This is not the brief.
+
+\\brief brevity is for suckers
+
+This is more information
+""" } )
+
+
+@with_setup( Setup )
+def RunCompleterCommand_GetDocQuick_ClangCompleter_Namespace_test():
+  app = TestApp( handlers.app )
+
+  filepath = PathToTestFile( 'GetDoc_Clang.cc' )
+  contents = open( filepath ).read()
+
+  app.post_json( '/event_notification',
+                 BuildRequest(filepath = filepath,
+                              filetype = 'cpp',
+                              compilation_flags = [ '-x', 'c++' ],
+                              contents = contents,
+                              event_name = 'FileReadyToParse' ) )
+
+  event_data = BuildRequest( filepath = filepath,
+                             filetype = 'cpp',
+                             compilation_flags = [ '-x', 'c++' ],
+                             line_num = 65,
+                             column_num = 14,
+                             contents = contents,
+                             command_arguments = [ 'GetDocQuick' ],
+                             completer_target = 'filetype_default' )
+
+  response = app.post_json( '/run_completer_command', event_data ).json
+
+  pprint( response )
+
+  eq_( response, {
+    'detailed_info': """\
+namespace Test {}
+This is a test namespace
+Type: 
+Name: Test
+---
+This is a test namespace""" } )
+
+
+@with_setup( Setup )
+def RunCompleterCommand_GetDocQuick_ClangCompleter_Undocumented_test():
+  app = TestApp( handlers.app )
+
+  filepath = PathToTestFile( 'GetDoc_Clang.cc' )
+  contents = open( filepath ).read()
+
+  app.post_json( '/event_notification',
+                 BuildRequest(filepath = filepath,
+                              filetype = 'cpp',
+                              compilation_flags = [ '-x', 'c++' ],
+                              contents = contents,
+                              event_name = 'FileReadyToParse' ) )
+
+  event_data = BuildRequest( filepath = filepath,
+                             filetype = 'cpp',
+                             compilation_flags = [ '-x', 'c++' ],
+                             line_num = 81,
+                             column_num = 17,
+                             contents = contents,
+                             command_arguments = [ 'GetDocQuick' ],
+                             completer_target = 'filetype_default' )
+
+  response = app.post_json( '/run_completer_command',
+                            event_data,
+                            expect_errors = True )
+
+  eq_( response.status_code, httplib.INTERNAL_SERVER_ERROR )
+
+  assert_that( response.json,
+               ErrorMatcher( ValueError, NO_DOCUMENTATION_MESSAGE ) )
+
+
+@with_setup( Setup )
+def RunCompleterCommand_GetDocQuick_ClangCompleter_NoCursor_test():
+  app = TestApp( handlers.app )
+
+  filepath = PathToTestFile( 'GetDoc_Clang.cc' )
+  contents = open( filepath ).read()
+
+  app.post_json( '/event_notification',
+                 BuildRequest(filepath = filepath,
+                              filetype = 'cpp',
+                              compilation_flags = [ '-x', 'c++' ],
+                              contents = contents,
+                              event_name = 'FileReadyToParse' ) )
+
+  event_data = BuildRequest( filepath = filepath,
+                             filetype = 'cpp',
+                             compilation_flags = [ '-x', 'c++' ],
+                             line_num = 1,
+                             column_num = 1,
+                             contents = contents,
+                             command_arguments = [ 'GetDocQuick' ],
+                             completer_target = 'filetype_default' )
+
+  response = app.post_json( '/run_completer_command',
+                            event_data,
+                            expect_errors = True )
+
+  eq_( response.status_code, httplib.INTERNAL_SERVER_ERROR )
+
+  assert_that( response.json,
+               ErrorMatcher( ValueError, NO_DOCUMENTATION_MESSAGE ) )
+
+
+@with_setup( Setup )
+def RunCompleterCommand_GetDocQuick_ClangCompleter_NoReadyToParse_test():
+  app = TestApp( handlers.app )
+
+  filepath = PathToTestFile( 'GetDoc_Clang.cc' )
+  contents = open( filepath ).read()
+
+  event_data = BuildRequest( filepath = filepath,
+                             filetype = 'cpp',
+                             compilation_flags = [ '-x', 'c++' ],
+                             line_num = 11,
+                             column_num = 18,
+                             contents = contents,
+                             command_arguments = [ 'GetDocQuick' ],
+                             completer_target = 'filetype_default' )
+
+  response = app.post_json( '/run_completer_command', event_data ).json
+
+  eq_( response, {
+    'detailed_info': """\
+int get_a_global_variable(bool test)
+This is a method which is only pretend global
+Type: int (bool)
+Name: get_a_global_variable
+---
+This is a method which is only pretend global
+@param test Set this to true. Do it.""" } )
+
+
+@with_setup( Setup )
+def RunCompleterCommand_GetDoc_Jedi_Works_Method_test():
+  # Testcase1
+  app = TestApp( handlers.app )
+
+  filepath = PathToTestFile( 'GetDoc_Jedi.py' )
+  contents = open( filepath ).read()
+
+  event_data = BuildRequest( filepath = filepath,
+                             filetype = 'python',
+                             line_num = 17,
+                             column_num = 9,
+                             contents = contents,
+                             command_arguments = [ 'GetDoc' ],
+                             completer_target = 'filetype_default' )
+
+  response = app.post_json( '/run_completer_command', event_data ).json
+
+  eq_( response, {
+       'detailed_info': '_ModuleMethod()\n\n'
+                        'Module method docs\n'
+                        'Are dedented, like you might expect',
+  } )
+
+
+@with_setup( Setup )
+def RunCompleterCommand_GetDoc_Jedi_Works_Class_test():
+  # Testcase1
+  app = TestApp( handlers.app )
+
+  filepath = PathToTestFile( 'GetDoc_Jedi.py' )
+  contents = open( filepath ).read()
+
+  event_data = BuildRequest( filepath = filepath,
+                             filetype = 'python',
+                             line_num = 19,
+                             column_num = 2,
+                             contents = contents,
+                             command_arguments = [ 'GetDoc' ],
+                             completer_target = 'filetype_default' )
+
+  response = app.post_json( '/run_completer_command', event_data ).json
+
+  eq_( response, {
+       'detailed_info': 'Class Documentation',
+  } )
+

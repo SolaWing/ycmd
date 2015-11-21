@@ -42,6 +42,10 @@ unsigned editingOptions() {
          clang_defaultEditingTranslationUnitOptions();
 }
 
+unsigned reparseOptions( CXTranslationUnit translationUnit ) {
+    return clang_defaultReparseOptions( translationUnit );
+}
+
 
 unsigned completionOptions() {
   return clang_defaultCodeCompleteOptions() |
@@ -141,17 +145,6 @@ std::vector< Diagnostic > TranslationUnit::Reparse(
 }
 
 
-void TranslationUnit::ReparseForIndexing(
-  const std::vector< UnsavedFile > &unsaved_files ) {
-  std::vector< CXUnsavedFile > cxunsaved_files =
-    ToCXUnsavedFiles( unsaved_files );
-
-  Reparse( cxunsaved_files,
-           CXTranslationUnit_PrecompiledPreamble |
-           CXTranslationUnit_SkipFunctionBodies );
-}
-
-
 std::vector< CompletionData > TranslationUnit::CandidatesForLocation(
   int line,
   int column,
@@ -198,7 +191,7 @@ Location TranslationUnit::GetDeclarationLocation(
   const std::vector< UnsavedFile > &unsaved_files,
   bool reparse ) {
   if ( reparse )
-    ReparseForIndexing( unsaved_files );
+    Reparse( unsaved_files );
 
   unique_lock< mutex > lock( clang_access_mutex_ );
 
@@ -229,7 +222,7 @@ Location TranslationUnit::GetDefinitionLocation(
   const std::vector< UnsavedFile > &unsaved_files,
   bool reparse ) {
   if ( reparse )
-    ReparseForIndexing( unsaved_files );
+    Reparse( unsaved_files );
 
   unique_lock< mutex > lock( clang_access_mutex_ );
 
@@ -256,7 +249,7 @@ std::string TranslationUnit::GetTypeAtLocation(
   bool reparse ) {
 
   if (reparse)
-    ReparseForIndexing( unsaved_files );
+    Reparse( unsaved_files );
 
   unique_lock< mutex > lock( clang_access_mutex_ );
 
@@ -297,10 +290,10 @@ std::string TranslationUnit::GetTypeAtLocation(
 
   CXType canonical_type = clang_getCanonicalType( type );
 
-  if ( !clang_equalTypes( type, canonical_type ) )
-  {
+  if ( !clang_equalTypes( type, canonical_type ) ) {
     type_description += " => ";
-    type_description += CXStringToString(clang_getTypeSpelling(canonical_type));
+    type_description += CXStringToString(
+                                  clang_getTypeSpelling( canonical_type ) );
   }
 
   return type_description;
@@ -313,7 +306,7 @@ std::string TranslationUnit::GetEnclosingFunctionAtLocation(
   bool reparse ) {
 
   if (reparse)
-    ReparseForIndexing( unsaved_files );
+    Reparse( unsaved_files );
 
   unique_lock< mutex > lock( clang_access_mutex_ );
 
@@ -341,7 +334,11 @@ std::string TranslationUnit::GetEnclosingFunctionAtLocation(
 // param though.
 void TranslationUnit::Reparse(
   std::vector< CXUnsavedFile > &unsaved_files ) {
-  Reparse( unsaved_files, editingOptions() );
+  unsigned options = ( clang_translation_unit_
+                       ? reparseOptions( clang_translation_unit_ )
+                       : static_cast<unsigned>( CXReparse_None ) );
+
+  Reparse( unsaved_files, options );
 }
 
 
@@ -424,7 +421,7 @@ std::vector< FixIt > TranslationUnit::GetFixItsForLocationInFile(
   bool reparse ) {
 
   if ( reparse )
-    ReparseForIndexing( unsaved_files );
+    Reparse( unsaved_files );
 
   std::vector< FixIt > fixits;
 
@@ -454,6 +451,40 @@ std::vector< FixIt > TranslationUnit::GetFixItsForLocationInFile(
              sort_by_location( column ) );
 
   return fixits;
+}
+
+DocumentationData TranslationUnit::GetDocsForLocationInFile(
+  int line,
+  int column,
+  const std::vector< UnsavedFile > &unsaved_files,
+  bool reparse ) {
+
+  if ( reparse )
+    Reparse( unsaved_files );
+
+  unique_lock< mutex > lock( clang_access_mutex_ );
+
+  if ( !clang_translation_unit_ )
+    return DocumentationData();
+
+  CXCursor cursor = GetCursor( line, column );
+
+  if ( !CursorIsValid( cursor ) )
+    return DocumentationData();
+
+  // If the original cursor is a reference, then we return the documentation
+  // for the type/method/etc. that is referenced
+  CXCursor referenced_cursor = clang_getCursorReferenced( cursor );
+  if ( CursorIsValid( referenced_cursor ) )
+    cursor = referenced_cursor;
+
+  // We always want the documentation associated with the canonical declaration
+  CXCursor canonical_cursor = clang_getCanonicalCursor( cursor );
+
+  if ( !CursorIsValid( canonical_cursor ) )
+    return DocumentationData();
+
+  return DocumentationData( canonical_cursor );
 }
 
 CXCursor TranslationUnit::GetCursor( int line, int column ) {
