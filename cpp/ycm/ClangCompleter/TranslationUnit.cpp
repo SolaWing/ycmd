@@ -35,21 +35,30 @@ namespace YouCompleteMe {
 
 namespace {
 
-unsigned editingOptions() {
+unsigned EditingOptions() {
   return CXTranslationUnit_DetailedPreprocessingRecord |
          CXTranslationUnit_Incomplete |
          CXTranslationUnit_IncludeBriefCommentsInCodeCompletion |
+         // TODO: Use the actual enum value when removing Clang 3.7 support.
+         0x100 /*CXTranslationUnit_CreatePreambleOnFirstParse*/ |
          clang_defaultEditingTranslationUnitOptions();
 }
 
-unsigned reparseOptions( CXTranslationUnit translationUnit ) {
+unsigned ReparseOptions( CXTranslationUnit translationUnit ) {
     return clang_defaultReparseOptions( translationUnit );
 }
 
 
-unsigned completionOptions() {
+unsigned CompletionOptions() {
   return clang_defaultCodeCompleteOptions() |
          CXCodeComplete_IncludeBriefComments;
+}
+
+void EnsureCompilerNamePresent( std::vector< const char * > &flags ) {
+  bool no_compiler_name_set = !flags.empty() && flags.front()[ 0 ] == '-';
+
+  if ( flags.empty() || no_compiler_name_set )
+    flags.insert( flags.begin(), "clang" );
 }
 
 }  // unnamed namespace
@@ -76,25 +85,32 @@ TranslationUnit::TranslationUnit(
     pointer_flags.push_back( flag.c_str() );
   }
 
+  EnsureCompilerNamePresent( pointer_flags );
+
   std::vector< CXUnsavedFile > cxunsaved_files =
     ToCXUnsavedFiles( unsaved_files );
   const CXUnsavedFile *unsaved = cxunsaved_files.size() > 0
                                  ? &cxunsaved_files[ 0 ] : NULL;
 
-  clang_translation_unit_ = clang_parseTranslationUnit(
-                              clang_index,
-                              filename.c_str(),
-                              &pointer_flags[ 0 ],
-                              pointer_flags.size(),
-                              const_cast<CXUnsavedFile *>( unsaved ),
-                              cxunsaved_files.size(),
-                              editingOptions() );
+  // Actually parse the translation unit.
+  // TODO: Stop stripping argv[0] here and use
+  // clang_parseTranslationUnit2FullArgv, which is available in libclang 3.8.
+  CXErrorCode result = clang_parseTranslationUnit2(
+                         clang_index,
+                         filename.c_str(),
+                         &pointer_flags[ 1 ],
+                         pointer_flags.size() - 1,
+                         const_cast<CXUnsavedFile *>( unsaved ),
+                         cxunsaved_files.size(),
+                         EditingOptions(),
+                         &clang_translation_unit_ );
 
-  if ( !clang_translation_unit_ )
+  if ( result != CXError_Success )
     boost_throw( ClangParseError() );
 
-  // Only with a reparse is the preable precompiled. I do not know why...
-  // TODO: report this bug on the clang tracker
+  // Only with a reparse is the preamble precompiled. This issue was fixed
+  // upstream in r255635.
+  // TODO: Remove this after dropping support for Clang 3.7.
   Reparse( cxunsaved_files );
 }
 
@@ -176,8 +192,7 @@ std::vector< CompletionData > TranslationUnit::CandidatesForLocation(
                           column,
                           const_cast<CXUnsavedFile *>( unsaved ),
                           cxunsaved_files.size(),
-                          completionOptions() ),
-                         //CXCodeComplete_IncludeMacros|CXCodeComplete_IncludeBriefComments
+                          CompletionOptions() ),
     clang_disposeCodeCompleteResults );
 
   std::vector< CompletionData > candidates = ToCompletionDataVector(
@@ -335,7 +350,7 @@ std::string TranslationUnit::GetEnclosingFunctionAtLocation(
 void TranslationUnit::Reparse(
   std::vector< CXUnsavedFile > &unsaved_files ) {
   unsigned options = ( clang_translation_unit_
-                       ? reparseOptions( clang_translation_unit_ )
+                       ? ReparseOptions( clang_translation_unit_ )
                        : static_cast<unsigned>( CXReparse_None ) );
 
   Reparse( unsaved_files, options );
