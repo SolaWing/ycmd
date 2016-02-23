@@ -120,8 +120,14 @@ def GetCompletions():
     completions = ( _server_state.GetGeneralCompleter()
                                  .ComputeCandidates( request_data ) )
 
+  # max return item is 30
+  if completions:
+      completions = completions[:30]
+  else:
+      completions = []
+
   return _JsonResponse(
-      BuildCompletionResponse( completions if completions else [],
+      BuildCompletionResponse( completions,
                                request_data.CompletionStartColumn(),
                                errors = errors ) )
 
