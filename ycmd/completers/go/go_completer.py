@@ -1,21 +1,27 @@
-#!/usr/bin/env python
-#
 # Copyright (C) 2015 Google Inc.
 #
-# This file is part of YouCompleteMe.
+# This file is part of ycmd.
 #
-# YouCompleteMe is free software: you can redistribute it and/or modify
+# ycmd is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
 #
-# YouCompleteMe is distributed in the hope that it will be useful,
+# ycmd is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License
-# along with YouCompleteMe.  If not, see <http://www.gnu.org/licenses/>.
+# along with ycmd.  If not, see <http://www.gnu.org/licenses/>.
+
+from __future__ import unicode_literals
+from __future__ import print_function
+from __future__ import division
+from __future__ import absolute_import
+from future import standard_library
+standard_library.install_aliases()
+from builtins import *  # noqa
 
 import json
 import logging
@@ -24,9 +30,9 @@ import subprocess
 
 from ycmd import responses
 from ycmd import utils
+from ycmd.utils import ToBytes, ToUnicode, ExecutableName
 from ycmd.completers.completer import Completer
 
-GO_FILETYPES = set( [ 'go' ] )
 BINARY_NOT_FOUND_MESSAGE = ( '{0} binary not found. Did you build it? ' +
                              'You can do so by running ' +
                              '"./install.py --gocode-completer".' )
@@ -35,43 +41,67 @@ PARSE_ERROR_MESSAGE = 'Gocode returned invalid JSON response.'
 NO_COMPLETIONS_MESSAGE = 'Gocode returned empty JSON response.'
 GOCODE_PANIC_MESSAGE = ( 'Gocode panicked trying to find completions, ' +
                          'you likely have a syntax error.' )
-PATH_TO_GOCODE_BINARY = os.path.join(
+DIR_OF_THIRD_PARTY = os.path.join(
   os.path.abspath( os.path.dirname( __file__ ) ),
-  '..', '..', '..', 'third_party', 'gocode',
-  'gocode' + ( '.exe' if utils.OnWindows() else '' ) )
-PATH_TO_GODEF_BINARY = os.path.join(
-  os.path.abspath( os.path.dirname( __file__ ) ),
-  '..', '..', '..', 'third_party', 'godef',
-  'godef' + ( '.exe' if utils.OnWindows() else '' ) )
+  '..', '..', '..', 'third_party' )
+GO_BINARIES = dict( {
+  'gocode': os.path.join( DIR_OF_THIRD_PARTY,
+                          'gocode',
+                          ExecutableName( 'gocode' ) ),
+  'godef': os.path.join( DIR_OF_THIRD_PARTY,
+                         'godef',
+                         ExecutableName( 'godef' ) )
+} )
 
 _logger = logging.getLogger( __name__ )
 
 
-class GoCodeCompleter( Completer ):
+def FindBinary( binary, user_options ):
+  """ Find the path to the gocode/godef binary.
+
+  If 'gocode_binary_path' or 'godef_binary_path'
+  in the options is blank, use the version installed
+  with YCM, if it exists.
+
+  If the 'gocode_binary_path' or 'godef_binary_path' is
+  specified, use it as an absolute path.
+
+  If the resolved binary exists, return the path,
+  otherwise return None. """
+
+  def _FindPath():
+    key = '{0}_binary_path'.format( binary )
+    if user_options.get( key ):
+      return user_options[ key ]
+    return GO_BINARIES.get( binary )
+
+  binary_path = _FindPath()
+  if os.path.isfile( binary_path ):
+    return binary_path
+  return None
+
+
+def ShouldEnableGoCompleter( user_options ):
+  def _HasBinary( binary ):
+    binary_path = FindBinary( binary, user_options )
+    if not binary_path:
+      _logger.error( BINARY_NOT_FOUND_MESSAGE.format( binary ) )
+    return binary_path
+
+  return all( _HasBinary( binary ) for binary in [ 'gocode', 'godef' ] )
+
+
+class GoCompleter( Completer ):
 
   def __init__( self, user_options ):
-    super( GoCodeCompleter, self ).__init__( user_options )
+    super( GoCompleter, self ).__init__( user_options )
     self._popener = utils.SafePopen # Overridden in test.
-    self._binary_gocode = self.FindBinary( 'gocode', user_options )
-    self._binary_godef = self.FindBinary( 'godef', user_options )
-
-    if not self._binary_gocode:
-      _logger.error( BINARY_NOT_FOUND_MESSAGE.format( 'Gocode' ) )
-      raise RuntimeError( BINARY_NOT_FOUND_MESSAGE.format( 'Gocode' ) )
-
-    _logger.info( 'Enabling go completion using %s binary',
-                  self._binary_gocode )
-
-    if not self._binary_godef:
-      _logger.error( BINARY_NOT_FOUND_MESSAGE.format( 'Godef' ) )
-      raise RuntimeError( BINARY_NOT_FOUND_MESSAGE.format( 'Godef' ) )
-
-    _logger.info( 'Enabling go definitions using %s binary',
-                   self._binary_godef )
+    self._binary_gocode = FindBinary( 'gocode', user_options )
+    self._binary_godef = FindBinary( 'godef', user_options )
 
 
   def SupportedFiletypes( self ):
-    return GO_FILETYPES
+    return [ 'go' ]
 
 
   def ComputeCandidatesInner( self, request_data ):
@@ -80,25 +110,27 @@ class GoCodeCompleter( Completer ):
     if not filename:
       return
 
-    contents = utils.ToUtf8IfNeeded(
+    contents = utils.ToBytes(
         request_data[ 'file_data' ][ filename ][ 'contents' ] )
     offset = _ComputeOffset( contents, request_data[ 'line_num' ],
                              request_data[ 'column_num' ] )
 
     stdoutdata = self._ExecuteBinary( self._binary_gocode,
                                       '-f=json', 'autocomplete',
-                                       filename, str(offset),
-                                       contents = contents )
+                                      filename,
+                                      str( offset ),
+                                      contents = contents )
 
     try:
-      resultdata = json.loads( stdoutdata )
+      resultdata = json.loads( ToUnicode( stdoutdata ) )
     except ValueError:
       _logger.error( PARSE_ERROR_MESSAGE )
       raise RuntimeError( PARSE_ERROR_MESSAGE )
-    if len(resultdata) != 2:
+
+    if len( resultdata ) != 2:
       _logger.error( NO_COMPLETIONS_MESSAGE )
       raise RuntimeError( NO_COMPLETIONS_MESSAGE )
-    for result in resultdata[1]:
+    for result in resultdata[ 1 ]:
       if result.get( 'class' ) == "PANIC":
         raise RuntimeError( GOCODE_PANIC_MESSAGE )
 
@@ -116,34 +148,6 @@ class GoCodeCompleter( Completer ):
       'GoToDeclaration' : ( lambda self, request_data, args:
                            self._GoToDefinition( request_data ) ),
     }
-
-
-  def FindBinary( self, binary, user_options ):
-    """ Find the path to the gocode/godef binary.
-
-    If 'gocode_binary_path' or 'godef_binary_path'
-    in the options is blank, use the version installed
-    with YCM, if it exists, then the one on the path, if not.
-
-    If the 'gocode_binary_path' or 'godef_binary_path' is
-    specified, use it as an absolute path.
-
-    If the resolved binary exists, return the path,
-    otherwise return None. """
-    if user_options.get( '%s_binary_path' % binary ):
-      # The user has explicitly specified a path.
-      if os.path.isfile( user_options[ '%s_binary_path' % binary] ):
-        return user_options[ '%s_binary_path' % binary]
-      else:
-        return None
-    # Try to use the bundled binary or one on the path.
-    if binary == 'gocode':
-      if os.path.isfile( PATH_TO_GOCODE_BINARY ):
-        return PATH_TO_GOCODE_BINARY
-    elif binary == 'godef':
-      if os.path.isfile( PATH_TO_GODEF_BINARY ):
-        return PATH_TO_GODEF_BINARY
-    return utils.PathToFirstExistingExecutable( [ binary ] )
 
 
   def OnFileReadyToParse( self, request_data ):
@@ -169,14 +173,13 @@ class GoCodeCompleter( Completer ):
     """ Execute the GoCode/GoDef binary with given arguments. Use the contents
     argument to send data to GoCode. Return the standard output. """
     popen_handle = self._popener(
-      [ binary ] + list(args), stdin = subprocess.PIPE,
+      [ binary ] + list( args ), stdin = subprocess.PIPE,
       stdout = subprocess.PIPE, stderr = subprocess.PIPE )
     contents = kwargs[ 'contents' ] if 'contents' in kwargs else None
     stdoutdata, stderrdata = popen_handle.communicate( contents )
+
     if popen_handle.returncode:
-      binary_str = "Gocode"
-      if binary == self._binary_godef:
-        binary_str = "Godef"
+      binary_str = 'Godef' if binary == self._binary_godef else 'Gocode'
 
       _logger.error( SHELL_ERROR_MESSAGE.format( binary_str ) +
                      " code %i stderr: %s",
@@ -192,7 +195,7 @@ class GoCodeCompleter( Completer ):
       _logger.info( "godef GoTo request %s" % filename )
       if not filename:
         return
-      contents = utils.ToUtf8IfNeeded(
+      contents = utils.ToBytes(
           request_data[ 'file_data' ][ filename ][ 'contents' ] )
       offset = _ComputeOffset( contents, request_data[ 'line_num' ],
                                request_data[ 'column_num' ] )
@@ -203,12 +206,13 @@ class GoCodeCompleter( Completer ):
                                     "-o=%s" % offset,
                                     contents = contents )
       return self._ConstructGoToFromResponse( stdout )
-    except Exception:
+    except Exception as e:
+      _logger.exception( e )
       raise RuntimeError( 'Can\'t jump to definition.' )
 
 
   def _ConstructGoToFromResponse( self, response_str ):
-    parsed = json.loads( response_str )
+    parsed = json.loads( ToUnicode( response_str ) )
     if 'filename' in parsed and 'column' in parsed:
       return responses.BuildGoToResponse( parsed[ 'filename' ],
                                           int( parsed[ 'line' ] ),
@@ -221,13 +225,15 @@ class GoCodeCompleter( Completer ):
 # TODO(ekfriis): If this is slow, consider moving this to C++ ycm_core,
 # perhaps in RequestWrap.
 def _ComputeOffset( contents, line, col ):
+  contents = ToBytes( contents )
   curline = 1
   curcol = 1
+  newline = bytes( b'\n' )[ 0 ]
   for i, byte in enumerate( contents ):
     if curline == line and curcol == col:
       return i
     curcol += 1
-    if byte == '\n':
+    if byte == newline:
       curline += 1
       curcol = 1
   _logger.error( 'GoCode completer - could not compute byte offset ' +

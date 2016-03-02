@@ -1,34 +1,42 @@
-#!/usr/bin/env python
+# Copyright (C) 2011, 2012 Chiel ten Brinke <ctenbrinke@gmail.com>
+#                          Google Inc.
 #
-# Copyright (C) 2011, 2012  Chiel ten Brinke <ctenbrinke@gmail.com>
-#                           Google Inc.
+# This file is part of ycmd.
 #
-# This file is part of YouCompleteMe.
-#
-# YouCompleteMe is free software: you can redistribute it and/or modify
+# ycmd is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
 #
-# YouCompleteMe is distributed in the hope that it will be useful,
+# ycmd is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License
-# along with YouCompleteMe.  If not, see <http://www.gnu.org/licenses/>.
+# along with ycmd.  If not, see <http://www.gnu.org/licenses/>.
+
+from __future__ import absolute_import
+from __future__ import unicode_literals
+from __future__ import print_function
+from __future__ import division
+from builtins import *  # noqa
+from future import standard_library
+standard_library.install_aliases()
+from future.utils import itervalues
 
 from collections import defaultdict
 import os
 import time
+import re
 from ycmd.completers.completer import Completer
 from ycmd.utils import ForceSemanticCompletion
 from ycmd import responses
 from ycmd import utils
 import requests
-import urlparse
+import urllib.parse
 import logging
-import solutiondetection
+from . import solutiondetection
 import threading
 
 SERVER_NOT_FOUND_MSG = ( 'OmniSharp server binary not found at {0}. ' +
@@ -64,7 +72,7 @@ class CsharpCompleter( Completer ):
 
   def Shutdown( self ):
     if ( self.user_options[ 'auto_stop_csharp_server' ] ):
-      for solutioncompleter in self._completer_per_solution.values():
+      for solutioncompleter in itervalues( self._completer_per_solution ):
         if solutioncompleter.ServerIsRunning():
           solutioncompleter._StopServer()
 
@@ -117,9 +125,9 @@ class CsharpCompleter( Completer ):
 
 
   def FilterAndSortCandidates( self, candidates, query ):
-    result = super(CsharpCompleter, self).FilterAndSortCandidates( candidates,
-                                                                   query )
-    result.sort( _CompleteSorterByImport );
+    result = super( CsharpCompleter, self ).FilterAndSortCandidates( candidates,
+                                                                     query )
+    result.sort( key = _CompleteIsFromImport );
     return result
 
 
@@ -186,7 +194,16 @@ class CsharpCompleter( Completer ):
       'ServerIsReady'                    : ( lambda self, request_data, args:
          self._SolutionSubcommand( request_data,
                                    method = 'ServerIsReady',
-                                   no_request_data = True ) )
+                                   no_request_data = True ) ),
+      'SetOmnisharpPort'                 : ( lambda self, request_data, args:
+         self._SolutionSubcommand( request_data,
+                                   method = '_SetOmnisharpPort',
+                                   port = args[ 0 ],
+                                   no_request_data = True ) ),
+      'GetOmnisharpPort'                 : ( lambda self, request_data, args:
+         self._SolutionSubcommand( request_data,
+                                   method = '_GetOmnisharpPort',
+                                   no_request_data = True ) ),
     }
 
 
@@ -286,7 +303,7 @@ class CsharpCompleter( Completer ):
 
 
   def _CheckAllRunning( self, action ):
-    solutioncompleters = self._completer_per_solution.values()
+    solutioncompleters = itervalues( self._completer_per_solution )
     return all( action( completer ) for completer in solutioncompleters
                 if completer.ServerIsRunning() )
 
@@ -303,7 +320,7 @@ class CsharpCompleter( Completer ):
     return self._solution_for_file[ filepath ]
 
 
-class CsharpSolutionCompleter:
+class CsharpSolutionCompleter( object ):
   def __init__( self, solution_path, keep_logfiles, desired_omnisharp_port ):
     self._logger = logging.getLogger( __name__ )
     self._solution_path = solution_path
@@ -314,6 +331,7 @@ class CsharpSolutionCompleter:
     self._omnisharp_phandle = None
     self._desired_omnisharp_port = desired_omnisharp_port
     self._server_state_lock = threading.RLock()
+    self._external_omnisharp = False
 
 
   def CodeCheck( self, request_data ):
@@ -352,7 +370,7 @@ class CsharpSolutionCompleter:
       if utils.OnCygwin():
         command.extend( [ '--client-path-mode', 'Cygwin' ] )
 
-      filename_format = os.path.join( utils.PathToTempDir(),
+      filename_format = os.path.join( utils.PathToCreatedTempDir(),
                                       u'omnisharp_{port}_{sln}_{std}.log' )
 
       solutionfile = os.path.basename( path_to_solutionfile )
@@ -365,6 +383,7 @@ class CsharpSolutionCompleter:
         with open( self._filename_stdout, 'w' ) as fstdout:
           self._omnisharp_phandle = utils.SafePopen(
               command, stdout = fstdout, stderr = fstderr )
+          self._external_omnisharp = False
 
       self._solution_path = path_to_solutionfile
 
@@ -380,7 +399,7 @@ class CsharpSolutionCompleter:
       self._TryToStopServer()
 
       # Kill it if it's still up
-      if self.ServerIsRunning():
+      if self.ServerIsRunning() and not self.ServerIsExternal():
         self._logger.info( 'Killing OmniSharp server' )
         self._omnisharp_phandle.kill()
 
@@ -525,14 +544,27 @@ class CsharpSolutionCompleter:
     return parameters
 
 
-  def ServerIsRunning( self ):
+  def ServerIsExternal( self ):
+    return self._external_omnisharp
+
+
+  def ServerIsRunning( self, external_check = True ):
     """ Check if our OmniSharp server is running (process is up)."""
-    return utils.ProcessIsRunning( self._omnisharp_phandle )
+    if not self.ServerIsExternal():
+      return utils.ProcessIsRunning( self._omnisharp_phandle )
+
+    if self._omnisharp_port is None:
+      return False
+
+    if external_check:
+      return self.ServerIsHealthy()
+
+    return True
 
 
   def ServerIsHealthy( self ):
     """ Check if our OmniSharp server is healthy (up and serving)."""
-    if not self.ServerIsRunning():
+    if not self.ServerIsRunning( external_check = False ):
       return False
 
     try:
@@ -543,7 +575,7 @@ class CsharpSolutionCompleter:
 
   def ServerIsReady( self ):
     """ Check if our OmniSharp server is ready (loaded solution file)."""
-    if not self.ServerIsRunning():
+    if not self.ServerIsRunning( external_check = False ):
       return False
 
     try:
@@ -563,9 +595,22 @@ class CsharpSolutionCompleter:
     return 'http://localhost:' + str( self._omnisharp_port )
 
 
+  def _GetOmnisharpPort( self ):
+    return responses.BuildDisplayMessageResponse( self._omnisharp_port )
+
+
+  def _SetOmnisharpPort( self, port ):
+    with self._server_state_lock:
+      if self.ServerIsRunning():
+        self.StopServer()
+
+      self._omnisharp_port = port
+      self._external_omnisharp = True
+
+
   def _GetResponse( self, handler, parameters = {}, timeout = None ):
     """ Handle communication with server """
-    target = urlparse.urljoin( self._ServerLocation(), handler )
+    target = urllib.parse.urljoin( self._ServerLocation(), handler )
     response = requests.post( target, data = parameters, timeout = timeout )
     return response.json()
 
@@ -577,11 +622,6 @@ class CsharpSolutionCompleter:
         else:
             self._omnisharp_port = utils.GetUnusedLocalhostPort()
     self._logger.info( u'using port {0}'.format( self._omnisharp_port ) )
-
-
-
-def _CompleteSorterByImport( a, b ):
-  return cmp( _CompleteIsFromImport( a ), _CompleteIsFromImport( b ) )
 
 
 def _CompleteIsFromImport( candidate ):
@@ -642,7 +682,6 @@ def _FixLineEndings( old_buffer, new_buffer ):
       new_buffer = new_buffer.replace( "\r\n", "\n" )
       new_buffer = new_buffer.replace( "\r", "\n" )
     else:
-      import re
       new_buffer = re.sub( "\r(?!\n)|(?<!\r)\n", "\r\n", new_buffer )
   return new_buffer
 

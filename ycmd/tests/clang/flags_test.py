@@ -1,25 +1,45 @@
-#!/usr/bin/env python
+# Copyright (C) 2011, 2012 Google Inc.
 #
-# Copyright (C) 2011, 2012  Google Inc.
+# This file is part of ycmd.
 #
-# This file is part of YouCompleteMe.
-#
-# YouCompleteMe is free software: you can redistribute it and/or modify
+# ycmd is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
 #
-# YouCompleteMe is distributed in the hope that it will be useful,
+# ycmd is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License
-# along with YouCompleteMe.  If not, see <http://www.gnu.org/licenses/>.
+# along with ycmd.  If not, see <http://www.gnu.org/licenses/>.
 
-from nose.tools import eq_
-from nose.tools import ok_
-from .. import flags
+from __future__ import unicode_literals
+from __future__ import print_function
+from __future__ import division
+from __future__ import absolute_import
+from future import standard_library
+standard_library.install_aliases()
+from builtins import *  # noqa
+
+from nose.tools import eq_, ok_
+from ycmd.completers.cpp import flags
+from mock import patch, Mock
+
+
+@patch( 'ycmd.extra_conf_store.ModuleForSourceFile', return_value = Mock() )
+def FlagsForFile_BadNonUnicodeFlagsAreAlsoRemoved_test( *args ):
+  fake_flags = {
+    'flags': [ bytes( b'-c' ), '-c', bytes( b'-foo' ), '-bar' ],
+    'do_cache': True
+  }
+
+  with patch( 'ycmd.completers.cpp.flags._CallExtraConfFlagsForFile',
+              return_value = fake_flags ):
+    flags_object = flags.Flags()
+    flags_list = flags_object.FlagsForFile( '/foo', False )
+    eq_( list( flags_list ), [ '-foo', '-bar' ] )
 
 
 def SanitizeFlags_Passthrough_test():
@@ -149,21 +169,21 @@ def RemoveUnusedFlags_RemoveFilenameWithoutPrecedingInclude_test():
          flags._RemoveUnusedFlags( expected + to_remove, filename ) )
 
     eq_( expected,
-          flags._RemoveUnusedFlags( expected[ :1 ] + to_remove + expected[ 1: ],
-                                    filename ) )
+         flags._RemoveUnusedFlags( expected[ :1 ] + to_remove + expected[ 1: ],
+                                   filename ) )
 
     eq_( expected + expected[ 1: ],
-          flags._RemoveUnusedFlags( expected + to_remove + expected[ 1: ],
+         flags._RemoveUnusedFlags( expected + to_remove + expected[ 1: ],
                                    filename ) )
 
   include_flags = [ '-isystem', '-I', '-iquote', '-isysroot', '--sysroot',
-                    '-gcc-toolchain', '-include', '-iframework', '-F', '-imacros' ]
+                    '-gcc-toolchain', '-include', '-include-pch',
+                    '-iframework', '-F', '-imacros' ]
   to_remove = [ '/moo/boo' ]
   filename = 'file'
 
   for flag in include_flags:
     yield tester, flag
-
 
 
 def RemoveXclangFlags_test():
@@ -217,6 +237,7 @@ def CompilerToLanguageFlag_ReplaceCppCompiler_test():
 
   for compiler in compilers:
     yield _ReplaceCompilerTester, compiler, 'c++'
+
 
 def ExtraClangFlags_test():
   flags_object = flags.Flags()

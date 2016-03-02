@@ -1,19 +1,19 @@
-// Copyright (C) 2011, 2012, 2013  Google Inc.
+// Copyright (C) 2011, 2012, 2013 Google Inc.
 //
-// This file is part of YouCompleteMe.
+// This file is part of ycmd.
 //
-// YouCompleteMe is free software: you can redistribute it and/or modify
+// ycmd is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
 //
-// YouCompleteMe is distributed in the hope that it will be useful,
+// ycmd is distributed in the hope that it will be useful,
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 // GNU General Public License for more details.
 //
 // You should have received a copy of the GNU General Public License
-// along with YouCompleteMe.  If not, see <http://www.gnu.org/licenses/>.
+// along with ycmd.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "PythonSupport.h"
 #include "standard.h"
@@ -38,19 +38,6 @@ namespace YouCompleteMe {
 
 namespace {
 
-std::string GetUtf8String( const boost::python::object &string_or_unicode ) {
-  extract< std::string > to_string( string_or_unicode );
-
-  if ( to_string.check() )
-    return to_string();
-#if PY_VERSION_HEX >= 0x03000000
-  return extract< std::string >( str( string_or_unicode ).encode( "utf8" ) );
-#else
-  // FIX unicode str which contains non-ASCII char
-  return boost::python::extract<std::string>(string_or_unicode.attr("encode")(boost::python::api::object("utf8")));
-#endif
-}
-
 std::vector< const Candidate * > CandidatesFromObjectList(
   const pylist &candidates,
   const std::string &candidate_property ) {
@@ -73,6 +60,7 @@ std::vector< const Candidate * > CandidatesFromObjectList(
 }
 
 } // unnamed namespace
+
 
 boost::python::list FilterAndSortCandidates(
   const boost::python::list &candidates,
@@ -118,6 +106,19 @@ boost::python::list FilterAndSortCandidates(
   }
 
   return filtered_candidates;
+}
+
+std::string GetUtf8String( const boost::python::object &string_or_unicode ) {
+  extract< std::string > to_string( string_or_unicode );
+
+  if ( to_string.check() )
+    return to_string();
+#if PY_VERSION_HEX >= 0x03000000
+  return extract< std::string >( str( string_or_unicode ).encode( "utf8" ) );
+#else
+  // FIX unicode str which contains non-ASCII char
+  return boost::python::extract<std::string>(string_or_unicode.attr("encode")(boost::python::api::object("utf8")));
+#endif
 }
 
 } // namespace YouCompleteMe

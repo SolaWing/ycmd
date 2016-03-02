@@ -1,25 +1,35 @@
-#!/usr/bin/env python
+# Copyright (C) 2013 Google Inc.
 #
-# Copyright (C) 2013  Google Inc.
+# This file is part of ycmd.
 #
-# This file is part of YouCompleteMe.
-#
-# YouCompleteMe is free software: you can redistribute it and/or modify
+# ycmd is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
 #
-# YouCompleteMe is distributed in the hope that it will be useful,
+# ycmd is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License
-# along with YouCompleteMe.  If not, see <http://www.gnu.org/licenses/>.
+# along with ycmd.  If not, see <http://www.gnu.org/licenses/>.
 
-from collections import defaultdict
+from __future__ import unicode_literals
+from __future__ import print_function
+from __future__ import division
+from __future__ import absolute_import
+from future import standard_library
+standard_library.install_aliases()
+from builtins import *  # noqa
+from future.utils import iteritems
+
+# Must not import ycm_core here! Vim imports completer, which imports this file.
+# We don't want ycm_core inside Vim.
 import os
 import re
+from collections import defaultdict
+from ycmd.utils import ToCppStringCompatible
 
 
 class PreparedTriggers( object ):
@@ -30,7 +40,7 @@ class PreparedTriggers( object ):
     final_triggers = _FiletypeDictUnion( PREPARED_DEFAULT_FILETYPE_TRIGGERS,
                                          user_prepared_triggers )
     if filetype_set:
-      final_triggers = dict( ( k, v ) for k, v in final_triggers.iteritems()
+      final_triggers = dict( ( k, v ) for k, v in iteritems( final_triggers )
                              if k in filetype_set )
 
     self._filetype_to_prepared_triggers = final_triggers
@@ -59,7 +69,7 @@ class PreparedTriggers( object ):
 def _FiletypeTriggerDictFromSpec( trigger_dict_spec ):
   triggers_for_filetype = defaultdict( set )
 
-  for key, triggers in trigger_dict_spec.iteritems():
+  for key, triggers in iteritems( trigger_dict_spec ):
     filetypes = key.split( ',' )
     for filetype in filetypes:
       regexes = [ _PrepareTrigger( x ) for x in triggers ]
@@ -73,7 +83,7 @@ def _FiletypeDictUnion( dict_one, dict_two ):
   """Returns a new filetype dict that's a union of the provided two dicts.
   Dict params are supposed to be type defaultdict(set)."""
   def UpdateDict( first, second ):
-    for key, value in second.iteritems():
+    for key, value in iteritems( second ):
       first[ key ].update( value )
 
   final_dict = defaultdict( set )
@@ -141,6 +151,12 @@ def PathToFiletypeCompleterPluginLoader( filetype ):
 def FiletypeCompleterExistsForFiletype( filetype ):
   return os.path.exists( PathToFiletypeCompleterPluginLoader( filetype ) )
 
+
+def FilterAndSortCandidatesWrap( candidates, sort_property, query ):
+  from ycm_core import FilterAndSortCandidates
+  return FilterAndSortCandidates( candidates,
+                                  ToCppStringCompatible( sort_property ),
+                                  ToCppStringCompatible( query ) )
 
 TRIGGER_REGEX_PREFIX = 're!'
 
