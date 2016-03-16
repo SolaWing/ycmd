@@ -126,14 +126,17 @@ def CustomPythonCmakeArgs():
 
   print( 'Searching for python libraries...' )
 
-  python_prefix = CheckOutput( [
-    'python-config',
-    '--prefix'
-  ] ).strip().decode( 'utf8' )
+  if PY_MAJOR == 2:
+      python_prefix = CheckOutput( [
+          'python-config',
+          '--prefix'
+      ] ).strip().decode( 'utf8' )
+  else:
+      python_prefix = "/usr/local/Frameworks/Python.framework/Versions/3.%d"%PY_MINOR
 
-  if p.isfile( p.join( python_prefix, '/Python' ) ):
-    python_library = p.join( python_prefix, '/Python' )
-    python_include = p.join( python_prefix, '/Headers' )
+  if p.isfile( p.join( python_prefix, 'Python' ) ):
+    python_library = p.join( python_prefix, 'Python' )
+    python_include = p.join( python_prefix, 'Headers' )
     print( 'Using OSX-style libs from {0}'.format( python_prefix ) )
   else:
     major_minor = CheckOutput( [
