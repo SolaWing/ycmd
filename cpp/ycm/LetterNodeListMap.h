@@ -33,7 +33,9 @@ class LetterNode;
 extern const int kNumLetters;
 extern const int kUpperToLowerCount;
 
-YCM_DLL_EXPORT int IndexForChar( char letter );
+bool IsInAsciiRange( int index );
+YCM_DLL_EXPORT int IndexForLetter( char letter );
+
 inline bool IsUppercase( char letter ){
   return 'A' <= letter && letter <= 'Z';
 }
@@ -41,18 +43,15 @@ inline bool IsLowercase(char letter){
   return 'a' <= letter && letter <= 'z';
 }
 
+
 class LetterNodeListMap : boost::noncopyable {
 public:
   LetterNodeListMap();
   YCM_DLL_EXPORT ~LetterNodeListMap();
 
-  bool HasLetter( char letter );
-
   std::list< LetterNode * > &operator[] ( char letter );
 
-  std::list< LetterNode * > *ListPointerAt( char letter );
-
-  bool HasLetter( char letter ) const;
+  YCM_DLL_EXPORT std::list< LetterNode * > *ListPointerAt( char letter );
 
 private:
   boost::array< std::list< LetterNode * >*, NUM_LETTERS > letters_;

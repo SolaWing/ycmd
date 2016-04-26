@@ -29,17 +29,12 @@ const int kUpperToLowerCount = 'a'-'A';
     // map char to range 0-58
 const char charIndex[256] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,37,38,39,40,41,42,43,39,44,45,46,47,48,49,50,51,27,28,29,30,31,32,33,34,35,36,52,53,54,55,56,57,58,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,44,42,45,41,49,39,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,44,43,45,49,37};
 
+bool IsInAsciiRange( int index ) {
+  return 0 <= index && index < 128;
+}
 
-int IndexForChar( char letter ) {
+int IndexForLetter( char letter ) {
     return charIndex[(unsigned char)letter];
-//  if (letter < ' ') return 0;
-//  if (letter < 'A') return letter - ' ';
-//  if (letter <= 'Z') letter += 'a' - 'A';
-//  return letter - 58;
-//  if ( IsUppercase( letter ) )
-//    return letter + ( 'a' - 'A' );
-//
-//  return letter;
 }
 
 
@@ -57,16 +52,10 @@ LetterNodeListMap::~LetterNodeListMap() {
 }
 
 
-bool LetterNodeListMap::HasLetter( char letter ) {
-  int letter_index = IndexForChar( letter );
-  std::list< LetterNode * > *list = letters_[ letter_index ];
-  return list;
-}
-
-
 std::list< LetterNode * > &LetterNodeListMap::operator[] ( char letter ) {
-  int letter_index = IndexForChar( letter );
-  std::list< LetterNode * > *list = letters_[ letter_index ];
+  int letter_index = IndexForLetter( letter );
+
+  std::list< LetterNode * > *list = letters_.at( letter_index );
 
   if ( list )
     return *list;
@@ -77,12 +66,7 @@ std::list< LetterNode * > &LetterNodeListMap::operator[] ( char letter ) {
 
 
 std::list< LetterNode * > *LetterNodeListMap::ListPointerAt( char letter ) {
-  return letters_[ IndexForChar( letter ) ];
-}
-
-
-bool LetterNodeListMap::HasLetter( char letter ) const {
-  return letters_[ IndexForChar( letter ) ] != NULL;
+  return letters_.at( IndexForLetter( letter ) );
 }
 
 } // namespace YouCompleteMe

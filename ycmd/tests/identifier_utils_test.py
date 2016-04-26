@@ -27,6 +27,7 @@ from builtins import *  # noqa
 
 from nose.tools import eq_, ok_
 from ycmd import identifier_utils as iu
+from hamcrest import assert_that, has_item
 
 
 def RemoveIdentifierFreeText_CppComments_test():
@@ -126,15 +127,26 @@ def ExtractIdentifiersFromText_Css_test():
 
 
 def ExtractIdentifiersFromText_Html_test():
-  eq_( [ "foo", "goo-foo", "zoo", "bar", "aa", "z", "b@g" ],
+  eq_( [ "foo", "goo-foo", "zoo", "bar", "aa", "z", "b@g", "fo", "ba" ],
        iu.ExtractIdentifiersFromText(
-           '<foo> <goo-foo zoo=bar aa="" z=\'\'/> b@g', "html" ) )
+           '<foo> <goo-foo zoo=bar aa="" z=\'\'/> b@g fo.ba', "html" ) )
+
+
+def ExtractIdentifiersFromText_Html_TemplateChars_test():
+  assert_that( iu.ExtractIdentifiersFromText( '<foo>{{goo}}</foo>', 'html' ),
+               has_item( 'goo' ) )
 
 
 def IsIdentifier_generic_test():
   ok_( iu.IsIdentifier( 'foo' ) )
   ok_( iu.IsIdentifier( 'foo129' ) )
   ok_( iu.IsIdentifier( 'f12' ) )
+  ok_( iu.IsIdentifier( 'f12' ) )
+
+  ok_( iu.IsIdentifier( '_foo' ) )
+  ok_( iu.IsIdentifier( '_foo129' ) )
+  ok_( iu.IsIdentifier( '_f12' ) )
+  ok_( iu.IsIdentifier( '_f12' ) )
 
   ok_( not iu.IsIdentifier( '1foo129' ) )
   ok_( not iu.IsIdentifier( '-foo' ) )
@@ -142,6 +154,19 @@ def IsIdentifier_generic_test():
   ok_( not iu.IsIdentifier( 'font-face' ) )
   ok_( not iu.IsIdentifier( None ) )
   ok_( not iu.IsIdentifier( '' ) )
+
+
+def IsIdentifier_generic_unicode_test():
+  ok_( iu.IsIdentifier( 'uniçode' ) )
+  ok_( iu.IsIdentifier( 'uç' ) )
+
+
+def IsIdentifier_generic_unicode_single_char_test():
+  ok_( iu.IsIdentifier( 'ç' ) )
+
+
+def IsIdentifier_generic_unicode_char_first_test():
+  ok_( iu.IsIdentifier( 'çode' ) )
 
 
 def IsIdentifier_Css_test():
