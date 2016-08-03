@@ -31,6 +31,7 @@ pip-log.txt
 
 # Unit test / coverage reports
 .coverage
+.coverage.*
 cover/
 .tox
 nosetests.xml
@@ -39,6 +40,7 @@ nosetests.xml
 # custom
 ycm_core_tests
 .DS_Store
+PYTHON_USED_DURING_BUILDING
 
 # When we use the bcp tool to copy over the parts of boost we care about, it
 # also copies some cruft files we don't need; this ignores them

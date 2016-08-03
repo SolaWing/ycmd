@@ -33,6 +33,7 @@ bool IsPrintable( const std::string &text ) {
   return all( text, is_print( std::locale::classic() ) );
 }
 
+
 std::string GetWordBoundaryChars( const std::string &text, std::vector<unsigned short> &indexes) {
   std::string result;
 
@@ -65,6 +66,7 @@ std::string GetWordBoundaryChars( const std::string &text) {
 
 Bitset LetterBitsetFromString( const std::string &text ) {
   Bitset letter_bitset;
+
   foreach ( char letter, text ) {
     letter_bitset.set( IndexForLetter( letter ) );
   }

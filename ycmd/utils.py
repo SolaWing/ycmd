@@ -38,8 +38,6 @@ import subprocess
 # Creation flag to disable creating a console window on Windows. See
 # https://msdn.microsoft.com/en-us/library/windows/desktop/ms684863.aspx
 CREATE_NO_WINDOW = 0x08000000
-# Executable extensions used on Windows
-WIN_EXECUTABLE_EXTS = [ '.exe', '.bat', '.cmd' ]
 
 # Don't use this! Call PathToCreatedTempDir() instead. This exists for the sake
 # of tests.
@@ -48,6 +46,8 @@ RAW_PATH_TO_TEMP_DIR = os.path.join( tempfile.gettempdir(), 'ycm_temp' )
 # Readable, writable and executable by everyone.
 ACCESSIBLE_TO_ALL_MASK = ( stat.S_IROTH | stat.S_IWOTH | stat.S_IXOTH |
                            stat.S_IRGRP | stat.S_IWGRP | stat.S_IXGRP )
+
+EXECUTABLE_FILE_MASK = os.F_OK | os.X_OK
 
 
 # Python 3 complains on the common open(path).read() idiom because the file
@@ -65,7 +65,12 @@ def OpenForStdHandle( filepath ):
   # (we're replacing sys.stdout!) with an `str` object on py2 will cause
   # tracebacks because text mode insists on unicode objects. (Don't forget,
   # `open` is actually `io.open` because of future builtins.)
-  return open( filepath, 'wb' if PY2 else 'w' )
+  # Since this function is used for logging purposes, we don't want the output
+  # to be delayed. This means no buffering for binary mode and line buffering
+  # for text mode. See https://docs.python.org/2/library/io.html#io.open
+  if PY2:
+    return open( filepath, mode = 'wb', buffering = 0 )
+  return open( filepath, mode = 'w', buffering = 1 )
 
 
 # Given an object, returns a str object that's utf-8 encoded. This is meant to
@@ -203,27 +208,56 @@ def PathToFirstExistingExecutable( executable_name_list ):
   return None
 
 
-# On Windows, distutils.spawn.find_executable only works for .exe files
-# but .bat and .cmd files are also executables, so we use our own
-# implementation.
-def FindExecutable( executable ):
-  paths = os.environ[ 'PATH' ].split( os.pathsep )
-  base, extension = os.path.splitext( executable )
-
-  if OnWindows() and extension.lower() not in WIN_EXECUTABLE_EXTS:
-    extensions = WIN_EXECUTABLE_EXTS
-  else:
-    extensions = ['']
-
-  for extension in extensions:
-    executable_name = executable + extension
-    if not os.path.isfile( executable_name ):
-      for path in paths:
-        executable_path = os.path.join(path, executable_name )
-        if os.path.isfile( executable_path ):
-          return executable_path
+def _GetWindowsExecutable( filename ):
+  def _GetPossibleWindowsExecutable( filename ):
+    pathext = [ ext.lower() for ext in
+                os.environ.get( 'PATHEXT', '' ).split( os.pathsep ) ]
+    base, extension = os.path.splitext( filename )
+    if extension.lower() in pathext:
+      return [ filename ]
     else:
-      return executable_name
+      return [ base + ext for ext in pathext ]
+
+  for exe in _GetPossibleWindowsExecutable( filename ):
+    if os.path.isfile( exe ):
+      return exe
+  return None
+
+
+# Check that a given file can be accessed as an executable file, so controlling
+# the access mask on Unix and if has a valid extension on Windows. It returns
+# the path to the executable or None if no executable was found.
+def GetExecutable( filename ):
+  if OnWindows():
+    return _GetWindowsExecutable( filename )
+
+  if ( os.path.isfile( filename )
+       and os.access( filename, EXECUTABLE_FILE_MASK ) ):
+    return filename
+  return None
+
+
+# Adapted from https://hg.python.org/cpython/file/3.5/Lib/shutil.py#l1081
+# to be backward compatible with Python2 and more consistent to our codebase.
+def FindExecutable( executable ):
+  # If we're given a path with a directory part, look it up directly rather
+  # than referring to PATH directories. This includes checking relative to the
+  # current directory, e.g. ./script
+  if os.path.dirname( executable ):
+    return GetExecutable( executable )
+
+  paths = os.environ[ 'PATH' ].split( os.pathsep )
+
+  if OnWindows():
+    # The current directory takes precedence on Windows.
+    curdir = os.path.abspath( os.curdir )
+    if curdir not in paths:
+      paths.insert( 0, curdir )
+
+  for path in paths:
+    exe = GetExecutable( os.path.join( path, executable ) )
+    if exe:
+      return exe
   return None
 
 
@@ -241,10 +275,6 @@ def OnCygwin():
 
 def OnMac():
   return sys.platform == 'darwin'
-
-
-def OnTravis():
-  return 'TRAVIS' in os.environ
 
 
 def ProcessIsRunning( handle ):

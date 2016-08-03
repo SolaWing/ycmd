@@ -26,10 +26,11 @@ from builtins import *  # noqa
 from contextlib import contextmanager
 import functools
 import os
-import time
 
 from ycmd import handlers
-from ycmd.tests.test_utils import BuildRequest, SetUpApp
+from ycmd.tests.test_utils import ( ClearCompletionsCache, SetUpApp,
+                                    StartCompleterServer, StopCompleterServer,
+                                    WaitUntilCompleterServerReady )
 
 shared_app = None
 shared_filepaths = []
@@ -38,47 +39,6 @@ shared_filepaths = []
 def PathToTestFile( *args ):
   dir_of_current_script = os.path.dirname( os.path.abspath( __file__ ) )
   return os.path.join( dir_of_current_script, 'testdata', *args )
-
-
-def StartOmniSharpServer( app, filepath ):
-  app.post_json( '/run_completer_command',
-                 BuildRequest( completer_target = 'filetype_default',
-                               command_arguments = [ "StartServer" ],
-                               filepath = filepath,
-                               filetype = 'cs' ) )
-
-
-def StopOmniSharpServer( app, filepath ):
-  app.post_json( '/run_completer_command',
-                 BuildRequest( completer_target = 'filetype_default',
-                               command_arguments = [ 'StopServer' ],
-                               filepath = filepath,
-                               filetype = 'cs' ) )
-
-
-def WaitUntilOmniSharpServerReady( app, filepath ):
-  retries = 100
-  success = False
-
-  # If running on Travis CI, keep trying forever. Travis will kill the worker
-  # after 10 mins if nothing happens.
-  while retries > 0 or OnTravis():
-    result = app.get( '/ready', { 'subserver': 'cs' } ).json
-    if result:
-      success = True
-      break
-    request = BuildRequest( completer_target = 'filetype_default',
-                            command_arguments = [ 'ServerIsRunning' ],
-                            filepath = filepath,
-                            filetype = 'cs' )
-    result = app.post_json( '/run_completer_command', request ).json
-    if not result:
-      raise RuntimeError( "OmniSharp failed during startup." )
-    time.sleep( 0.2 )
-    retries = retries - 1
-
-  if not success:
-    raise RuntimeError( "Timeout waiting for OmniSharpServer" )
 
 
 def setUpPackage():
@@ -100,7 +60,7 @@ def tearDownPackage():
   global shared_app, shared_filepaths
 
   for filepath in shared_filepaths:
-    StopOmniSharpServer( shared_app, filepath )
+    StopCompleterServer( shared_app, 'cs', filepath )
 
 
 @contextmanager
@@ -108,9 +68,9 @@ def WrapOmniSharpServer( app, filepath ):
   global shared_filepaths
 
   if filepath not in shared_filepaths:
-    StartOmniSharpServer( app, filepath )
+    StartCompleterServer( app, 'cs', filepath )
     shared_filepaths.append( filepath )
-  WaitUntilOmniSharpServerReady( app, filepath )
+  WaitUntilCompleterServerReady( app, 'cs' )
   yield
 
 
@@ -123,6 +83,7 @@ def SharedYcmd( test ):
 
   @functools.wraps( test )
   def Wrapper( *args, **kwargs ):
+    ClearCompletionsCache()
     return test( shared_app, *args, **kwargs )
   return Wrapper
 

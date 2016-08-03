@@ -25,17 +25,20 @@ from future import standard_library
 standard_library.install_aliases()
 from builtins import *  # noqa
 
-from hamcrest import ( assert_that, calling, contains, equal_to,
-                       has_entries, raises )
+from hamcrest import ( assert_that, calling, contains, contains_string,
+                       equal_to, has_entries, raises )
 from nose.tools import eq_
 from pprint import pprint
 from webtest import AppError
-import http.client
+import requests
 import os.path
 
 from ycmd.completers.cpp.clang_completer import NO_DOCUMENTATION_MESSAGE
 from ycmd.tests.clang import PathToTestFile, SharedYcmd
-from ycmd.tests.test_utils import BuildRequest, ErrorMatcher
+from ycmd.tests.test_utils import ( BuildRequest,
+                                    ErrorMatcher,
+                                    ChunkMatcher,
+                                    LineColMatcher )
 from ycmd.utils import ReadFile
 
 
@@ -693,12 +696,63 @@ def FixIt_Check_unicode_Ins( results ):
   } ) )
 
 
+def FixIt_Check_cpp11_Note( results ):
+  assert_that( results, has_entries( {
+    'fixits': contains(
+      # First note: put parens around it
+      has_entries( {
+        'text': contains_string( 'parentheses around the assignment' ),
+        'chunks': contains(
+          ChunkMatcher( '(',
+                        LineColMatcher( 59, 8 ),
+                        LineColMatcher( 59, 8 ) ),
+          ChunkMatcher( ')',
+                        LineColMatcher( 61, 12 ),
+                        LineColMatcher( 61, 12 ) )
+        ),
+        'location': LineColMatcher( 60, 8 ),
+      } ),
+
+      # Second note: change to ==
+      has_entries( {
+        'text': contains_string( '==' ),
+        'chunks': contains(
+          ChunkMatcher( '==',
+                        LineColMatcher( 60, 8 ),
+                        LineColMatcher( 60, 9 ) )
+        ),
+        'location': LineColMatcher( 60, 8 ),
+      } )
+    )
+  } ) )
+
+
+def FixIt_Check_cpp11_SpellCheck( results ):
+  assert_that( results, has_entries( {
+    'fixits': contains(
+      # Change to SpellingIsNotMyStrongPoint
+      has_entries( {
+        'text': contains_string( "did you mean 'SpellingIsNotMyStrongPoint'" ),
+        'chunks': contains(
+          ChunkMatcher( 'SpellingIsNotMyStrongPoint',
+                        LineColMatcher( 72, 9 ),
+                        LineColMatcher( 72, 35 ) )
+        ),
+        'location': LineColMatcher( 72, 9 ),
+      } ) )
+  } ) )
+
+
 def Subcommands_FixIt_all_test():
   cfile = 'FixIt_Clang_cpp11.cpp'
   mfile = 'FixIt_Clang_objc.m'
   ufile = 'unicode.cc'
 
   tests = [
+    # L
+    # i   C
+    # n   o
+    # e   l   Lang     File,  Checker
     [ 16, 0,  'cpp11', cfile, FixIt_Check_cpp11_Ins ],
     [ 16, 1,  'cpp11', cfile, FixIt_Check_cpp11_Ins ],
     [ 16, 10, 'cpp11', cfile, FixIt_Check_cpp11_Ins ],
@@ -725,6 +779,12 @@ def Subcommands_FixIt_all_test():
 
     # unicode in line for fixit
     [ 21, 16, 'cpp11', ufile, FixIt_Check_unicode_Ins ],
+
+    # FixIt attached to a "child" diagnostic (i.e. a Note)
+    [ 60, 1,  'cpp11', cfile, FixIt_Check_cpp11_Note ],
+
+    # FixIt due to forced spell checking
+    [ 72, 9,  'cpp11', cfile, FixIt_Check_cpp11_SpellCheck ],
   ]
 
   for test in tests:
@@ -841,7 +901,7 @@ def Subcommands_GetDoc_Undocumented_test( app ):
                             event_data,
                             expect_errors = True )
 
-  eq_( response.status_code, http.client.INTERNAL_SERVER_ERROR )
+  eq_( response.status_code, requests.codes.internal_server_error )
 
   assert_that( response.json,
                ErrorMatcher( ValueError, NO_DOCUMENTATION_MESSAGE ) )
@@ -865,7 +925,7 @@ def Subcommands_GetDoc_NoCursor_test( app ):
                             event_data,
                             expect_errors = True )
 
-  eq_( response.status_code, http.client.INTERNAL_SERVER_ERROR )
+  eq_( response.status_code, requests.codes.internal_server_error )
 
   assert_that( response.json,
                ErrorMatcher( ValueError, NO_DOCUMENTATION_MESSAGE ) )
@@ -1016,7 +1076,7 @@ def Subcommands_GetDocQuick_Undocumented_test( app ):
                             event_data,
                             expect_errors = True )
 
-  eq_( response.status_code, http.client.INTERNAL_SERVER_ERROR )
+  eq_( response.status_code, requests.codes.internal_server_error )
 
   assert_that( response.json,
                ErrorMatcher( ValueError, NO_DOCUMENTATION_MESSAGE ) )
@@ -1049,7 +1109,7 @@ def Subcommands_GetDocQuick_NoCursor_test( app ):
                             event_data,
                             expect_errors = True )
 
-  eq_( response.status_code, http.client.INTERNAL_SERVER_ERROR )
+  eq_( response.status_code, requests.codes.internal_server_error )
 
   assert_that( response.json,
                ErrorMatcher( ValueError, NO_DOCUMENTATION_MESSAGE ) )
