@@ -65,6 +65,7 @@ COMMENT_AND_STRING_REGEX = re.compile(
 DEFAULT_IDENTIFIER_REGEX = re.compile( r"[^\W\d]\w*", re.UNICODE )
 
 FILETYPE_TO_IDENTIFIER_REGEX = {
+    'vim': re.compile(r"[\w&$<-][\w:#<>-]*", re.UNICODE),
     # Spec: http://www.w3.org/TR/CSS2/syndata.html#characters
     # Good summary: http://stackoverflow.com/a/449000/1672783
     'css': re.compile( r"-?[_a-zA-Z]+[\w-]+", re.UNICODE ),
