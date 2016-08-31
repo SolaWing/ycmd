@@ -403,7 +403,7 @@ def ConvertCompletionData( completion_data ):
     extra_menu_info = completion_data.ExtraMenuInfo(),
     kind = completion_data.kind_.name,
     detailed_info = completion_data.DetailedInfoForPreviewWindow(),
-    #  extra_data = { 'doc_string': completion_data.DocString() } if completion_data.DocString() else None
+    extra_data = { 'doc_string': completion_data.DocString() } if completion_data.DocString() else None
   )
 
 

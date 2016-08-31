@@ -22,6 +22,10 @@
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/move/move.hpp>
 
+#ifndef DEBUG
+#define DEBUG 0
+#endif /* ifndef DEBUG */
+
 namespace YouCompleteMe {
 
 namespace {
@@ -78,6 +82,41 @@ CompletionKind CursorKindToCompletionKind( CXCursorKind kind ) {
       return UNKNOWN;
   }
 }
+
+#if DEBUG
+#define DLog(...) printf( __VA_ARGS__ )
+
+int beforeCount = 0;
+#define TOSTR(v) #v
+static const char* kindDesc(CXCompletionChunkKind kind) {
+    static const char* data[] = {
+  TOSTR(CXCompletionChunk_Optional),
+  TOSTR(CXCompletionChunk_TypedText),
+  TOSTR(CXCompletionChunk_Text),
+  TOSTR(CXCompletionChunk_Placeholder),
+  TOSTR(CXCompletionChunk_Informative),
+  TOSTR(CXCompletionChunk_CurrentParameter),
+  TOSTR(CXCompletionChunk_LeftParen),
+  TOSTR(CXCompletionChunk_RightParen),
+  TOSTR(CXCompletionChunk_LeftBracket),
+  TOSTR(CXCompletionChunk_RightBracket),
+  TOSTR(CXCompletionChunk_LeftBrace),
+  TOSTR(CXCompletionChunk_RightBrace),
+  TOSTR(CXCompletionChunk_LeftAngle),
+  TOSTR(CXCompletionChunk_RightAngle),
+  TOSTR(CXCompletionChunk_Comma),
+  TOSTR(CXCompletionChunk_ResultType),
+  TOSTR(CXCompletionChunk_Colon),
+  TOSTR(CXCompletionChunk_SemiColon),
+  TOSTR(CXCompletionChunk_Equal),
+  TOSTR(CXCompletionChunk_HorizontalSpace),
+  TOSTR(CXCompletionChunk_VerticalSpace)
+};
+  return data[kind];
+}
+#else
+#define DLog(...)
+#endif
 
 
 bool IsMainCompletionTextInfo( CXCompletionChunkKind kind ) {
@@ -162,7 +201,6 @@ std::string RemoveTrailingParens( std::string text ) {
 
 } // unnamed namespace
 
-//    int beforeCount = 0;
 
 CompletionData::CompletionData( const CXCompletionResult &completion_result ) {
   CXCompletionString completion_string = completion_result.CompletionString;
@@ -174,7 +212,7 @@ CompletionData::CompletionData( const CXCompletionResult &completion_result ) {
   bool saw_left_paren = false;
   bool saw_function_params = false;
   bool saw_placeholder = false;
-//    printf("before extract %d\n", beforeCount++);
+   DLog("before extract %d\n", beforeCount++);
   for ( uint j = 0; j < num_chunks; ++j ) {
     ExtractDataFromChunk( completion_string,
                           j,
@@ -193,9 +231,9 @@ CompletionData::CompletionData( const CXCompletionResult &completion_result ) {
 
   doc_string_ = YouCompleteMe::CXStringToString(
                   clang_getCompletionBriefComment( completion_string ) );
-  if (!doc_string_.empty()){
-    detailed_info_.append("\t").append( doc_string_).append("\n");
-  }
+  // if (!doc_string_.empty()){
+  //   detailed_info_.append("\t").append( doc_string_).append("\n");
+  // }
 }
 
 
@@ -206,7 +244,7 @@ void CompletionData::ExtractDataFromChunk( CXCompletionString completion_string,
                                            bool &saw_placeholder ) {
   CXCompletionChunkKind kind = clang_getCompletionChunkKind(
                                  completion_string, chunk_num );
-//    printf("%d %s\n",kind, ChunkToString(completion_string, chunk_num).c_str());
+   DLog("%d %s %s\n",kind, kindDesc(kind), ChunkToString(completion_string, chunk_num).c_str());
 
   if ( IsMainCompletionTextInfo( kind ) ) {
     if ( kind == CXCompletionChunk_LeftParen ) {
@@ -247,7 +285,9 @@ void CompletionData::ExtractDataFromChunk( CXCompletionString completion_string,
       break;
 
     case CXCompletionChunk_Placeholder:
-      saw_placeholder = true;
+      original_string_ += "<#";
+      original_string_ += ChunkToString(completion_string, chunk_num);
+      original_string_ += "#>";
       break;
 
     case CXCompletionChunk_TypedText:
@@ -258,9 +298,9 @@ void CompletionData::ExtractDataFromChunk( CXCompletionString completion_string,
     case CXCompletionChunk_LeftParen:
     case CXCompletionChunk_RightParen:
     case CXCompletionChunk_HorizontalSpace:
-      if ( !saw_placeholder ) {
+      // if ( !saw_placeholder ) {
         original_string_ += ChunkToString( completion_string, chunk_num );
-      }
+      // }
 
       break;
 
