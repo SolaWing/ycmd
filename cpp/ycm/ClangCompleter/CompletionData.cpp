@@ -293,6 +293,16 @@ void CompletionData::ExtractDataFromChunk( CXCompletionString completion_string,
     case CXCompletionChunk_TypedText:
     case CXCompletionChunk_Text:
 
+    case CXCompletionChunk_RightBracket:
+    case CXCompletionChunk_LeftBracket:
+    case CXCompletionChunk_LeftBrace:
+    case CXCompletionChunk_RightBrace:
+    case CXCompletionChunk_RightAngle:
+    case CXCompletionChunk_LeftAngle:
+    case CXCompletionChunk_Comma:
+    case CXCompletionChunk_Colon:
+    case CXCompletionChunk_SemiColon:
+    case CXCompletionChunk_Equal:
       // need to add paren to insert string
       // when implementing inherited methods or declared methods in objc.
     case CXCompletionChunk_LeftParen:
