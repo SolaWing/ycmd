@@ -78,7 +78,7 @@ TEST( ClangCompleterTest, CandidatesObjCForLocationInFile ) {
       flags );
 
   EXPECT_TRUE( !completions.empty() );
-  EXPECT_THAT( completions[0].TextToInsertInBuffer(), StrEq( "withArg2:<#(int)#> withArg3:<#(int)#>" ) );
+  EXPECT_THAT( completions[0].TextToInsertInBuffer(), StrEq( "withArg2:withArg3:" ) );
 }
 
 
@@ -98,7 +98,7 @@ TEST( ClangCompleterTest, CandidatesObjCFuncForLocationInFile ) {
   EXPECT_TRUE( !completions.empty() );
   EXPECT_THAT(
     completions[0].TextToInsertInBuffer(),
-    StrEq( "(void)test:(int)arg1 withArg2:(int)arg2 withArg3:(int)arg3" ) );
+    StrEq( "test:withArg2:withArg3:" ) );
 }
 
 

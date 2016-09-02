@@ -102,33 +102,33 @@ TEST( IdentifierCompleterTest, CompleteMatchForWordBoundaryCharsWins ) {
 
   EXPECT_THAT( IdentifierCompleter(
                  StringVector(
-                   "FooBar",
+                   "FooBarx",
                    "FooBarRux" ) ).CandidatesForQuery( "fbr" ),
                ElementsAre( "FooBarRux",
-                            "FooBar" ) );
+                            "FooBarx" ) );
 
   EXPECT_THAT( IdentifierCompleter(
                  StringVector(
-                   "foo-bar",
+                   "foo-barx",
                    "foo-bar-rux" ) ).CandidatesForQuery( "fbr" ),
                ElementsAre( "foo-bar-rux",
-                            "foo-bar" ) );
+                            "foo-barx" ) );
 
   EXPECT_THAT( IdentifierCompleter(
                  StringVector(
-                   "foo.bar",
+                   "foo.barx",
                    "foo.bar.rux" ) ).CandidatesForQuery( "fbr" ),
                ElementsAre( "foo.bar.rux",
-                            "foo.bar" ) );
+                            "foo.barx" ) );
 }
 
 TEST( IdentifierCompleterTest, RatioUtilizationTieBreak ) {
   EXPECT_THAT( IdentifierCompleter(
                  StringVector(
                    "aGaaFooBarQux",
-                   "aBaafbq" ) ).CandidatesForQuery( "fbq" ),
+                   "abaafbqx" ) ).CandidatesForQuery( "fbq" ),
                ElementsAre( "aGaaFooBarQux",
-                            "aBaafbq" ) );
+                            "abaafbqx" ) );
 
   EXPECT_THAT( IdentifierCompleter(
                  StringVector(
@@ -139,9 +139,9 @@ TEST( IdentifierCompleterTest, RatioUtilizationTieBreak ) {
 
   EXPECT_THAT( IdentifierCompleter(
                  StringVector(
-                   "acaaCaaFooGxx",
+                   "aCaaFooGxx",
                    "aCaafoog" ) ).CandidatesForQuery( "caafoo" ),
-               ElementsAre( "acaaCaaFooGxx",
+               ElementsAre( "aCaaFooGxx",
                             "aCaafoog" ) );
 
   EXPECT_THAT( IdentifierCompleter(
@@ -180,16 +180,16 @@ TEST( IdentifierCompleterTest, LowerMatchCharIndexSumWins ) {
   EXPECT_THAT( IdentifierCompleter(
                  StringVector(
                    "barfooq",
-                   "barquxfoo" ) ).CandidatesForQuery( "foo" ),
+                   "barquxfooq" ) ).CandidatesForQuery( "foo" ),
                ElementsAre( "barfooq",
-                            "barquxfoo" ) );
+                            "barquxfooq" ) );
 
   EXPECT_THAT( IdentifierCompleter(
                  StringVector(
-                   "xxxxxxabc",
+                   "xxxxxabcx",
                    "xxabcxxxx" ) ).CandidatesForQuery( "abc" ),
                ElementsAre( "xxabcxxxx",
-                            "xxxxxxabc" ) );
+                            "xxxxxabcx" ) );
 
   EXPECT_THAT( IdentifierCompleter(
                  StringVector(
@@ -233,22 +233,13 @@ TEST( IdentifierCompleterTest, PreferLowercaseCandidate ) {
                  "chatContent" ),
                ElementsAre( "chatContentExtension",
                             "ChatContentExtension" ) );
-
-  EXPECT_THAT( IdentifierCompleter(
-                 StringVector(
-                   "fooBar",
-                   "FooBar" ) ).CandidatesForQuery( "oba" ),
-               ElementsAre( "fooBar",
-                            "FooBar" ) );
     
   EXPECT_THAT( IdentifierCompleter(
                  StringVector(
-                   "CCLog",
                    "CCLOG",
                    "cclog") ).CandidatesForQuery( "ccl" ),
                ElementsAre( "cclog",
-                            "CCLOG",
-                            "CCLog") );
+                            "CCLOG") );
 }
 
 TEST( IdentifierCompleterTest, ShorterAndLowercaseWins ) {

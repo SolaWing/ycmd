@@ -22,6 +22,7 @@
 #include <boost/algorithm/string.hpp>
 #include <cctype>
 #include <locale>
+#include <boost/tuple/tuple.hpp>
 
 using boost::algorithm::all;
 using boost::algorithm::is_lower;
@@ -34,24 +35,25 @@ bool IsPrintable( const std::string &text ) {
 }
 
 
-std::string GetWordBoundaryChars( const std::string &text, std::vector<unsigned short> &indexes) {
+std::string _GetWordBoundaryChars( const std::string &text ) {
   std::string result;
 
+  if (text.size() == 0) { return result; }
+#define PushResultAtIndex(i)            \
+    result.push_back(text[i]); \
+
+  if (!ispunct( text[0] )) { PushResultAtIndex(0); }
+
   // first letter, first upper letter, letter after _ will be consider as a word boundary char
-  for ( uint i = 0; i < text.size(); ++i ) {
-    bool is_first_char_but_not_punctuation = i == 0 && !ispunct( text[ i ] );
-    bool is_good_uppercase = i > 0 &&
-                             IsUppercase( text[ i ] ) &&
+  for ( uint i = 1; i < text.size(); ++i ) {
+    bool is_good_uppercase = IsUppercase( text[ i ] ) &&
                              !IsUppercase( text[ i - 1 ] );
-    bool is_alpha_after_punctuation = i > 0 &&
-                                      ispunct( text[ i - 1 ] ) &&
+    bool is_alpha_after_punctuation = ispunct( text[ i - 1 ] ) &&
                                       isalpha( text[ i ] );
 
-    if ( is_first_char_but_not_punctuation ||
-         is_good_uppercase ||
+    if ( is_good_uppercase ||
          is_alpha_after_punctuation ) {
-      result.push_back( tolower( text[ i ] ) );
-      indexes.push_back(i);
+      PushResultAtIndex(i);
     }
   }
 
@@ -59,8 +61,9 @@ std::string GetWordBoundaryChars( const std::string &text, std::vector<unsigned 
 }
   
 std::string GetWordBoundaryChars( const std::string &text) {
-  std::vector<unsigned short> indexes;
-  return GetWordBoundaryChars(text, indexes);
+    std::string s = _GetWordBoundaryChars(text);
+    foreach ( char& c, s) { c = tolower(c); } // make test happy, compatibility
+    return s;
 };
 
 
@@ -74,127 +77,129 @@ Bitset LetterBitsetFromString( const std::string &text ) {
   return letter_bitset;
 }
 
-#define kContinueFactor 0.25 //the bigger the factor is, the more score continue match get
-#define kMinScore 50        //make result more stable.
-  
-//the bigger the factor is, the more score word boundary char get
-//if more than 1, the word length may be ignored
-#define kWBCFactor 0.7
-#define kEndCharFactor 0.3
+int LongestCommonSubsequenceLength( const std::string &first,
+                                    const std::string &second ) {
+  const std::string &longer  = first.size() > second.size() ? first  : second;
+  const std::string &shorter = first.size() > second.size() ? second : first;
+
+  int longer_len  = longer.size();
+  int shorter_len = shorter.size();
+
+  std::vector<int> previous( shorter_len + 1, 0 );
+  std::vector<int> current(  shorter_len + 1, 0 ); // [0, max_match_length_till_(index - 1), ...]
+
+  for ( int i = 0; i < longer_len; ++i ) {
+    int longer_char = tolower(longer[i]);
+    for ( int j = 0; j < shorter_len; ++j ) {
+      if ( longer_char == tolower( shorter[ j ] ) )
+        current[ j + 1 ] = previous[ j ] + 1;
+      else
+        current[ j + 1 ] = std::max( current[ j ], previous[ j + 1 ] );
+    }
+
+    std::swap(previous, current);
+  }
+
+  return previous[ shorter_len ];
+}
+
 Candidate::Candidate( const std::string &text )
   :
   text_( text ),
+  word_boundary_chars_( _GetWordBoundaryChars( text ) ),
   letters_present_( LetterBitsetFromString( text ) )
 {
-  GetWordBoundaryChars(text, wbc_indexes_);
-  wbc_indexes_.push_back(text.size());
-  wbc_indexes_.shrink_to_fit();
-  
-  // calculate total score, it's only contain base score
-  int base_score = text.size() + kMinScore;
-  totalScore_ = (base_score + kMinScore + 1) * text.size() / 2;
+  // GetWordBoundaryChars(text, wbc_indexes_);
+  // wbc_indexes_.push_back(text.size()); // push a index at len to calculate word length
+  // wbc_indexes_.shrink_to_fit();
 }
 
+static boost::tuple<bool, bool> match_char(char candidate, char query, bool case_sensitive) {
+    if (candidate == query) { return boost::make_tuple(true, false); }
+    else{
+      // when case_sensitive, upper only match upper, but lower can match upper too
+      if (case_sensitive){
+        if (IsLowercase(query) && candidate + kUpperToLowerCount == query){
+            return boost::make_tuple(true, true);
+        }
+      }
+      else if ((IsLowercase(query) && candidate + kUpperToLowerCount == query)
+               || (IsUppercase(query) && query + kUpperToLowerCount == candidate)){
+            return boost::make_tuple(true, true);
+      }
+    }
+    return boost::make_tuple(false, false);
+}
 
+#define kBasicScore 1000
+#define ContinueScore (continue_count * continue_count * kBasicScore)
 Result Candidate::QueryMatchResult( const std::string &query,
                                     bool case_sensitive ) const {
-  double index_sum = 0; // total score
+  const int length_punish = text_.size() * 3;
+  double index_sum = -length_punish; // total score
 
   std::string::const_iterator query_iter = query.begin(), query_end = query.end();
-  if ( query_iter == query_end) 
-    return Result( true, &text_, totalScore_ - index_sum);
+  if ( query_iter == query_end )
+    return Result( true, &text_, index_sum);
 
-  int index = 0, candidate_len = text_.size();
+  std::string::size_type index = 0, candidate_len = text_.size();
   
   // score related
-  // each char score is base_score
-  // base_score is candidate_len - index
+  // front give a little priority to back
+  // short give a little priority to long
+  // match case give a little priority to convert case
   
-  // continueCount will increase when match,
-  //  and drop to 0 when unmatch
-  //  when end or drop to 0, continueCount give bonus score
+  // continue_count will increase when match,
+  //  and get a lot of bonus when discontinue according to continue count.
   
-  // wbc_index is word boundary index,
-  //  if match a word at begin, score will * wordLength
-  //  this give word divide query high score.
+  // word boundary give a lot of bonus according to similarity
   
-  // the last char will get extra bonus
-  int continueCount = 0;
+  // the last char will get some extra bonus
+  int continue_count = 0;
   int change_case_count = 0;
-  int base_score = candidate_len + kMinScore;
-  std::vector<unsigned short>::const_iterator wbc_index = wbc_indexes_.begin();
 
-  // if case_sensitive, only case sensitive when the query char is upper
-    
   // When the query letter is uppercase, then we force an uppercase match
   // but when the query letter is lowercase, then it can match both an
   // uppercase and a lowercase letter. This is by design and it's much
   // better than forcing lowercase letter matches.
-  char candidate_char, query_char;
   bool change_case;
   bool match;
 
-  query_char = *query_iter;
-  while (index < candidate_len){
-    candidate_char = text_[index];
-    match = false;
-    change_case = false;
-    if (candidate_char == query_char) match = true;
-    else{
-      if (case_sensitive){
-        if (IsLowercase(query_char) && candidate_char + kUpperToLowerCount == query_char){
-          change_case = true;
-          match = true;
-        }
-      }
-      else if ((IsLowercase(query_char) && candidate_char + kUpperToLowerCount == query_char)
-               || (IsUppercase(query_char) && query_char + kUpperToLowerCount == candidate_char)){
-        change_case = true;
-        match = true;
-      }
-    }
-    // match
-#define ContinueScore \
-(continueCount * continueCount * base_score * kContinueFactor)
+  while ( index < candidate_len ) {
+    boost::tie( match, change_case ) = match_char(text_[index], *query_iter, case_sensitive);
+
     if ( match ){
       // score related
-      if (index == *wbc_index){
-        // match word begin, get extra score
-        int wordLen =*(wbc_index + 1) - *wbc_index;
-        index_sum += kMinScore * wordLen * kWBCFactor;
-        ++wbc_index;
-      }
-      index_sum += base_score;
-      if ( change_case ) ++change_case_count;
-      // match will increase continueFactor
-      ++continueCount;
-      
+      index_sum -= index; // give *front* priority to *back*
+      if ( change_case ) ++change_case_count; // give *match case* priority to *change case*
+      ++continue_count; // match will increase continueFactor
+
       // move to next query char
       ++query_iter;
+
       // complete, return result
       if ( query_iter == query_end ) {
-        if (continueCount > 1){
-          index_sum += ContinueScore;
+        if (continue_count > 1){ // additional bonus for last continue match
+          index_sum += ContinueScore * 2;
+          continue_count = 0;
+        }
+        int word_boundary_count = LongestCommonSubsequenceLength(query, word_boundary_chars_);
+        if (word_boundary_count > 0) {
+            double const word_boundary_char_utilization = word_boundary_count / (double)word_boundary_chars_.size();
+            // double const query_match_wbc_ratio = word_boundary_count / (double)query.size();
+            index_sum += word_boundary_count * word_boundary_count * (1 + word_boundary_char_utilization * 2) * kBasicScore;
         }
         // match last char, get extra bonus
-        if (index == candidate_len - 1) index_sum += kMinScore * candidate_len * kEndCharFactor;
-        return Result( true, &text_,  totalScore_ - index_sum + change_case_count);
-      }
+        if ( index + 1 == candidate_len ) index_sum += (2 + word_boundary_count) * kBasicScore * (word_boundary_count + 1);
 
-      // not complete, reset query char state
-      query_char = *query_iter;
+        return Result( true, &text_,  index_sum - change_case_count);
+      }
     }else {
-      if (continueCount > 1){
+      if (continue_count > 1){
         index_sum += ContinueScore;
       }
-      // score related
-      continueCount = 0; // drop to 0 when not match
+      continue_count = 0; // drop to 0 when not match
     }
-    
-    --base_score;   //base_score reduce when index increase
-    //wbc_index must not before index
-    if (index == *wbc_index) ++wbc_index;
-    
     ++index;
   }
   return Result(false);

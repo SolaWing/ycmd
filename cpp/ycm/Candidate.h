@@ -62,10 +62,10 @@ public:
 
 private:
   std::string text_;
+  std::string word_boundary_chars_;
   Bitset letters_present_;
-  int totalScore_;
   // word boundary indexes
-  std::vector<unsigned short> wbc_indexes_;
+  // std::vector<unsigned short> wbc_indexes_;
 };
 
 } // namespace YouCompleteMe

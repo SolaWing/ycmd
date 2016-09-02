@@ -27,12 +27,12 @@ using boost::algorithm::istarts_with;
 
 namespace YouCompleteMe {
 
-#define kMax_Match_distance 0x7fffffff
+#define kMin_Score -0x7fffffff
 
 Result::Result()
   :
   is_subsequence_( false ),
-  char_match_distance_( kMax_Match_distance ),
+  score_( kMin_Score ),
   text_( NULL ) {
 }
 
@@ -40,17 +40,17 @@ Result::Result()
 Result::Result( bool is_subsequence )
   :
   is_subsequence_( is_subsequence ),
-  char_match_distance_( kMax_Match_distance ),
+  score_( kMin_Score ),
   text_( NULL ) {
 }
 
 
 Result::Result( bool is_subsequence,
                 const std::string *text,
-                int char_match_distance
+                int score
   ):
   is_subsequence_( is_subsequence ),
-  char_match_distance_( char_match_distance ),
+  score_( score ),
   text_( text ) {
 }
 

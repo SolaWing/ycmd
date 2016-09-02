@@ -29,11 +29,11 @@ public:
 
   Result( bool is_subsequence,
           const std::string *text,
-          int char_match_distance
+          int score
   );
 
   inline bool operator< ( const Result &other ) const{
-    return char_match_distance_ < other.char_match_distance_;
+    return score_ > other.score_;
   }
 
   inline bool IsSubsequence() const {
@@ -52,8 +52,8 @@ private:
   // then 'b' then 'c') in the first string but not in the second.
   bool is_subsequence_;
 
-  // the distance to match the candidate, the front, word begin char, continue chars will get more close
-  int char_match_distance_;
+  // the score match get. the front, word begin char, continue chars will get more score
+  int score_;
 
   // points to the full candidate text
   const std::string *text_;
