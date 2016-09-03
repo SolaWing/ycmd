@@ -397,13 +397,18 @@ class ClangCompleter( Completer ):
 
 
 def ConvertCompletionData( completion_data ):
+  doc_string = completion_data.DocString()
+  template = completion_data.TemplateString()
+  extra_data = {}
+  if doc_string: extra_data['doc_string'] = doc_string
+  if template: extra_data['template'] = template
   return responses.BuildCompletionData(
     insertion_text = completion_data.TextToInsertInBuffer(),
     menu_text = completion_data.MainCompletionText(),
     extra_menu_info = completion_data.ExtraMenuInfo(),
     kind = completion_data.kind_.name,
     detailed_info = completion_data.DetailedInfoForPreviewWindow(),
-    extra_data = { 'doc_string': completion_data.DocString() } if completion_data.DocString() else None
+    extra_data = extra_data
   )
 
 

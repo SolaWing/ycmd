@@ -221,7 +221,7 @@ CompletionData::CompletionData( const CXCompletionResult &completion_result ) {
                           saw_placeholder );
   }
 
-  original_string_ = RemoveTrailingParens( boost::move( original_string_ ) );
+  // original_string_ = RemoveTrailingParens( boost::move( original_string_ ) );
   kind_ = CursorKindToCompletionKind( completion_result.CursorKind );
 
   detailed_info_.append( return_type_ )
@@ -231,9 +231,6 @@ CompletionData::CompletionData( const CXCompletionResult &completion_result ) {
 
   doc_string_ = YouCompleteMe::CXStringToString(
                   clang_getCompletionBriefComment( completion_string ) );
-  // if (!doc_string_.empty()){
-  //   detailed_info_.append("\t").append( doc_string_).append("\n");
-  // }
 }
 
 
@@ -285,12 +282,13 @@ void CompletionData::ExtractDataFromChunk( CXCompletionString completion_string,
       break;
 
     case CXCompletionChunk_Placeholder:
-      original_string_ += "<#";
-      original_string_ += ChunkToString(completion_string, chunk_num);
-      original_string_ += "#>";
+      template_string_ += "<#";
+      template_string_ += ChunkToString(completion_string, chunk_num);
+      template_string_ += "#>";
       break;
 
     case CXCompletionChunk_TypedText:
+      original_string_ +=  ChunkToString( completion_string, chunk_num );
     case CXCompletionChunk_Text:
 
     case CXCompletionChunk_RightBracket:
@@ -303,15 +301,10 @@ void CompletionData::ExtractDataFromChunk( CXCompletionString completion_string,
     case CXCompletionChunk_Colon:
     case CXCompletionChunk_SemiColon:
     case CXCompletionChunk_Equal:
-      // need to add paren to insert string
-      // when implementing inherited methods or declared methods in objc.
     case CXCompletionChunk_LeftParen:
     case CXCompletionChunk_RightParen:
     case CXCompletionChunk_HorizontalSpace:
-      // if ( !saw_placeholder ) {
-        original_string_ += ChunkToString( completion_string, chunk_num );
-      // }
-
+      template_string_ += ChunkToString( completion_string, chunk_num );
       break;
 
     default:

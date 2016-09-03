@@ -88,6 +88,12 @@ struct CompletionData {
     return doc_string_;
   }
 
+  // this is used as expandable template string, which will filled with some fixed
+  // string and placeholders. placeholder surround by <#placeholder#>
+  std::string TemplateString() const {
+    return template_string_;
+  }
+
   bool operator== ( const CompletionData &other ) const {
     return
       kind_ == other.kind_ &&
@@ -112,6 +118,8 @@ struct CompletionData {
   std::string everything_except_return_type_;
 
   std::string doc_string_;
+
+  std::string template_string_;
 
 private:
 
