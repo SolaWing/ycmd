@@ -219,6 +219,12 @@ class Completer( with_metaclass( abc.ABCMeta, object ) ):
     if request_data[ 'query' ]:
       candidates = self.FilterAndSortCandidates( candidates,
                                                  request_data[ 'query' ] )
+      self._completions_cache.UpdateFilter(
+          request_data[ 'line_num' ],
+          request_data[ 'start_column' ],
+          self.CompletionType( request_data ),
+          request_data[ 'query' ],
+          candidates )
     return candidates
 
 
@@ -226,7 +232,8 @@ class Completer( with_metaclass( abc.ABCMeta, object ) ):
     cache_completions = self._completions_cache.GetCompletionsIfCacheValid(
           request_data[ 'line_num' ],
           request_data[ 'start_column' ],
-          self.CompletionType( request_data ) )
+          self.CompletionType( request_data ),
+          query = request_data['query'] )
 
     if cache_completions:
       return cache_completions
@@ -400,33 +407,38 @@ class CompletionsCache( object ):
 
   def Invalidate( self ):
     with self._access_lock:
-      self._line_num = None
-      self._start_column = None
-      self._completion_type = None
+      self._identifier = None
       self._completions = None
+      self._query = None
 
 
   # start_column is a byte offset.
-  def Update( self, line_num, start_column, completion_type, completions ):
+  def Update( self, line_num, start_column, completion_type, completions):
     with self._access_lock:
-      self._line_num = line_num
-      self._start_column = start_column
-      self._completion_type = completion_type
+      self._identifier = (line_num, start_column, completion_type)
       self._completions = completions
+      self._query = None
 
+  def UpdateFilter(self, line_num, start_column, completion_type, query, filterd_completions):
+    if filterd_completions:
+      with self._access_lock:
+        if self._CacheValidNoLock(line_num, start_column, completion_type):
+          self._query = query
+          self._filterd_completions = filterd_completions
 
   # start_column is a byte offset.
   def GetCompletionsIfCacheValid( self, line_num, start_column,
-                                  completion_type ):
+                                  completion_type, query = None ):
     with self._access_lock:
       if not self._CacheValidNoLock( line_num, start_column,
                                      completion_type ):
         return None
+      # furthur filter already partial filtered completions
+      if query and self._query and query.startswith(self._query):
+          return self._filterd_completions
       return self._completions
 
 
   # start_column is a byte offset.
   def _CacheValidNoLock( self, line_num, start_column, completion_type ):
-    return ( line_num == self._line_num and
-             start_column == self._start_column and
-             completion_type == self._completion_type )
+    return self._identifier == (line_num, start_column, completion_type)
