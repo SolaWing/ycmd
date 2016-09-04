@@ -133,7 +133,7 @@ static boost::tuple<bool, bool> match_char(char candidate, char query, bool case
 
 #define kBasicScore 1000
 /// shorter string get more continue score
-#define ContinueScore (continue_count * continue_count * (1 + continue_count/text_.size() * 5) * kBasicScore)
+#define ContinueScore (continue_count * continue_count * (1 + 2.0 * continue_count/candidate_len) * kBasicScore)
 Result Candidate::QueryMatchResult( const std::string &query,
                                     bool case_sensitive ) const {
   const int length_punish = text_.size() * 3;
@@ -181,7 +181,7 @@ Result Candidate::QueryMatchResult( const std::string &query,
       // complete, return result
       if ( query_iter == query_end ) {
         if (continue_count > 1){ // additional bonus for last continue match
-          index_sum += ContinueScore * 2;
+          index_sum += ContinueScore * 1.5;
           continue_count = 0;
         }
         int word_boundary_count = LongestCommonSubsequenceLength(query, word_boundary_chars_);

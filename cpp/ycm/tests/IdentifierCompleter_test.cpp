@@ -123,26 +123,12 @@ TEST( IdentifierCompleterTest, CompleteMatchForWordBoundaryCharsWins ) {
 }
 
 TEST( IdentifierCompleterTest, RatioUtilizationTieBreak ) {
-  EXPECT_THAT( IdentifierCompleter(
-                 StringVector(
-                   "aGaaFooBarQux",
-                   "abaafbqx" ) ).CandidatesForQuery( "fbq" ),
-               ElementsAre( "aGaaFooBarQux",
-                            "abaafbqx" ) );
-
-  EXPECT_THAT( IdentifierCompleter(
-                 StringVector(
-                   "aFooBarQux",
-                   "afbq" ) ).CandidatesForQuery( "fbq" ),
-               ElementsAre( "aFooBarQux",
-                            "afbq" ) );
-
-  EXPECT_THAT( IdentifierCompleter(
-                 StringVector(
-                   "aCaaFooGxx",
-                   "aCaafoog" ) ).CandidatesForQuery( "caafoo" ),
-               ElementsAre( "aCaaFooGxx",
-                            "aCaafoog" ) );
+  // EXPECT_THAT( IdentifierCompleter(
+  //                StringVector(
+  //                  "aCaaFoogxx",
+  //                  "aCaafoog" ) ).CandidatesForQuery( "caafoo" ),
+  //              ElementsAre( "aCaaFoogxx",
+  //                           "aCaafoog" ) );
 
   EXPECT_THAT( IdentifierCompleter(
                  StringVector(
@@ -200,6 +186,13 @@ TEST( IdentifierCompleterTest, LowerMatchCharIndexSumWins ) {
 }
 
 TEST( IdentifierCompleterTest, ShorterCandidateWins ) {
+  EXPECT_THAT( IdentifierCompleter(
+                 StringVector(
+                   "cache",
+                   "cacheBtnClick" ) ).CandidatesForQuery( "cach" ),
+               ElementsAre( "cache",
+                            "cacheBtnClick" ) );
+
   EXPECT_THAT( IdentifierCompleter(
                  StringVector(
                    "CompleterT",
