@@ -231,6 +231,14 @@ class Completer( with_metaclass( abc.ABCMeta, object ) ):
     if cache_completions:
       return cache_completions
     else:
+      # placeholder to ensure only have one request for fixed position
+      # TODO: may have exception and lock complete?
+      self._completions_cache.Update(
+          request_data[ 'line_num' ],
+          request_data[ 'start_column' ],
+          self.CompletionType( request_data ),
+          []
+      )
       raw_completions = self.ComputeCandidatesInner( request_data )
       self._completions_cache.Update(
           request_data[ 'line_num' ],
