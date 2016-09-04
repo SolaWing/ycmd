@@ -132,7 +132,8 @@ static boost::tuple<bool, bool> match_char(char candidate, char query, bool case
 }
 
 #define kBasicScore 1000
-#define ContinueScore (continue_count * continue_count * kBasicScore)
+/// shorter string get more continue score
+#define ContinueScore (continue_count * continue_count * (1 + continue_count/text_.size() * 5) * kBasicScore)
 Result Candidate::QueryMatchResult( const std::string &query,
                                     bool case_sensitive ) const {
   const int length_punish = text_.size() * 3;
