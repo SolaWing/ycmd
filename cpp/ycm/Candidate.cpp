@@ -190,8 +190,8 @@ Result Candidate::QueryMatchResult( const std::string &query,
             // double const query_match_wbc_ratio = word_boundary_count / (double)query.size();
             index_sum += word_boundary_count * word_boundary_count * (1 + word_boundary_char_utilization * 2) * kBasicScore;
         }
-        // match last char, get extra bonus
-        if ( index + 1 == candidate_len ) index_sum += (2 + word_boundary_count) * kBasicScore * (word_boundary_count + 1);
+        // match last char, get extra bonus for shorter string
+        if ( index + 1 == candidate_len ) index_sum += 1500 / (candidate_len * candidate_len) * kBasicScore;
 
         return Result( true, &text_,  index_sum - change_case_count);
       }
