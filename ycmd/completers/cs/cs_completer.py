@@ -27,7 +27,6 @@ from future.utils import itervalues
 
 from collections import defaultdict
 import os
-import time
 import re
 from ycmd.completers.completer import Completer
 from ycmd.utils import ForceSemanticCompletion, CodepointOffsetToByteOffset
@@ -72,10 +71,9 @@ class CsharpCompleter( Completer ):
 
 
   def Shutdown( self ):
-    if ( self.user_options[ 'auto_stop_csharp_server' ] ):
+    if self.user_options[ 'auto_stop_csharp_server' ]:
       for solutioncompleter in itervalues( self._completer_per_solution ):
-        if solutioncompleter._ServerIsRunning():
-          solutioncompleter._StopServer()
+        solutioncompleter._StopServer()
 
 
   def SupportedFiletypes( self ):
@@ -219,16 +217,24 @@ class CsharpCompleter( Completer ):
 
   def _QuickFixToDiagnostic( self, request_data, quick_fix ):
     filename = quick_fix[ "FileName" ]
+    # NOTE: end of diagnostic range returned by the OmniSharp server is not
+    # included.
     location = _BuildLocation( request_data,
                                filename,
                                quick_fix[ 'Line' ],
                                quick_fix[ 'Column' ] )
-    location_range = responses.Range( location, location )
+    location_end = _BuildLocation( request_data,
+                                   filename,
+                                   quick_fix[ 'EndLine' ],
+                                   quick_fix[ 'EndColumn' ] )
+    if not location_end:
+      location_end = location
+    location_extent = responses.Range( location, location_end )
     return responses.Diagnostic( list(),
                                  location,
-                                 location_range,
-                                 quick_fix[ "Text" ],
-                                 quick_fix[ "LogLevel" ].upper() )
+                                 location_extent,
+                                 quick_fix[ 'Text' ],
+                                 quick_fix[ 'LogLevel' ].upper() )
 
 
   def GetDetailedDiagnostic( self, request_data ):
@@ -403,39 +409,24 @@ class CsharpSolutionCompleter( object ):
   def _StopServer( self ):
     """ Stop the OmniSharp server using a lock. """
     with self._server_state_lock:
-      if not self._ServerIsRunning():
-        return
-
-      self._logger.info( 'Stopping OmniSharp server' )
-
-      self._TryToStopServer()
-
-      # Kill it if it's still up
       if self._ServerIsRunning():
-        self._logger.info( 'Killing OmniSharp server' )
-        self._omnisharp_phandle.kill()
+        self._logger.info( 'Stopping OmniSharp server with PID {0}'.format(
+                               self._omnisharp_phandle.pid ) )
+        self._GetResponse( '/stopserver' )
+        try:
+          utils.WaitUntilProcessIsTerminated( self._omnisharp_phandle,
+                                              timeout = 5 )
+          self._logger.info( 'OmniSharp server stopped' )
+        except RuntimeError:
+          self._logger.exception( 'Error while stopping OmniSharp server' )
 
-      self._CleanupAfterServerStop()
-
-      self._logger.info( 'Stopped OmniSharp server' )
-
-
-  def _TryToStopServer( self ):
-    for _ in range( 5 ):
-      try:
-        self._GetResponse( '/stopserver', timeout = .1 )
-      except:
-        pass
-      for _ in range( 10 ):
-        if not self._ServerIsRunning():
-          return
-        time.sleep( .1 )
+      self._CleanUp()
 
 
-  def _CleanupAfterServerStop( self ):
+  def _CleanUp( self ):
     self._omnisharp_port = None
     self._omnisharp_phandle = None
-    if ( not self._keep_logfiles ):
+    if not self._keep_logfiles:
       if self._filename_stdout:
         utils.RemoveIfExists( self._filename_stdout )
         self._filename_stdout = None
@@ -701,6 +692,8 @@ def _IndexToLineColumn( text, index ):
 
 
 def _BuildLocation( request_data, filename, line_num, column_num ):
+  if line_num <= 0 or column_num <= 0:
+    return None
   contents = utils.SplitLines( GetFileContents( request_data, filename ) )
   line_value = contents[ line_num - 1 ]
   return responses.Location(

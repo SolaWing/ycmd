@@ -32,6 +32,7 @@ from future import standard_library
 standard_library.install_aliases()
 from builtins import *  # noqa
 
+import atexit
 import sys
 import logging
 import json
@@ -53,29 +54,31 @@ def YcmCoreSanityCheck():
 
 # We manually call sys.exit() on SIGTERM and SIGINT so that atexit handlers are
 # properly executed.
-def SetUpSignalHandler( stdout, stderr, keep_logfiles ):
+def SetUpSignalHandler():
   def SignalHandler( signum, frame ):
-    # We reset stderr & stdout, just in case something tries to use them
-    if stderr:
-      tmp = sys.stderr
-      sys.stderr = sys.__stderr__
-      tmp.close()
-    if stdout:
-      tmp = sys.stdout
-      sys.stdout = sys.__stdout__
-      tmp.close()
-
-    if not keep_logfiles:
-      if stderr:
-        utils.RemoveIfExists( stderr )
-      if stdout:
-        utils.RemoveIfExists( stdout )
-
     sys.exit()
 
   for sig in [ signal.SIGTERM,
                signal.SIGINT ]:
     signal.signal( sig, SignalHandler )
+
+
+def CleanUpLogfiles( stdout, stderr, keep_logfiles ):
+  # We reset stderr & stdout, just in case something tries to use them
+  if stderr:
+    tmp = sys.stderr
+    sys.stderr = sys.__stderr__
+    tmp.close()
+  if stdout:
+    tmp = sys.stdout
+    sys.stdout = sys.__stdout__
+    tmp.close()
+
+  if not keep_logfiles:
+    if stderr:
+      utils.RemoveIfExists( stderr )
+    if stdout:
+      utils.RemoveIfExists( stdout )
 
 
 def PossiblyDetachFromTerminal():
@@ -104,7 +107,7 @@ def ParseArguments():
                        help = 'num idle seconds before server shuts down')
   parser.add_argument( '--check_interval_seconds', type = int, default = 600,
                        help = 'interval in seconds to check server '
-                              'inactivity' )
+                              'inactivity and keep subservers alive' )
   parser.add_argument( '--options_file', type = str, required = True,
                        help = 'file with user options, in JSON format' )
   parser.add_argument( '--stdout', type = str, default = None,
@@ -171,7 +174,14 @@ def Main():
   from ycmd.watchdog_plugin import WatchdogPlugin
   handlers.UpdateUserOptions( options )
   handlers.SetHmacSecret( hmac_secret )
-  SetUpSignalHandler( args.stdout, args.stderr, args.keep_logfiles )
+  handlers.KeepSubserversAlive( args.check_interval_seconds )
+  SetUpSignalHandler()
+  # Functions registered by the atexit module are called at program termination
+  # in last in, first out order.
+  atexit.register( CleanUpLogfiles, args.stdout,
+                                    args.stderr,
+                                    args.keep_logfiles )
+  atexit.register( handlers.ServerCleanup )
   handlers.app.install( WatchdogPlugin( args.idle_suicide_seconds,
                                         args.check_interval_seconds ) )
   handlers.app.install( HmacPlugin( hmac_secret ) )
