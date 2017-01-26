@@ -1,5 +1,5 @@
-# Copyright (C) 2015 - 2016 Google Inc.
-#               2016 ycmd contributors
+# Copyright (C) 2015-2016 Google Inc.
+#               2016-2017 ycmd contributors
 #
 # This file is part of ycmd.
 #
@@ -47,6 +47,8 @@ MAX_DETAILED_COMPLETIONS = 100
 RESPONSE_TIMEOUT_SECONDS = 10
 
 PATH_TO_TSSERVER = utils.FindExecutable( 'tsserver' )
+
+LOGFILE_FORMAT = 'tsserver_'
 
 _logger = logging.getLogger( __name__ )
 
@@ -145,7 +147,7 @@ class TypeScriptCompleter( Completer ):
       if self._ServerIsRunning():
         return
 
-      self._logfile = _LogFileName()
+      self._logfile = utils.CreateLogfile( LOGFILE_FORMAT )
       tsserver_log = '-file {path} -level {level}'.format( path = self._logfile,
                                                            level = _LogLevel() )
       # TSServer gets the configuration for the log file through the
@@ -551,6 +553,7 @@ class TypeScriptCompleter( Completer ):
 
 
   def _CleanUp( self ):
+    utils.CloseStandardStreams( self._tsserver_handle )
     self._tsserver_handle = None
     if not self.user_options[ 'server_keep_logfiles' ]:
       utils.RemoveIfExists( self._logfile )
@@ -563,32 +566,13 @@ class TypeScriptCompleter( Completer ):
 
   def DebugInfo( self, request_data ):
     with self._server_lock:
-      if self._ServerIsRunning():
-        return ( 'TypeScript completer debug information:\n'
-                 '  TSServer running\n'
-                 '  TSServer process ID: {0}\n'
-                 '  TSServer executable: {1}\n'
-                 '  TSServer logfile: {2}'.format( self._tsserver_handle.pid,
-                                                   PATH_TO_TSSERVER,
-                                                   self._logfile ) )
-      if self._logfile:
-        return ( 'TypeScript completer debug information:\n'
-                 '  TSServer no longer running\n'
-                 '  TSServer executable: {0}\n'
-                 '  TSServer logfile: {1}'.format( PATH_TO_TSSERVER,
-                                                   self._logfile ) )
+      tsserver = responses.DebugInfoServer( name = 'TSServer',
+                                            handle = self._tsserver_handle,
+                                            executable = PATH_TO_TSSERVER,
+                                            logfiles = [ self._logfile ] )
 
-      return ( 'TypeScript completer debug information:\n'
-               '  TSServer is not running\n'
-               '  TSServer executable: {0}'.format( PATH_TO_TSSERVER ) )
-
-
-def _LogFileName():
-  with NamedTemporaryFile( dir = utils.PathToCreatedTempDir(),
-                           prefix = 'tsserver_',
-                           suffix = '.log',
-                           delete = False ) as logfile:
-    return logfile.name
+      return responses.BuildDebugInfoResponse( name = 'TypeScript',
+                                               servers = [ tsserver ] )
 
 
 def _LogLevel():

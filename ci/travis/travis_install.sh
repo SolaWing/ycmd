@@ -1,6 +1,7 @@
 #!/bin/bash
 
-set -ev
+# Exit immediately if a command returns a non-zero status.
+set -e
 
 ####################
 # OS-specific setup
@@ -32,7 +33,9 @@ eval "$(pyenv init -)"
 if [ "${YCMD_PYTHON_VERSION}" == "2.6" ]; then
   PYENV_VERSION="2.6.6"
 elif [ "${YCMD_PYTHON_VERSION}" == "2.7" ]; then
-  PYENV_VERSION="2.7.6"
+  # We need a recent enough version of Python 2.7 on OS X or an error occurs
+  # when installing the psutil dependency for our tests.
+  PYENV_VERSION="2.7.8"
 else
   PYENV_VERSION="3.3.6"
 fi
@@ -55,7 +58,6 @@ test ${python_version} == ${YCMD_PYTHON_VERSION}
 
 pip install -U pip wheel setuptools
 pip install -r test_requirements.txt
-npm install -g typescript
 
 # Enable coverage for Python subprocesses. See:
 # http://coverage.readthedocs.org/en/coverage-4.0.3/subprocess.html
@@ -78,7 +80,10 @@ popd
 multirust update stable
 multirust default stable
 
-# The build infrastructure prints a lot of spam after this script runs, so make
-# sure to disable printing, and failing on non-zero exit code after this script
-# finishes
-set +ev
+###############
+# Node.js setup
+###############
+
+npm install -g typescript
+
+set +e
