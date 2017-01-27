@@ -157,7 +157,9 @@ class SwiftCompleter( Completer ):
         extra_data = { 'template' : completion.get('sourcetext') }
       ) for completion in json.loads( stdoutdata ) ]
       # cache for QuickCandidates when big than 1M
-      if len(stdoutdata) > 1e6 : self._big_cache = completions
+      if len(stdoutdata) > 1e6 :
+          self._logger.debug("swift cache %d", len(stdoutdata))
+          self._big_cache = completions
       return completions
 
   def _kindFromKittenKind(self, sourcekind):

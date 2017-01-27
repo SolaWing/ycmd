@@ -25,6 +25,7 @@ from builtins import *  # noqa
 
 import abc
 import threading
+from ycmd import utils
 from ycmd.utils import ForceSemanticCompletion
 from ycmd.completers import completer_utils
 from ycmd.responses import NoDiagnosticSupport
@@ -229,25 +230,39 @@ class Completer( with_metaclass( abc.ABCMeta, object ) ):
 
   def QuickCandidates( self, request_data ): return []
   def _GetCandidatesFromSubclass( self, request_data ):
+    #  import logging
+    #  logger = logging.getLogger( __name__ )
     cache_completions = self._completions_cache.GetCompletionsIfCacheValid(
           request_data[ 'line_num' ],
           request_data[ 'start_column' ],
           self.CompletionType( request_data ),
           query = request_data['query'] )
 
-    if cache_completions:
+    if cache_completions is not None:
+      #  logger.info("cache response %d, %d", request_data['line_num'], request_data['start_column'])
       return cache_completions
     else:
       # placeholder to ensure only have one request for fixed position
       # TODO: may have exception and lock complete?
+      raw_completions = self.QuickCandidates(request_data)
       self._completions_cache.Update(
           request_data[ 'line_num' ],
           request_data[ 'start_column' ],
           self.CompletionType( request_data ),
-          self.QuickCandidates(request_data)
+          raw_completions
       )
+      if len(raw_completions) > 0:
+          #  logger.info("quick response %d, %d", request_data['line_num'], request_data['start_column'])
+          utils.Executor().submit(self._ComputeCandidates, request_data)
+          return raw_completions
+      v = self._ComputeCandidates(request_data)
+      #  logger.info("normal response %d, %d", request_data['line_num'], request_data['start_column'])
+      return v
+
+
+  def _ComputeCandidates(self, request_data):
       raw_completions = self.ComputeCandidatesInner( request_data )
-      self._completions_cache.Update(
+      self._completions_cache.UpdateCache(
           request_data[ 'line_num' ],
           request_data[ 'start_column' ],
           self.CompletionType( request_data ),
@@ -418,6 +433,13 @@ class CompletionsCache( object ):
       self._identifier = (line_num, start_column, completion_type)
       self._completions = completions
       self._query = None
+
+  # start_column is a byte offset.
+  def UpdateCache( self, line_num, start_column, completion_type, completions):
+    with self._access_lock:
+      if self._CacheValidNoLock(line_num, start_column, completion_type):
+          self._completions = completions
+          self._query = None
 
   def UpdateFilter(self, line_num, start_column, completion_type, query, filterd_completions):
     if filterd_completions:

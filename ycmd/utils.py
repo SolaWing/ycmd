@@ -41,6 +41,14 @@ CREATE_NO_WINDOW = 0x08000000
 EXECUTABLE_FILE_MASK = os.F_OK | os.X_OK
 
 
+_executor = None
+def Executor():
+    global _executor
+    if _executor is None:
+        from concurrent.futures import ThreadPoolExecutor
+        _executor = ThreadPoolExecutor(max_workers = 4)
+    return _executor
+
 # Python 3 complains on the common open(path).read() idiom because the file
 # doesn't get closed. So, a helper func.
 # Also, all files we read are UTF-8.
