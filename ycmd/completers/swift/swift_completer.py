@@ -34,12 +34,8 @@ from ycmd import responses, utils, hmac_utils
 from ycmd import extra_conf_store
 from tempfile import NamedTemporaryFile
 
-from base64 import b64encode
 import json
 import logging
-import urllib.parse
-import requests
-import threading
 import subprocess
 import sys
 import os
@@ -60,10 +56,11 @@ class SwiftCompleter( Completer ):
   def __init__( self, user_options ):
     super( SwiftCompleter, self ).__init__( user_options )
     self._logger = logging.getLogger( __name__ )
-    self._logfile_stdout = None
-    self._logfile_stderr = None
-    self._keep_logfiles = user_options[ 'server_keep_logfiles' ]
+    #  self._logfile_stdout = None
+    #  self._logfile_stderr = None
+    #  self._keep_logfiles = user_options[ 'server_keep_logfiles' ]
     self._flags_for_file = {}
+    self._big_cache = []
 
     self._UpdateSourceKittenBinary( user_options.get( 'sourcekitten_binary_path' ) )
 
@@ -113,6 +110,9 @@ class SwiftCompleter( Completer ):
     if response.get('do_cache', True): self._flags_for_file[filename] = flags
     return flags
 
+  def QuickCandidates(self, request_data):
+      return self._big_cache
+
 
   def ComputeCandidatesInner( self, request_data ):
       filename = request_data[ 'filepath' ]
@@ -146,15 +146,19 @@ class SwiftCompleter( Completer ):
           if phandle.returncode != 0:
               self._logger.error(stdoutdata + stderrdata)
               return
-          self._logger.debug("swift response[%d:%d]: %s", line, column, ToUnicode(stdoutdata))
-      return [ responses.BuildCompletionData(
+          stdoutdata = ToUnicode(stdoutdata)
+          self._logger.debug("swift response[%d:%d]: %s", line, column, stdoutdata)
+      completions = [ responses.BuildCompletionData(
         completion['name'],
         completion.get('typeName'),
         detailed_info = completion.get('docBrief'),
         menu_text = completion.get('descriptionKey'),
         kind = self._kindFromKittenKind(completion.get('kind')),
         extra_data = { 'template' : completion.get('sourcetext') }
-      ) for completion in json.loads( ToUnicode(stdoutdata) ) ]
+      ) for completion in json.loads( stdoutdata ) ]
+      # cache for QuickCandidates when big than 1M
+      if len(stdoutdata) > 1e6 : self._big_cache = completions
+      return completions
 
   def _kindFromKittenKind(self, sourcekind):
     return {
