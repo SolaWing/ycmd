@@ -27,7 +27,7 @@ from future import standard_library
 from future.utils import native
 standard_library.install_aliases()
 
-from ycmd.utils import ToBytes, ToUnicode, ProcessIsRunning
+from ycmd.utils import ToBytes, ToUnicode, ProcessIsRunning, ForceSemanticCompletion
 from ycmd.completers.completer import Completer
 from ycmd.completers.completer_utils import GetFileContents
 from ycmd import responses, utils, hmac_utils
@@ -111,7 +111,9 @@ class SwiftCompleter( Completer ):
     return flags
 
   def QuickCandidates(self, request_data):
-      return self._big_cache
+      if ForceSemanticCompletion(request_data) and request_data[ 'query' ]:
+          return self._big_cache
+      return []
 
 
   def ComputeCandidatesInner( self, request_data ):

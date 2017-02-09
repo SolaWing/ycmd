@@ -245,6 +245,7 @@ class Completer( with_metaclass( abc.ABCMeta, object ) ):
       # placeholder to ensure only have one request for fixed position
       # TODO: may have exception and lock complete?
       raw_completions = self.QuickCandidates(request_data)
+      if raw_completions is None: raw_completions = []
       self._completions_cache.Update(
           request_data[ 'line_num' ],
           request_data[ 'start_column' ],
