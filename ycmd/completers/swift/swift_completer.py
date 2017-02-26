@@ -154,9 +154,9 @@ class SwiftCompleter( Completer ):
         completion['name'],
         completion.get('typeName'),
         detailed_info = completion.get('docBrief'),
-        menu_text = completion.get('descriptionKey'),
-        kind = self._kindFromKittenKind(completion.get('kind')),
-        extra_data = { 'template' : completion.get('sourcetext') }
+        menu_text     = completion.get('descriptionKey'),
+        kind          = self._kindFromKittenKind(completion.get('kind')),
+        extra_data    = { 'template' : completion.get('sourcetext') }
       ) for completion in json.loads( stdoutdata ) ]
       # cache for QuickCandidates when big than 1M
       if len(stdoutdata) > 1e6 :
