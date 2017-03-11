@@ -33,6 +33,7 @@ from ycmd.completers.completer_utils import GetFileContents
 from ycmd import responses, utils, hmac_utils
 from ycmd import extra_conf_store
 from tempfile import NamedTemporaryFile
+from io import BytesIO
 
 import json
 import logging
@@ -45,6 +46,8 @@ BINARY_NOT_FOUND_MESSAGE = ( 'The specified sourceKitten {0} ' +
                              'was not found. Did you specify it correctly?' )
 LOGFILE_FORMAT = 'swift_{port}_{std}_'
 PATH_TO_SOURCEKITTEN = "sourcekitten"
+
+
 
 
 class SwiftCompleter( Completer ):
@@ -110,205 +113,172 @@ class SwiftCompleter( Completer ):
     if response.get('do_cache', True): self._flags_for_file[filename] = flags
     return flags
 
-  def QuickCandidates(self, request_data):
-      if ForceSemanticCompletion(request_data) and request_data[ 'query' ]:
-          return self._big_cache
-      return []
-
-
-  def ComputeCandidatesInner( self, request_data ):
+  def RequestDataExtract(self, request_data, current=False):
       filename = request_data[ 'filepath' ]
       if not filename: return
 
       file_contents = utils.SplitLines( GetFileContents( request_data, filename ) )
       # 0 based line and column
       line = request_data[ 'line_num' ] - 1
-      column = request_data[ 'start_column' ] - 1
-      offset = column
+      if current:
+          column = request_data['column_num'] - 1
+      else:
+          column = request_data[ 'start_column' ] - 1
       additional_flags = self.FlagsForFile(filename)
+      abs_filename = os.path.abspath(filename)
+      if abs_filename not in additional_flags: additional_flags = [abs_filename] + additional_flags
 
-      with NamedTemporaryFile(suffix=".swift") as f:
-          f.write( utils.ToBytes( "\n".join(file_contents[:line]) ) )
-          f.write( b"\n" )
-          offset += f.tell()
-          f.write( utils.ToBytes( "\n".join(file_contents[line:]) ) )
-          f.write( b"\n" )
-          f.flush()
+      (source_bytes, offset) = ToBytesWithCursor(file_contents, line, column)
+      return (abs_filename, source_bytes, offset, additional_flags)
 
-          cmd = [self._sourcekitten_binary_path,
-                 'complete', '--file', f.name, '--offset', str(offset),
-                 '--'] + additional_flags
-          self._logger.debug("swift request[%d:%d]: %s", line, column, utils.JoinLinesAsUnicode(cmd))
-          phandle = utils.SafePopen(
-            cmd,# cwd = "/Users/wang/Desktop/feng/ifengnwsphone/newProject/",
-            stdin = subprocess.PIPE, stdout = subprocess.PIPE, stderr = subprocess.PIPE,
-            universal_newlines = True,
-          )
-          stdoutdata, stderrdata = phandle.communicate()
-          if phandle.returncode != 0:
-              self._logger.error(stdoutdata + stderrdata)
-              return
-          stdoutdata = ToUnicode(stdoutdata)
-          self._logger.debug("swift response[%d:%d]: %s", line, column, stdoutdata)
+
+  def QuickCandidates(self, request_data):
+      if ForceSemanticCompletion(request_data) and request_data[ 'query' ]:
+          return self._big_cache
+      return []
+
+  def ComputeCandidatesInner( self, request_data ):
+      data = self.RequestDataExtract(request_data)
+      if data is None: return []
+
+      output = self.request("source.request.codecomplete", {
+          "key.sourcefile" : data[0],
+          "key.sourcetext" : utils.ToUnicode( data[1] ),
+          "key.offset" : data[2],
+          "key.compilerargs" : data[3],
+      } )
+      if not output: return []
+
       completions = [ responses.BuildCompletionData(
-        completion['name'],
-        completion.get('typeName'),
-        detailed_info = completion.get('docBrief'),
-        menu_text     = completion.get('descriptionKey'),
-        kind          = self._kindFromKittenKind(completion.get('kind')),
-        extra_data    = { 'template' : completion.get('sourcetext') }
-      ) for completion in json.loads( stdoutdata ) ]
+        completion['key.name'],
+        completion.get('key.typename'),
+        detailed_info = completion.get('key.doc.brief'),
+        menu_text     = completion.get('key.description'),
+        kind          = KindFromKittenKind(completion.get('key.kind')),
+        extra_data    = { 'template' : completion.get('key.sourcetext') }
+      ) for completion in json.loads( output )["key.results"] ]
       # cache for QuickCandidates when big than 1M
-      if len(stdoutdata) > 1e6 :
-          self._logger.debug("swift cache %d", len(stdoutdata))
+      if len(output) > 1e6 :
+          self._logger.debug("swift cache %d", len(output))
           self._big_cache = completions
       return completions
 
-  def _kindFromKittenKind(self, sourcekind):
-    return {
-        "source.lang.swift.decl.class"                    : "CLASS",
-        "source.lang.swift.decl.enum"                     : "ENUM",    # enum type
-        "source.lang.swift.decl.enumelement"              : "ENUMELEMENT",    # enum element
-        "source.lang.swift.decl.function.free"            : "FUNCTION",
-        "source.lang.swift.decl.function.method.instance" : "METHOD",
-        "source.lang.swift.decl.function.method.class"    : "METHOD",
-        "source.lang.swift.decl.protocol"                 : "PROTOCOL",
-        "source.lang.swift.decl.struct"                   : "STRUCT",
-        "source.lang.swift.decl.typealias"                : "ALIAS",
-        "source.lang.swift.decl.var.global"               : "VARIABLE",
-        "source.lang.swift.decl.var.instance"             : "VARIABLE",
-        "source.lang.swift.decl.var.class"                : "VARIABLE",
-        "source.lang.swift.decl.var.local"                : "IDENTIFIER",
-        "source.lang.swift.keyword"                       : "KEYWORD",
-        "source.lang.swift.literal.color"                 : "LITERALCOLOR",
-        "source.lang.swift.literal.image"                 : "LITERALIMAGE",
-    }.get(sourcekind, 'UNKNOWN')
+
+
+  def request(self, name, requestObject):
+      request  = json.dumps(requestObject, ensure_ascii=False)
+      request = "{key.request: " + name + "," + request[1:]
+      self._logger.debug("swift request: %s", request)
+      cmd = [self._sourcekitten_binary_path, 'request', '--yaml', request]
+      handle = utils.SafePopen(
+          cmd,
+          stdin = subprocess.PIPE, stdout = subprocess.PIPE, stderr = subprocess.PIPE,
+          universal_newlines = True)
+      stdoutdata, stderrdata = handle.communicate()
+      if handle.returncode != 0:
+          self._logger.error(stdoutdata + stderrdata)
+          return
+      stdoutdata = ToUnicode(stdoutdata)
+      self._logger.debug("swift %s response: %s", name, stdoutdata)
+      return stdoutdata
+
 
 
   def GetSubcommandsMap( self ):
     return {
-      #  'GoToDefinition' : ( lambda self, request_data, args:
-      #                       self._GoToDefinition( request_data ) ),
-      #  'GoToDeclaration': ( lambda self, request_data, args:
-      #                       self._GoToDeclaration( request_data ) ),
-      #  'GoTo'           : ( lambda self, request_data, args:
-      #                       self._GoTo( request_data ) ),
-      #  'GetDoc'         : ( lambda self, request_data, args:
-      #                       self._GetDoc( request_data ) ),
-      #  'GoToReferences' : ( lambda self, request_data, args:
-      #                       self._GoToReferences( request_data ) ),
-      #  'StopServer'     : ( lambda self, request_data, args:
-      #                       self.Shutdown() ),
-      #  'RestartServer'  : ( lambda self, request_data, args:
-      #                       self.RestartServer( *args ) )
+        'GetType' : SwiftCompleter.GetType,
+        'GetDoc'  : SwiftCompleter.GetDoc,
+        'GoTo'    : SwiftCompleter.GoTo,
     }
 
+  def CursorRequest(self, request_data):
+      data = self.RequestDataExtract(request_data, current=True)
+      if data is None: return
 
-  #  def _GoToDefinition( self, request_data ):
-  #    definitions = self._GetDefinitionsList( '/gotodefinition',
-  #                                            request_data )
-  #    if not definitions:
-  #      raise RuntimeError( 'Can\'t jump to definition.' )
-  #    return self._BuildGoToResponse( definitions )
-
-
-  #  def _GoToDeclaration( self, request_data ):
-  #    definitions = self._GetDefinitionsList( '/gotoassignment',
-  #                                            request_data )
-  #    if not definitions:
-  #      raise RuntimeError( 'Can\'t jump to declaration.' )
-  #    return self._BuildGoToResponse( definitions )
+      output = self.request("source.request.cursorinfo", {
+          "key.sourcefile" : data[0],
+          "key.sourcetext" : utils.ToUnicode( data[1] ),
+          "key.offset" : data[2],
+          "key.compilerargs" : data[3],
+      } )
+      if not output: return
+      return json.loads(output)
 
 
-  #  def _GoTo( self, request_data ):
-  #    try:
-  #      return self._GoToDefinition( request_data )
-  #    except Exception as e:
-  #      self._logger.exception( e )
-  #      pass
+  def GetType(self, request_data, args):
+      cursorInfo = self.CursorRequest(request_data)
+      if not cursorInfo: return
 
-  #    try:
-  #      return self._GoToDeclaration( request_data )
-  #    except Exception as e:
-  #      self._logger.exception( e )
-  #      raise RuntimeError( 'Can\'t jump to definition or declaration.' )
+      return responses.BuildDisplayMessageResponse( ToUnicode(cursorInfo["key.typename"]) )
 
+  def GetDoc(self, request_data, args):
+      cursorInfo = self.CursorRequest(request_data)
+      if not cursorInfo: return
 
-  #  def _GetDoc( self, request_data ):
-  #    try:
-  #      definitions = self._GetDefinitionsList( '/gotodefinition',
-  #                                              request_data )
-  #      return self._BuildDetailedInfoResponse( definitions )
-  #    except Exception as e:
-  #      self._logger.exception( e )
-  #      raise RuntimeError( 'Can\'t find a definition.' )
+      from xml.etree import ElementTree
+      def textFromKey(key, tags):
+          try:
+              root = ElementTree.fromstring( cursorInfo[key] )
+              def textInTag(t):
+                  declaration = root.find( t ) if root.tag != t else root
+                  return "".join(declaration.itertext()) if declaration is not None else ""
+              return [ textInTag(t) for t in tags ]
+          except:
+              return [""] * len(tags)
 
+      brief, full = textFromKey("key.doc.full_as_xml", ('Abstract', 'Discussion'))
+      decl = textFromKey("key.annotated_decl", ["Declaration"])[0]
 
-  #  def _GoToReferences( self, request_data ):
-  #    definitions = self._GetDefinitionsList( '/usages', request_data )
-  #    if not definitions:
-  #      raise RuntimeError( 'Can\'t find references.' )
-  #    return self._BuildGoToResponse( definitions )
+      return responses.BuildDetailedInfoResponse(
+          '{filepath}:+{offset}\n{decl}\n\n{brief}\n\n{discuss}'.format(
+              filepath = cursorInfo.get("key.filepath", "module"),
+              offset = cursorInfo.get("key.offset", 0),
+              decl = decl,
+              brief = brief,
+              discuss = full,
+          ))
 
+  def GoTo(self, request_data, args):
+      cursorInfo = self.CursorRequest(request_data)
+      if not cursorInfo: return
 
-  #  def _GetDefinitionsList( self, handler, request_data ):
-  #    try:
-  #      response = self._GetResponse( handler, request_data )
-  #      return response[ 'definitions' ]
-  #    except Exception as e:
-  #      self._logger.exception( e )
-  #      raise RuntimeError( 'Cannot follow nothing. '
-  #                          'Put your cursor on a valid name.' )
-
-
-  #  def _BuildGoToResponse( self, definition_list ):
-  #    if len( definition_list ) == 1:
-  #      definition = definition_list[ 0 ]
-  #      if definition[ 'in_builtin_module' ]:
-  #        if definition[ 'is_keyword' ]:
-  #          raise RuntimeError( 'Cannot get the definition of Python keywords.' )
-  #        else:
-  #          raise RuntimeError( 'Builtin modules cannot be displayed.' )
-  #      else:
-  #        return responses.BuildGoToResponse( definition[ 'module_path' ],
-  #                                            definition[ 'line' ],
-  #                                            definition[ 'column' ] + 1 )
-  #    else:
-  #      # multiple definitions
-  #      defs = []
-  #      for definition in definition_list:
-  #        if definition[ 'in_builtin_module' ]:
-  #          defs.append( responses.BuildDescriptionOnlyGoToResponse(
-  #                       'Builtin ' + definition[ 'description' ] ) )
-  #        else:
-  #          defs.append(
-  #            responses.BuildGoToResponse( definition[ 'module_path' ],
-  #                                         definition[ 'line' ],
-  #                                         definition[ 'column' ] + 1,
-  #                                         definition[ 'description' ] ) )
-  #      return defs
+      if 'key.filepath' not in cursorInfo:
+          return responses.BuildDisplayMessageResponse("goto module entity is not support yet!")
+      
+      return {
+          'filepath': cursorInfo['key.filepath'],
+          'byte_offset': cursorInfo['key.offset']
+      }
 
 
-  #  def _BuildDetailedInfoResponse( self, definition_list ):
-  #    docs = [ definition[ 'docstring' ] for definition in definition_list ]
-  #    return responses.BuildDetailedInfoResponse( '\n---\n'.join( docs ) )
+def ToBytesWithCursor(file_contents, line, column):
+    offset = column
+    with BytesIO() as f:
+        if line > 0:
+            f.write( utils.ToBytes( "\n".join(file_contents[:line]) ) )
+            f.write( b"\n" )
+            offset += f.tell()
+            f.write( utils.ToBytes( "\n".join(file_contents[line:]) ) )
+            f.write( b"\n" )
+            f.flush()
+            return (f.getvalue(), offset)
 
-
-  #  def DebugInfo( self, request_data ):
-  #    with self._server_lock:
-  #      jedihttp_server = responses.DebugInfoServer(
-  #        name = 'JediHTTP',
-  #        handle = self._jedihttp_phandle,
-  #        executable = PATH_TO_JEDIHTTP,
-  #        address = '127.0.0.1',
-  #        port = self._jedihttp_port,
-  #        logfiles = [ self._logfile_stdout, self._logfile_stderr ] )
-
-  #      python_interpreter_item = responses.DebugInfoItem(
-  #        key = 'Python interpreter',
-  #        value = self._sourcekitten_binary_path )
-
-  #      return responses.BuildDebugInfoResponse(
-  #        name = 'Python',
-  #        servers = [ jedihttp_server ],
-  #        items = [ python_interpreter_item ] )
+def KindFromKittenKind(sourcekind):
+      return {
+          "source.lang.swift.decl.class"                    : "CLASS",
+          "source.lang.swift.decl.enum"                     : "ENUM",    # enum type
+          "source.lang.swift.decl.enumelement"              : "ENUMELEMENT",    # enum element
+          "source.lang.swift.decl.function.free"            : "FUNCTION",
+          "source.lang.swift.decl.function.method.instance" : "METHOD",
+          "source.lang.swift.decl.function.method.class"    : "METHOD",
+          "source.lang.swift.decl.protocol"                 : "PROTOCOL",
+          "source.lang.swift.decl.struct"                   : "STRUCT",
+          "source.lang.swift.decl.typealias"                : "ALIAS",
+          "source.lang.swift.decl.var.global"               : "VARIABLE",
+          "source.lang.swift.decl.var.instance"             : "VARIABLE",
+          "source.lang.swift.decl.var.class"                : "VARIABLE",
+          "source.lang.swift.decl.var.local"                : "IDENTIFIER",
+          "source.lang.swift.keyword"                       : "KEYWORD",
+          "source.lang.swift.literal.color"                 : "LITERALCOLOR",
+          "source.lang.swift.literal.image"                 : "LITERALIMAGE",
+      }.get(sourcekind, 'UNKNOWN')
