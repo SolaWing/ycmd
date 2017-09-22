@@ -19,11 +19,12 @@
 #define LETTERNODELISTMAP_H_BRK2UMC1
 
 #include "DLLDefines.h"
+#include "Utils.h"
 
 #include <vector>
-#include <boost/move/unique_ptr.hpp>
-#include <boost/utility.hpp>
-#include <boost/array.hpp>
+#include <memory>
+#include <array>
+
 // 128 - 5 - 64 = 59
 #define NUM_LETTERS 59
 
@@ -34,15 +35,7 @@ class LetterNode;
 extern const int kNumLetters;
 extern const int kUpperToLowerCount;
 
-bool IsInAsciiRange( int index );
 YCM_DLL_EXPORT int IndexForLetter( char letter );
-
-inline bool IsUppercase( char letter ){
-  return 'A' <= letter && letter <= 'Z';
-}
-inline bool IsLowercase(char letter){
-  return 'a' <= letter && letter <= 'z';
-}
 
 /*
  * This struct is used as part of the LetterNodeListMap structure.
@@ -58,7 +51,7 @@ inline bool IsLowercase(char letter){
  * doesn't occur, it records -1, indicating it isn't present.
  *
  * The indices can be used to retrieve the corresponding LetterNode from
- * the root LetterNode, as it contains a vector of LetterNodes, one per 
+ * the root LetterNode, as it contains a vector of LetterNodes, one per
  * position in the original string.
  */
 struct NearestLetterNodeIndices {
@@ -81,10 +74,10 @@ public:
   YCM_DLL_EXPORT NearestLetterNodeIndices *ListPointerAt( char letter );
 
 private:
-  typedef boost::array<NearestLetterNodeIndices , NUM_LETTERS>
+  typedef std::array<NearestLetterNodeIndices , NUM_LETTERS>
     NearestLetterNodeArray;
 
-  boost::movelib::unique_ptr< NearestLetterNodeArray > letters_;
+  std::unique_ptr< NearestLetterNodeArray > letters_;
 };
 
 } // namespace YouCompleteMe

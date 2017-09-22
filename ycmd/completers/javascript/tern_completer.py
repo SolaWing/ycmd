@@ -19,11 +19,10 @@ from __future__ import unicode_literals
 from __future__ import print_function
 from __future__ import division
 from __future__ import absolute_import
+# Not installing aliases from python-future; it's unreliable and slow.
 from builtins import *  # noqa
-from future.utils import iterkeys
-from future import standard_library
-standard_library.install_aliases()
 
+from future.utils import iterkeys
 import logging
 import os
 import requests
@@ -49,7 +48,8 @@ PATH_TO_TERN_BINARY = os.path.abspath(
     'bin',
     'tern' ) )
 
-PATH_TO_NODE = utils.PathToFirstExistingExecutable( [ 'node' ] )
+# On Debian-based distributions, node is by default installed as nodejs.
+PATH_TO_NODE = utils.PathToFirstExistingExecutable( [ 'nodejs', 'node' ] )
 
 # host name/address on which the tern server should listen
 # note: we use 127.0.0.1 rather than localhost because on some platforms
@@ -198,9 +198,34 @@ class TernCompleter( Completer ):
       'omitObjectPrototype': False
     }
 
-    completions = self._GetResponse( query,
-                                     request_data[ 'start_codepoint' ],
-                                     request_data ).get( 'completions', [] )
+    response = self._GetResponse( query,
+                                  request_data[ 'start_codepoint' ],
+                                  request_data )
+
+    completions = response.get( 'completions', [] )
+    tern_start_codepoint = response[ 'start' ][ 'ch' ]
+
+    # Tern returns the range of the word in the file which it is replacing. This
+    # may not be the same range that our "completion start column" calculation
+    # decided (i.e. it might not strictly be an identifier according to our
+    # rules). For example, when completing:
+    #
+    # require( '|
+    #
+    # with the cursor on |, tern returns something like 'test' (i.e. including
+    # the single-quotes). Single-quotes are not a JavaScript identifier, so
+    # should not normally be considered an identifier character, but by using
+    # our own start_codepoint calculation, the inserted string would be:
+    #
+    # require( ''test'
+    #
+    # which is clearly incorrect. It should be:
+    #
+    # require( 'test'
+    #
+    # So, we use the start position that tern tells us to use.
+    # We add 1 because tern offsets are 0-based and ycmd offsets are 1-based
+    request_data[ 'start_codepoint' ] = tern_start_codepoint + 1
 
     def BuildDoc( completion ):
       doc = completion.get( 'type', 'Unknown type' )

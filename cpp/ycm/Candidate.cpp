@@ -15,25 +15,10 @@
 // You should have received a copy of the GNU General Public License
 // along with ycmd.  If not, see <http://www.gnu.org/licenses/>.
 
-#include "standard.h"
 #include "Candidate.h"
 #include "Result.h"
 
-#include <boost/algorithm/string.hpp>
-#include <cctype>
-#include <locale>
-#include <boost/tuple/tuple.hpp>
-
-using boost::algorithm::all;
-using boost::algorithm::is_lower;
-using boost::algorithm::is_print;
-
 namespace YouCompleteMe {
-
-bool IsPrintable( const std::string &text ) {
-  return all( text, is_print( std::locale::classic() ) );
-}
-
 
 std::string _GetWordBoundaryChars( const std::string &text ) {
   std::string result;
@@ -45,7 +30,7 @@ std::string _GetWordBoundaryChars( const std::string &text ) {
   if (!ispunct( text[0] )) { PushResultAtIndex(0); }
 
   // first letter, first upper letter, letter after _ will be consider as a word boundary char
-  for ( uint i = 1; i < text.size(); ++i ) {
+  for ( size_t i = 1; i < text.size(); ++i ) {
     bool is_good_uppercase = IsUppercase( text[ i ] ) &&
                              !IsUppercase( text[ i - 1 ] );
     bool is_alpha_after_punctuation = ispunct( text[ i - 1 ] ) &&
@@ -62,7 +47,7 @@ std::string _GetWordBoundaryChars( const std::string &text ) {
   
 std::string GetWordBoundaryChars( const std::string &text) {
     std::string s = _GetWordBoundaryChars(text);
-    foreach ( char& c, s) { c = tolower(c); } // make test happy, compatibility
+    for ( char& c: s) { c = tolower(c); } // make test happy, compatibility
     return s;
 };
 
@@ -70,7 +55,7 @@ std::string GetWordBoundaryChars( const std::string &text) {
 Bitset LetterBitsetFromString( const std::string &text ) {
   Bitset letter_bitset;
 
-  foreach ( char letter, text ) {
+  for ( char letter : text ) {
     letter_bitset.set( IndexForLetter( letter ) );
   }
 
@@ -114,21 +99,21 @@ Candidate::Candidate( const std::string &text )
   // wbc_indexes_.shrink_to_fit();
 }
 
-static boost::tuple<bool, bool> match_char(char candidate, char query, bool case_sensitive) {
-    if (candidate == query) { return boost::make_tuple(true, false); }
+static std::tuple<bool, bool> match_char(char candidate, char query, bool case_sensitive) {
+    if (candidate == query) { return std::make_tuple(true, false); }
     else{
       // when case_sensitive, upper only match upper, but lower can match upper too
       if (case_sensitive){
         if (IsLowercase(query) && candidate + kUpperToLowerCount == query){
-            return boost::make_tuple(true, true);
+            return std::make_tuple(true, true);
         }
       }
       else if ((IsLowercase(query) && candidate + kUpperToLowerCount == query)
                || (IsUppercase(query) && query + kUpperToLowerCount == candidate)){
-            return boost::make_tuple(true, true);
+            return std::make_tuple(true, true);
       }
     }
-    return boost::make_tuple(false, false);
+    return std::make_tuple(false, false);
 }
 
 #define kBasicScore 1000
@@ -167,7 +152,7 @@ Result Candidate::QueryMatchResult( const std::string &query,
   bool match;
 
   while ( index < candidate_len ) {
-    boost::tie( match, change_case ) = match_char(text_[index], *query_iter, case_sensitive);
+    std::tie( match, change_case ) = match_char(text_[index], *query_iter, case_sensitive);
 
     if ( match ){
       // score related

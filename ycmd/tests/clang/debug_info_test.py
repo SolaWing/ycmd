@@ -19,8 +19,7 @@ from __future__ import unicode_literals
 from __future__ import print_function
 from __future__ import division
 from __future__ import absolute_import
-from future import standard_library
-standard_library.install_aliases()
+# Not installing aliases from python-future; it's unreliable and slow.
 from builtins import *  # noqa
 
 import os
@@ -98,7 +97,7 @@ def DebugInfo_FlagsWhenNoExtraConfAndNoCompilationDatabase_test( app ):
   )
 
 
-@IsolatedYcmd
+@IsolatedYcmd()
 def DebugInfo_FlagsWhenExtraConfNotLoadedAndNoCompilationDatabase_test(
   app ):
 
@@ -123,7 +122,7 @@ def DebugInfo_FlagsWhenExtraConfNotLoadedAndNoCompilationDatabase_test(
   )
 
 
-@IsolatedYcmd
+@IsolatedYcmd()
 def DebugInfo_FlagsWhenNoExtraConfAndCompilationDatabaseLoaded_test( app ):
   with TemporaryClangTestDir() as tmp_dir:
     compile_commands = [
@@ -158,7 +157,7 @@ def DebugInfo_FlagsWhenNoExtraConfAndCompilationDatabaseLoaded_test( app ):
       )
 
 
-@IsolatedYcmd
+@IsolatedYcmd()
 def DebugInfo_FlagsWhenNoExtraConfAndInvalidCompilationDatabase_test( app ):
   with TemporaryClangTestDir() as tmp_dir:
     compile_commands = 'garbage'

@@ -22,27 +22,63 @@
 
 namespace YouCompleteMe {
 
-TEST( CandidateRepositoryTest, EmptyCandidatesForUnicode ) {
+class CandidateRepositoryTest : public ::testing::Test {
+protected:
+  CandidateRepositoryTest()
+    : repo_( CandidateRepository::Instance() ) {
+  }
+
+  virtual void SetUp() {
+    repo_.ClearCandidates();
+  }
+
+  CandidateRepository &repo_;
+};
+
+
+TEST_F( CandidateRepositoryTest, Basic ) {
+  std::vector< std::string > inputs;
+  inputs.push_back( "foobar" );
+
+  std::vector< const Candidate * > candidates =
+    repo_.GetCandidatesForStrings( inputs );
+
+  EXPECT_EQ( "foobar", candidates[ 0 ]->Text() );
+}
+
+
+TEST_F( CandidateRepositoryTest, TooLongCandidateSkipped ) {
+  std::vector< std::string > inputs;
+  inputs.push_back( std::string( 81, 'a' ) );  // this one is too long
+  inputs.push_back( std::string( 80, 'b' ) );  // this one is *just* right
+
+  std::vector< const Candidate * > candidates =
+    repo_.GetCandidatesForStrings( inputs );
+
+  EXPECT_EQ( "", candidates[ 0 ]->Text() );
+  EXPECT_EQ( 'b', candidates[ 1 ]->Text()[ 0 ] );
+}
+
+
+TEST_F( CandidateRepositoryTest, EmptyCandidatesForUnicode ) {
   std::vector< std::string > inputs;
   inputs.push_back( "fooδιακριτικός" );
   inputs.push_back( "fooδιακός" );
 
-  CandidateRepository &repo = CandidateRepository::Instance();
   std::vector< const Candidate * > candidates =
-    repo.GetCandidatesForStrings( inputs );
+    repo_.GetCandidatesForStrings( inputs );
 
   EXPECT_EQ( "", candidates[ 0 ]->Text() );
   EXPECT_EQ( "", candidates[ 1 ]->Text() );
 }
 
 
-TEST( CandidateRepositoryTest, EmptyCandidatesForNonPrintable ) {
+TEST_F( CandidateRepositoryTest, EmptyCandidatesForNonPrintable ) {
   std::vector< std::string > inputs;
   inputs.push_back( "\x01\x05\x0a\x15" );
 
-  CandidateRepository &repo = CandidateRepository::Instance();
   std::vector< const Candidate * > candidates =
-    repo.GetCandidatesForStrings( inputs );
+    repo_.GetCandidatesForStrings( inputs );
 
   EXPECT_EQ( "", candidates[ 0 ]->Text() );
 }

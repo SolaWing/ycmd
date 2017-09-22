@@ -18,7 +18,6 @@
 #ifndef COMPLETIONDATA_H_2JCTF1NU
 #define COMPLETIONDATA_H_2JCTF1NU
 
-#include "standard.h"
 #include <string>
 #include <clang-c/Index.h>
 
@@ -95,11 +94,10 @@ struct CompletionData {
   }
 
   bool operator== ( const CompletionData &other ) const {
-    return
-      kind_ == other.kind_ &&
-      everything_except_return_type_ == other.everything_except_return_type_ &&
-      return_type_ == other.return_type_ &&
-      original_string_ == other.original_string_;
+    return kind_ == other.kind_ &&
+           return_type_ == other.return_type_ &&
+           original_string_ == other.original_string_ &&
+           everything_except_return_type_ == other.everything_except_return_type_;
     // detailed_info_ doesn't matter
   }
 
@@ -125,7 +123,7 @@ private:
 
   // change for objc compatibility
   void ExtractDataFromChunk( CXCompletionString completion_string,
-                             uint chunk_num,
+                             size_t chunk_num,
                              bool &saw_left_paren,
                              bool &saw_function_params,
                              bool &saw_placeholder );

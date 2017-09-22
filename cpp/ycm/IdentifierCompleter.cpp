@@ -16,15 +16,12 @@
 // along with ycmd.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "IdentifierCompleter.h"
-#include "standard.h"
 
 #include "Candidate.h"
 #include "IdentifierUtils.h"
 #include "Result.h"
 #include "Utils.h"
 #include "ReleaseGil.h"
-
-#include <algorithm>
 
 namespace YouCompleteMe {
 
@@ -69,7 +66,7 @@ void IdentifierCompleter::ClearForFileAndAddIdentifiersToDatabase(
 void IdentifierCompleter::AddIdentifiersToDatabaseFromTagFiles(
   const std::vector< std::string > &absolute_paths_to_tag_files ) {
   ReleaseGil unlock;
-  foreach( const std::string & path, absolute_paths_to_tag_files ) {
+  for( const std::string & path : absolute_paths_to_tag_files ) {
     identifier_database_.AddIdentifiers(
       ExtractIdentifiersFromTagsFile( path ) );
   }
@@ -77,26 +74,31 @@ void IdentifierCompleter::AddIdentifiersToDatabaseFromTagFiles(
 
 
 std::vector< std::string > IdentifierCompleter::CandidatesForQuery(
-  const std::string &query ) const {
-  return CandidatesForQueryAndType( query, "" );
+  const std::string &query,
+  const size_t max_candidates ) const {
+  return CandidatesForQueryAndType( query, "", max_candidates );
 }
 
 
 std::vector< std::string > IdentifierCompleter::CandidatesForQueryAndType(
   const std::string &query,
-  const std::string &filetype ) const {
+  const std::string &filetype,
+  const size_t max_candidates ) const {
   ReleaseGil unlock;
 
   if ( !IsPrintable( query ) )
     return std::vector< std::string >();
 
   std::vector< Result > results;
-  identifier_database_.ResultsForQueryAndType( query, filetype, results );
+  identifier_database_.ResultsForQueryAndType( query,
+                                               filetype,
+                                               results,
+                                               max_candidates );
 
   std::vector< std::string > candidates;
   candidates.reserve( results.size() );
 
-  foreach ( const Result & result, results ) {
+  for ( const Result & result : results ) {
     candidates.push_back( *result.Text() );
   }
   return candidates;

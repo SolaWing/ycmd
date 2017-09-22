@@ -4,8 +4,7 @@ from __future__ import print_function
 from __future__ import division
 from __future__ import unicode_literals
 from __future__ import absolute_import
-from future import standard_library
-standard_library.install_aliases()
+# Not installing aliases from python-future; it's unreliable and slow.
 from builtins import *  # noqa
 
 import platform
@@ -43,7 +42,9 @@ import argparse
 def RunFlake8():
   print( 'Running flake8' )
   subprocess.check_call( [
-    'flake8',
+    sys.executable,
+    # __main__ is required on Python 2.6.
+    '-m', 'flake8.__main__',
     p.join( DIR_OF_THIS_SCRIPT, 'ycmd' )
   ] )
 
@@ -117,9 +118,9 @@ def ParseArguments():
                         COMPLETERS.keys()) )
   parser.add_argument( '--skip-build', action = 'store_true',
                        help = 'Do not build ycmd before testing.' )
-  parser.add_argument( '--msvc', type = int, choices = [ 11, 12, 14 ],
-                       help = 'Choose the Microsoft Visual '
-                       'Studio version. (default: 14).' )
+  parser.add_argument( '--msvc', type = int, choices = [ 12, 14, 15 ],
+                       default = 15, help = 'Choose the Microsoft Visual '
+                       'Studio version (default: %(default)s).' )
   parser.add_argument( '--coverage', action = 'store_true',
                        help = 'Enable coverage report (requires coverage pkg)' )
   parser.add_argument( '--no-flake8', action = 'store_true',
@@ -146,7 +147,7 @@ def FixupCompleters( parsed_args ):
     completers = completers.difference( parsed_args.no_completers )
   elif parsed_args.no_clang_completer:
     print( 'WARNING: The "--no-clang-completer" flag is deprecated. '
-           'Please use "--no-completer cfamily" instead.' )
+           'Please use "--no-completers cfamily" instead.' )
     completers.remove( 'cfamily' )
 
   if 'USE_CLANG_COMPLETER' in os.environ:
@@ -209,7 +210,9 @@ def NoseTests( parsed_args, extra_nosetests_args ):
   else:
     nosetests_args.append( p.join( DIR_OF_THIS_SCRIPT, 'ycmd' ) )
 
-  subprocess.check_call( [ 'nosetests' ] + nosetests_args )
+  subprocess.check_call( [ sys.executable,
+                           # __main__ is required on Python 2.6.
+                           '-m', 'nose.__main__' ] + nosetests_args )
 
 
 def Main():

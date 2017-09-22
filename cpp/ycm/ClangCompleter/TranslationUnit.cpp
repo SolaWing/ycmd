@@ -17,19 +17,19 @@
 
 #include "TranslationUnit.h"
 #include "CompletionData.h"
-#include "standard.h"
 #include "exceptions.h"
 #include "ClangUtils.h"
 #include "ClangHelpers.h"
 
-#include <boost/shared_ptr.hpp>
-#include <boost/type_traits/remove_pointer.hpp>
+#include <cstdlib>
+#include <algorithm>
+#include <memory>
 
-using boost::unique_lock;
-using boost::mutex;
-using boost::try_to_lock_t;
-using boost::shared_ptr;
-using boost::remove_pointer;
+using std::unique_lock;
+using std::mutex;
+using std::try_to_lock_t;
+using std::shared_ptr;
+using std::remove_pointer;
 
 namespace YouCompleteMe {
 
@@ -82,7 +82,7 @@ TranslationUnit::TranslationUnit(
   std::vector< const char * > pointer_flags;
   pointer_flags.reserve( flags.size() );
 
-  foreach ( const std::string & flag, flags ) {
+  for ( const std::string & flag : flags ) {
     pointer_flags.push_back( flag.c_str() );
   }
 
@@ -105,7 +105,7 @@ TranslationUnit::TranslationUnit(
                          &clang_translation_unit_ );
 
   if ( result != CXError_Success )
-    boost_throw( ClangParseError() );
+    throw( ClangParseError() );
 }
 
 
@@ -291,9 +291,14 @@ std::string TranslationUnit::GetTypeAtLocation(
   CXType canonical_type = clang_getCanonicalType( type );
 
   if ( !clang_equalTypes( type, canonical_type ) ) {
-    type_description += " => ";
-    type_description += CXStringToString(
-                          clang_getTypeSpelling( canonical_type ) );
+    std::string canonical_type_description = CXStringToString(
+      clang_getTypeSpelling( canonical_type ) );
+
+    // Clang may return that the canonical type of a symbol is distinct from its
+    // type even though they result in the same string. Only append the
+    // canonical type if the strings are different.
+    if ( type_description != canonical_type_description )
+      type_description += " => " + canonical_type_description;
   }
 
   return type_description;
@@ -346,7 +351,7 @@ void TranslationUnit::Reparse(
 // non-const pointer to clang. This function (and clang too) will not modify the
 // param though.
 void TranslationUnit::Reparse( std::vector< CXUnsavedFile > &unsaved_files,
-                               uint parse_options ) {
+                               size_t parse_options ) {
   int failure = 0;
   {
     unique_lock< mutex > lock( clang_access_mutex_ );
@@ -365,7 +370,7 @@ void TranslationUnit::Reparse( std::vector< CXUnsavedFile > &unsaved_files,
 
   if ( failure ) {
     Destroy();
-    boost_throw( ClangParseError() );
+    throw( ClangParseError() );
   }
 
   UpdateLatestDiagnostics();
@@ -376,10 +381,10 @@ void TranslationUnit::UpdateLatestDiagnostics() {
   unique_lock< mutex > lock2( diagnostics_mutex_ );
 
   latest_diagnostics_.clear();
-  uint num_diagnostics = clang_getNumDiagnostics( clang_translation_unit_ );
+  size_t num_diagnostics = clang_getNumDiagnostics( clang_translation_unit_ );
   latest_diagnostics_.reserve( num_diagnostics );
 
-  for ( uint i = 0; i < num_diagnostics; ++i ) {
+  for ( size_t i = 0; i < num_diagnostics; ++i ) {
     Diagnostic diagnostic =
       BuildDiagnostic(
         DiagnosticWrap( clang_getDiagnostic( clang_translation_unit_, i ),
@@ -428,9 +433,9 @@ std::vector< FixIt > TranslationUnit::GetFixItsForLocationInFile(
   {
     unique_lock< mutex > lock( diagnostics_mutex_ );
 
-    foreach( const Diagnostic& diagnostic, latest_diagnostics_ ) {
+    for ( const Diagnostic& diagnostic : latest_diagnostics_ ) {
       // Find all diagnostics for the supplied line which have FixIts attached
-      if ( diagnostic.location_.line_number_ == static_cast< uint >( line ) ) {
+      if ( diagnostic.location_.line_number_ == static_cast< size_t >( line ) ) {
         fixits.insert( fixits.end(),
                        diagnostic.fixits_.begin(),
                        diagnostic.fixits_.end() );

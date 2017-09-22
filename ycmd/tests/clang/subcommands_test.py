@@ -21,8 +21,7 @@ from __future__ import absolute_import
 from __future__ import unicode_literals
 from __future__ import print_function
 from __future__ import division
-from future import standard_library
-standard_library.install_aliases()
+# Not installing aliases from python-future; it's unreliable and slow.
 from builtins import *  # noqa
 
 from hamcrest import ( assert_that, calling, contains, contains_string,
@@ -345,7 +344,7 @@ def Subcommands_GetType_test():
     # On Ns:: (Unknown)
     [{'line_num': 21, 'column_num':  3}, 'Unknown type'], # sic
     # On Type (Type)
-    [{'line_num': 21, 'column_num':  8}, 'Type => Ns::BasicType<char>'], # sic
+    [{'line_num': 21, 'column_num':  8}, 'Ns::Type => Ns::BasicType<char>'],
     # On "a" (Ns::Type)
     [{'line_num': 21, 'column_num': 15}, 'Ns::Type => Ns::BasicType<char>'],
     [{'line_num': 22, 'column_num': 13}, 'Ns::Type => Ns::BasicType<char>'],
@@ -372,26 +371,26 @@ def Subcommands_GetType_test():
     [{'line_num': 44, 'column_num': 12}, 'Foo *'],
     [{'line_num': 44, 'column_num': 18}, 'int'],
 
-    # Auto in declaration (canonical types apparently differ)
-    [{'line_num': 24, 'column_num':  3}, 'Foo & => Foo &'], # sic
-    [{'line_num': 24, 'column_num': 11}, 'Foo & => Foo &'], # sic
+    # Auto in declaration
+    [{'line_num': 24, 'column_num':  3}, 'Foo &'],
+    [{'line_num': 24, 'column_num': 11}, 'Foo &'],
     [{'line_num': 24, 'column_num': 18}, 'Foo'],
-    [{'line_num': 25, 'column_num':  3}, 'Foo * => Foo *'], # sic
-    [{'line_num': 25, 'column_num': 11}, 'Foo * => Foo *'], # sic
+    [{'line_num': 25, 'column_num':  3}, 'Foo *'],
+    [{'line_num': 25, 'column_num': 11}, 'Foo *'],
     [{'line_num': 25, 'column_num': 18}, 'Foo'],
-    [{'line_num': 27, 'column_num':  3}, 'const Foo & => const Foo &'], # sic
-    [{'line_num': 27, 'column_num': 16}, 'const Foo & => const Foo &'], # sic
-    [{'line_num': 28, 'column_num':  3}, 'const Foo * => const Foo *'], # sic
-    [{'line_num': 28, 'column_num': 16}, 'const Foo * => const Foo *'], # sic
+    [{'line_num': 27, 'column_num':  3}, 'const Foo &'],
+    [{'line_num': 27, 'column_num': 16}, 'const Foo &'],
+    [{'line_num': 28, 'column_num':  3}, 'const Foo *'],
+    [{'line_num': 28, 'column_num': 16}, 'const Foo *'],
 
-    # Auto in usage (canonical types apparently differ)
-    [{'line_num': 30, 'column_num': 14}, 'const Foo => const Foo'], # sic
+    # Auto in usage
+    [{'line_num': 30, 'column_num': 14}, 'const Foo'],
     [{'line_num': 30, 'column_num': 21}, 'const int'],
-    [{'line_num': 31, 'column_num': 14}, 'const Foo * => const Foo *'], # sic
+    [{'line_num': 31, 'column_num': 14}, 'const Foo *'],
     [{'line_num': 31, 'column_num': 22}, 'const int'],
-    [{'line_num': 32, 'column_num': 13}, 'Foo => Foo'], # sic
+    [{'line_num': 32, 'column_num': 13}, 'Foo'],
     [{'line_num': 32, 'column_num': 19}, 'int'],
-    [{'line_num': 33, 'column_num': 13}, 'Foo * => Foo *'], # sic
+    [{'line_num': 33, 'column_num': 13}, 'Foo *'],
     [{'line_num': 33, 'column_num': 20}, 'int'],
 
     # Unicode

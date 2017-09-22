@@ -20,8 +20,7 @@ from __future__ import absolute_import
 from __future__ import unicode_literals
 from __future__ import print_function
 from __future__ import division
-from future import standard_library
-standard_library.install_aliases()
+# Not installing aliases from python-future; it's unreliable and slow.
 from builtins import *  # noqa
 
 import bottle
@@ -125,10 +124,9 @@ def GetCompletions():
       completions = completions[:30]
   else:
       completions = []
-
   return _JsonResponse(
       BuildCompletionResponse( completions,
-                               request_data.CompletionStartColumn(),
+                               request_data[ 'start_column' ],
                                errors = errors ) )
 
 
@@ -142,15 +140,17 @@ def FilterAndSortCandidates():
   return _JsonResponse( FilterAndSortCandidatesWrap(
     request_data[ 'candidates'],
     request_data[ 'sort_property' ],
-    request_data[ 'query' ] ) )
+    request_data[ 'query' ],
+    _server_state.user_options[ 'max_num_candidates' ] ) )
 
 
 @app.get( '/healthy' )
 def GetHealthy():
   _logger.info( 'Received health request' )
-  if request.query.include_subservers:
-    cs_completer = _server_state.GetFiletypeCompleter( ['cs'] )
-    return _JsonResponse( cs_completer.ServerIsHealthy() )
+  if request.query.subserver:
+    filetype = request.query.subserver
+    completer = _server_state.GetFiletypeCompleter( [ filetype ] )
+    return _JsonResponse( completer.ServerIsHealthy() )
   return _JsonResponse( True )
 
 
@@ -159,15 +159,9 @@ def GetReady():
   _logger.info( 'Received ready request' )
   if request.query.subserver:
     filetype = request.query.subserver
-    return _JsonResponse( _IsSubserverReady( filetype ) )
-  if request.query.include_subservers:
-    return _JsonResponse( _IsSubserverReady( 'cs' ) )
+    completer = _server_state.GetFiletypeCompleter( [ filetype ] )
+    return _JsonResponse( completer.ServerIsReady() )
   return _JsonResponse( True )
-
-
-def _IsSubserverReady( filetype ):
-  completer = _server_state.GetFiletypeCompleter( [filetype] )
-  return completer.ServerIsReady()
 
 
 @app.post( '/semantic_completion_available' )
@@ -331,14 +325,6 @@ def UpdateUserOptions( options ):
   options.pop( 'hmac_secret', None )
   user_options_store.SetAll( options )
   _server_state = server_state.ServerState( options )
-
-
-def SetServerStateToDefaults():
-  global _server_state, _logger
-  _logger = logging.getLogger( __name__ )
-  user_options_store.LoadDefaults()
-  _server_state = server_state.ServerState( user_options_store.GetAll() )
-  extra_conf_store.Reset()
 
 
 def KeepSubserversAlive( check_interval_seconds ):

@@ -19,8 +19,7 @@ from __future__ import unicode_literals
 from __future__ import print_function
 from __future__ import division
 from __future__ import absolute_import
-from future import standard_library
-standard_library.install_aliases()
+# Not installing aliases from python-future; it's unreliable and slow.
 from builtins import *  # noqa
 
 import abc
@@ -160,6 +159,7 @@ class Completer( with_metaclass( abc.ABCMeta, object ) ):
             filetype_set = set( self.SupportedFiletypes() ) )
         if user_options[ 'auto_trigger' ] else None )
     self._completions_cache = CompletionsCache()
+    self._max_candidates = user_options[ 'max_num_candidates' ]
 
 
   def CompletionType( self, request_data ):
@@ -334,7 +334,7 @@ class Completer( with_metaclass( abc.ABCMeta, object ) ):
 
   def FilterAndSortCandidatesInner( self, candidates, sort_property, query ):
     return completer_utils.FilterAndSortCandidatesWrap(
-      candidates, sort_property, query )
+      candidates, sort_property, query, self._max_candidates )
 
 
   def OnFileReadyToParse( self, request_data ):

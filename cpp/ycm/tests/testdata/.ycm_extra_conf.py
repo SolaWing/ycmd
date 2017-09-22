@@ -28,106 +28,73 @@
 #
 # For more information, please refer to <http://unlicense.org/>
 
+from distutils.sysconfig import get_python_inc
+import platform
 import os
 import ycm_core
 
 # These are the compilation flags that will be used in case there's no
 # compilation database set (by default, one is not set).
 # CHANGE THIS LIST OF FLAGS. YES, THIS IS THE DROID YOU HAVE BEEN LOOKING FOR.
-
-src = os.path.dirname( os.path.abspath( __file__ ) )
-
 flags = [
-#'-Wall',
-#'-Wextra',
-##'-Wc++98-compat',
-#'-Wno-long-long',
-#'-Wno-variadic-macros',
-#'-fexceptions',
-##'-DNDEBUG',
-##'-DNS_BLOCK_ASSERTIONS=1',
-#'-DDEBUG=1',
-## THIS IS IMPORTANT! Without a "-std=<something>" flag, clang won't know which
-## language to use when compiling headers. So it will guess. Badly. So C++
-## headers will be compiled as C headers. You don't want that so ALWAYS specify
-## a "-std=<something>".
-## For a C project, you would set this to something like 'c99' instead of
-## 'c++11'.
-#'-std=c++11',
-#'-D__arm__',
-#'-arch armv7',
-#'-miphoneos-version-min=6.0',
-# ...and the same thing goes for the magic -x option which specifies the
-# language that the files to be compiled are written in. This is mostly
-# relevant for c++ headers.
+'-Wall',
+'-Wextra',
+'-Werror',
+'-Wno-long-long',
+'-Wno-variadic-macros',
+'-fexceptions',
+'-DNDEBUG',
+# You 100% do NOT need -DUSE_CLANG_COMPLETER in your flags; only the YCM
+# source code needs it.
+'-DUSE_CLANG_COMPLETER',
+# THIS IS IMPORTANT! Without the '-x' flag, Clang won't know which language to
+# use when compiling headers. So it will guess. Badly. So C++ headers will be
+# compiled as C headers. You don't want that so ALWAYS specify the '-x' flag.
 # For a C project, you would set this to 'c' instead of 'c++'.
 '-x',
-'objective-c++',
-#'-isystem','/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk/usr/include',
-#'-iframework/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk/System/Library/Frameworks',
-#'-isystem',
-#'/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/c++/v1',
-#'-isystem',
-#'/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/include',
-#'-I%s'%src,
-#'-ObjC++',
-#'-fobjc-arc',
-#'-fmessage-length=0',
-#'-Os',
-#'-fobjc-abi-version=2',
-#'-fmodules',
-#'-fpascal-strings',
-#'-fstrict-aliasing',
-#warnings
-#'-Wno-trigraphs',
-#'-Wno-missing-field-initializers',
-#'-Wno-missing-prototypes',
-#'-Werror=return-type',
-#'-Wno-implicit-atomic-properties',
-#'-Werror=deprecated-objc-isa-usage',
-#'-Werror=objc-root-class',
-#'-Wno-receiver-is-weak',
-#'-Wno-arc-repeated-use-of-weak',
-#'-Wduplicate-method-match',
-#'-Wno-missing-braces',
-#'-Wparentheses',
-#'-Wswitch',
-#'-Wunused-function',
-#'-Wno-unused-label',
-#'-Wno-unused-parameter',
-#'-Wunused-variable',
-#'-Wunused-value',
-#'-Wempty-body',
-#'-Wconditional-uninitialized',
-#'-Wno-unknown-pragmas',
-#'-Wno-shadow',
-#'-Wno-four-char-constants',
-#'-Wno-conversion',
-#'-Wconstant-conversion',
-#'-Wint-conversion',
-#'-Wbool-conversion',
-#'-Wenum-conversion',
-#'-Wshorten-64-to-32',
-#'-Wpointer-sign',
-#'-Wno-newline-eof',
-#'-Wno-selector',
-#'-Wno-strict-selector-match',
-#'-Wundeclared-selector',
-#'-Wno-deprecated-implementations',
-#'-Wprotocol',
-#'-Wdeprecated-declarations',
-#'-Wno-sign-conversion',
+'c++',
+'-isystem',
+'../BoostParts',
+'-isystem',
+get_python_inc(),
+'-isystem',
+'../llvm/include',
+'-isystem',
+'../llvm/tools/clang/include',
+'-I',
+'.',
+'-I',
+'./ClangCompleter',
+'-isystem',
+'./tests/gmock/gtest',
+'-isystem',
+'./tests/gmock/gtest/include',
+'-isystem',
+'./tests/gmock',
+'-isystem',
+'./tests/gmock/include',
+'-isystem',
+'./benchmarks/benchmark/include',
 ]
+
+# Clang automatically sets the '-std=' flag to 'c++14' for MSVC 2015 or later,
+# which is required for compiling the standard library, and to 'c++11' for older
+# versions.
+if platform.system() != 'Windows':
+  flags.append( '-std=c++11' )
 
 
 # Set this to the absolute path to the folder (NOT the file!) containing the
 # compile_commands.json file to use that instead of 'flags'. See here for
 # more details: http://clang.llvm.org/docs/JSONCompilationDatabase.html
 #
+# You can get CMake to generate this file for you by adding:
+#   set( CMAKE_EXPORT_COMPILE_COMMANDS 1 )
+# to your CMakeLists.txt file.
+#
 # Most projects will NOT need to set this to anything; you can just change the
 # 'flags' list of compilation flags. Notice that YCM itself uses that approach.
 compilation_database_folder = ''
-#compilation_database_folder = ''
 
 if os.path.exists( compilation_database_folder ):
   database = ycm_core.CompilationDatabase( compilation_database_folder )
@@ -138,35 +105,6 @@ SOURCE_EXTENSIONS = [ '.cpp', '.cxx', '.cc', '.c', '.m', '.mm' ]
 
 def DirectoryOfThisScript():
   return os.path.dirname( os.path.abspath( __file__ ) )
-
-
-def MakeRelativePathsInFlagsAbsolute( flags, working_directory ):
-  if not working_directory:
-    return list( flags )
-  new_flags = []
-  make_next_absolute = False
-  path_flags = [ '-isystem', '-I', '-iquote', '--sysroot=' ]
-  for flag in flags:
-    new_flag = flag
-
-    if make_next_absolute:
-      make_next_absolute = False
-      if not flag.startswith( '/' ):
-        new_flag = os.path.join( working_directory, flag )
-
-    for path_flag in path_flags:
-      if flag == path_flag:
-        make_next_absolute = True
-        break
-
-      if flag.startswith( path_flag ):
-        path = flag[ len( path_flag ): ]
-        new_flag = path_flag + os.path.join( working_directory, path )
-        break
-
-    if new_flag:
-      new_flags.append( new_flag )
-  return new_flags
 
 
 def IsHeaderFile( filename ):
@@ -193,26 +131,29 @@ def GetCompilationInfoForFile( filename ):
 
 
 def FlagsForFile( filename, **kwargs ):
-  if database:
-    # Bear in mind that compilation_info.compiler_flags_ does NOT return a
-    # python list, but a "list-like" StringVec object
-    compilation_info = GetCompilationInfoForFile( filename )
-    if not compilation_info:
-      return None
+  if not database:
+    return {
+      'flags': flags,
+      'include_paths_relative_to_dir': DirectoryOfThisScript()
+    }
 
-    final_flags = MakeRelativePathsInFlagsAbsolute(
-      compilation_info.compiler_flags_,
-      compilation_info.compiler_working_dir_ )
+  compilation_info = GetCompilationInfoForFile( filename )
+  if not compilation_info:
+    return None
 
-    # NOTE: This is just for YouCompleteMe; it's highly likely that your project
-    # does NOT need to remove the stdlib flag. DO NOT USE THIS IN YOUR
-    # ycm_extra_conf IF YOU'RE NOT 100% SURE YOU NEED IT.
-    try:
-      final_flags.remove( '-stdlib=libc++' )
-    except ValueError:
-      pass
-  else:
-    relative_to = DirectoryOfThisScript()
-    final_flags = MakeRelativePathsInFlagsAbsolute( flags, relative_to )
+  # Bear in mind that compilation_info.compiler_flags_ does NOT return a
+  # python list, but a "list-like" StringVec object.
+  final_flags = list( compilation_info.compiler_flags_ )
 
-  return { 'flags': final_flags }
+  # NOTE: This is just for YouCompleteMe; it's highly likely that your project
+  # does NOT need to remove the stdlib flag. DO NOT USE THIS IN YOUR
+  # ycm_extra_conf IF YOU'RE NOT 100% SURE YOU NEED IT.
+  try:
+    final_flags.remove( '-stdlib=libc++' )
+  except ValueError:
+    pass
+
+  return {
+    'flags': final_flags,
+    'include_paths_relative_to_dir': compilation_info.compiler_working_dir_
+  }

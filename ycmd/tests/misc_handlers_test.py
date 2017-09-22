@@ -20,8 +20,7 @@ from __future__ import unicode_literals
 from __future__ import print_function
 from __future__ import division
 from __future__ import absolute_import
-from future import standard_library
-standard_library.install_aliases()
+# Not installing aliases from python-future; it's unreliable and slow.
 from builtins import *  # noqa
 
 from hamcrest import ( any_of, assert_that, contains, empty, equal_to,
@@ -30,6 +29,30 @@ import requests
 
 from ycmd.tests import IsolatedYcmd, PathToTestFile, SharedYcmd
 from ycmd.tests.test_utils import BuildRequest, DummyCompleter, PatchCompleter
+
+
+@SharedYcmd
+def MiscHandlers_Healthy_test( app ):
+  assert_that( app.get( '/healthy' ).json, equal_to( True ) )
+
+
+@SharedYcmd
+def MiscHandlers_Healthy_Subserver_test( app ):
+  with PatchCompleter( DummyCompleter, filetype = 'dummy_filetype' ):
+    assert_that( app.get( '/healthy', { 'subserver': 'dummy_filetype' } ).json,
+                 equal_to( True ) )
+
+
+@SharedYcmd
+def MiscHandlers_Ready_test( app ):
+  assert_that( app.get( '/ready' ).json, equal_to( True ) )
+
+
+@SharedYcmd
+def MiscHandlers_Ready_Subserver_test( app ):
+  with PatchCompleter( DummyCompleter, filetype = 'dummy_filetype' ):
+    assert_that( app.get( '/ready', { 'subserver': 'dummy_filetype' } ).json,
+                 equal_to( True ) )
 
 
 @SharedYcmd
@@ -152,7 +175,7 @@ def MiscHandlers_DebugInfo_NoExtraConfFound_test( app ):
   )
 
 
-@IsolatedYcmd
+@IsolatedYcmd()
 def MiscHandlers_DebugInfo_ExtraConfFoundButNotLoaded_test( app ):
   filepath = PathToTestFile( 'extra_conf', 'project', '.ycm_extra_conf.py' )
   request_data = BuildRequest( filepath = filepath )

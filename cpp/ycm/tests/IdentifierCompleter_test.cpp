@@ -28,13 +28,19 @@ using ::testing::WhenSorted;
 namespace YouCompleteMe {
 
 
-// This differs from what we expect from the ClangCompleter. That one should
-// return results for an empty query.
-    
-TEST( IdentifierCompleterTest, EmptyQueryNoResults ) {
+TEST( IdentifierCompleterTest, SortOnEmptyQuery ) {
   EXPECT_THAT( IdentifierCompleter(
                  StringVector(
-                   "foobar" ) ).CandidatesForQuery( "" ),
+                   "foo",
+                   "bar" ) ).CandidatesForQuery( "" ),
+               ElementsAre( "bar",
+                            "foo" ) );
+}
+
+TEST( IdentifierCompleterTest, IgnoreEmptyCandidate ) {
+  EXPECT_THAT( IdentifierCompleter(
+                 StringVector(
+                   "" ) ).CandidatesForQuery( "" ),
                IsEmpty() );
 }
 
@@ -102,33 +108,47 @@ TEST( IdentifierCompleterTest, CompleteMatchForWordBoundaryCharsWins ) {
 
   EXPECT_THAT( IdentifierCompleter(
                  StringVector(
-                   "FooBarx",
+                   "FooBar",
                    "FooBarRux" ) ).CandidatesForQuery( "fbr" ),
                ElementsAre( "FooBarRux",
-                            "FooBarx" ) );
+                            "FooBar" ) );
 
   EXPECT_THAT( IdentifierCompleter(
                  StringVector(
-                   "foo-barx",
+                   "foo-bar",
                    "foo-bar-rux" ) ).CandidatesForQuery( "fbr" ),
                ElementsAre( "foo-bar-rux",
-                            "foo-barx" ) );
+                            "foo-bar" ) );
 
   EXPECT_THAT( IdentifierCompleter(
                  StringVector(
-                   "foo.barx",
+                   "foo.bar",
                    "foo.bar.rux" ) ).CandidatesForQuery( "fbr" ),
                ElementsAre( "foo.bar.rux",
-                            "foo.barx" ) );
+                            "foo.bar" ) );
 }
 
 TEST( IdentifierCompleterTest, RatioUtilizationTieBreak ) {
-  // EXPECT_THAT( IdentifierCompleter(
-  //                StringVector(
-  //                  "aCaaFoogxx",
-  //                  "aCaafoog" ) ).CandidatesForQuery( "caafoo" ),
-  //              ElementsAre( "aCaaFoogxx",
-  //                           "aCaafoog" ) );
+  EXPECT_THAT( IdentifierCompleter(
+                 StringVector(
+                   "aGaaFooBarQux",
+                   "aBaafbq" ) ).CandidatesForQuery( "fbq" ),
+               ElementsAre( "aGaaFooBarQux",
+                            "aBaafbq" ) );
+
+  EXPECT_THAT( IdentifierCompleter(
+                 StringVector(
+                   "aFooBarQux",
+                   "afbq" ) ).CandidatesForQuery( "fbq" ),
+               ElementsAre( "aFooBarQux",
+                            "afbq" ) );
+
+  EXPECT_THAT( IdentifierCompleter(
+                 StringVector(
+                   "acaaCaaFooGxx",
+                   "aCaafoog" ) ).CandidatesForQuery( "caafoo" ),
+               ElementsAre( "acaaCaaFooGxx",
+                            "aCaafoog" ) );
 
   EXPECT_THAT( IdentifierCompleter(
                  StringVector(
@@ -166,16 +186,16 @@ TEST( IdentifierCompleterTest, LowerMatchCharIndexSumWins ) {
   EXPECT_THAT( IdentifierCompleter(
                  StringVector(
                    "barfooq",
-                   "barquxfooq" ) ).CandidatesForQuery( "foo" ),
+                   "barquxfoo" ) ).CandidatesForQuery( "foo" ),
                ElementsAre( "barfooq",
-                            "barquxfooq" ) );
+                            "barquxfoo" ) );
 
   EXPECT_THAT( IdentifierCompleter(
                  StringVector(
-                   "xxxxxabcx",
+                   "xxxxxxabc",
                    "xxabcxxxx" ) ).CandidatesForQuery( "abc" ),
                ElementsAre( "xxabcxxxx",
-                            "xxxxxabcx" ) );
+                            "xxxxxxabc" ) );
 
   EXPECT_THAT( IdentifierCompleter(
                  StringVector(
@@ -186,13 +206,6 @@ TEST( IdentifierCompleterTest, LowerMatchCharIndexSumWins ) {
 }
 
 TEST( IdentifierCompleterTest, ShorterCandidateWins ) {
-  EXPECT_THAT( IdentifierCompleter(
-                 StringVector(
-                   "cache",
-                   "cacheBtnClick" ) ).CandidatesForQuery( "cach" ),
-               ElementsAre( "cache",
-                            "cacheBtnClick" ) );
-
   EXPECT_THAT( IdentifierCompleter(
                  StringVector(
                    "CompleterT",
@@ -226,13 +239,13 @@ TEST( IdentifierCompleterTest, PreferLowercaseCandidate ) {
                  "chatContent" ),
                ElementsAre( "chatContentExtension",
                             "ChatContentExtension" ) );
-    
+
   EXPECT_THAT( IdentifierCompleter(
                  StringVector(
-                   "CCLOG",
-                   "cclog") ).CandidatesForQuery( "ccl" ),
-               ElementsAre( "cclog",
-                            "CCLOG") );
+                   "fooBar",
+                   "FooBar" ) ).CandidatesForQuery( "oba" ),
+               ElementsAre( "fooBar",
+                            "FooBar" ) );
 }
 
 TEST( IdentifierCompleterTest, ShorterAndLowercaseWins ) {
@@ -279,6 +292,31 @@ TEST( IdentifierCompleterTest, EmptyCandidatesForNonPrintable ) {
 }
 
 
+TEST( IdentifierCompleterTest, LotOfCandidates ) {
+  // Generate a lot of candidates of the form [a-z]{5} in reverse order.
+  std::vector< std::string > candidates;
+  for ( int i = 0; i < 2048; ++i ) {
+    std::string candidate = "";
+    int letter = i;
+    for ( int pos = 0; pos < 5; letter /= 26, ++pos ) {
+      candidate = std::string( 1, letter % 26 + 'a' ) + candidate;
+    }
+    candidates.insert( candidates.begin(), candidate );
+  }
+
+  IdentifierCompleter completer( candidates );
+
+  std::reverse( candidates.begin(), candidates.end() );
+
+  EXPECT_THAT( completer.CandidatesForQuery( "aa" ),
+               candidates );
+
+  EXPECT_THAT( completer.CandidatesForQuery( "aa", 2 ),
+               ElementsAre( "aaaaa",
+                            "aaaab" ) );
+}
+
+
 TEST( IdentifierCompleterTest, TagsEndToEndWorks ) {
   IdentifierCompleter completer;
   std::vector< std::string > tag_files;
@@ -292,7 +330,34 @@ TEST( IdentifierCompleterTest, TagsEndToEndWorks ) {
 
 }
 
-// TODO: tests for filepath and filetype candidate storing
+
+// Filetype checking
+TEST( IdentifierCompleterTest, ManyCandidateSimpleFileType ) {
+  IdentifierCompleter completer;
+  EXPECT_THAT( IdentifierCompleter(
+                 StringVector(
+                   "foobar",
+                   "foobartest",
+                   "Foobartest" ),
+                 std::string( "c" ),
+                 std::string( "foo" ) ).CandidatesForQueryAndType( "fbr", "c" ),
+               WhenSorted( ElementsAre( "Foobartest",
+                                        "foobar",
+                                        "foobartest" ) ) );
+}
+
+
+TEST( IdentifierCompleterTest, ManyCandidateSimpleWrongFileType ) {
+  IdentifierCompleter completer;
+  EXPECT_THAT( IdentifierCompleter(
+                 StringVector(
+                   "foobar",
+                   "foobartest",
+                   "Foobartest" ),
+                 std::string( "c" ),
+                 std::string( "foo" ) ).CandidatesForQueryAndType( "fbr", "cpp" ),
+               IsEmpty() );
+}
 
 } // namespace YouCompleteMe
 

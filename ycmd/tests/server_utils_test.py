@@ -19,8 +19,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 from __future__ import absolute_import
-from future import standard_library
-standard_library.install_aliases()
+# Not installing aliases from python-future; it's unreliable and slow.
 from builtins import *  # noqa
 
 from hamcrest import ( assert_that, calling, contains, contains_inanyorder,
@@ -32,6 +31,7 @@ import sys
 
 from ycmd.server_utils import ( AddNearestThirdPartyFoldersToSysPath,
                                 CompatibleWithCurrentCore,
+                                GetStandardLibraryIndexInSysPath,
                                 PathToNearestThirdPartyFolder )
 from ycmd.tests import PathToTestFile
 
@@ -217,3 +217,30 @@ def AddNearestThirdPartyFoldersToSysPath_IgnoreVirtualEnvLibrary_test( *args ):
     os.path.join( DIR_OF_THIRD_PARTY, 'python-future', 'src' ),
     PathToTestFile( 'python-future', 'another', 'path' )
   ) )
+
+
+@patch( 'sys.path', [
+  PathToTestFile( 'python-future', 'some', 'path' ),
+  PathToTestFile( 'python-future', 'another', 'path' ) ] )
+def GetStandardLibraryIndexInSysPath_ErrorIfNoStandardLibrary_test( *args ):
+  assert_that(
+    calling( GetStandardLibraryIndexInSysPath ),
+    raises( RuntimeError,
+            'Could not find standard library path in Python path.' ) )
+
+
+@patch( 'sys.path', [
+  PathToTestFile( 'python-future', 'some', 'path' ),
+  PathToTestFile( 'python-future', 'standard_library' ),
+  PathToTestFile( 'python-future', 'another', 'path' ) ] )
+def GetStandardLibraryIndexInSysPath_FindFullStandardLibrary_test( *args ):
+  assert_that( GetStandardLibraryIndexInSysPath(), equal_to( 1 ) )
+
+
+@patch( 'sys.path', [
+  PathToTestFile( 'python-future', 'some', 'path' ),
+  PathToTestFile( 'python-future', 'embedded_standard_library',
+                                   'python35.zip' ),
+  PathToTestFile( 'python-future', 'another', 'path' ) ] )
+def GetStandardLibraryIndexInSysPath_FindEmbeddedStandardLibrary_test( *args ):
+  assert_that( GetStandardLibraryIndexInSysPath(), equal_to( 1 ) )

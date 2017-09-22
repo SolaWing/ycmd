@@ -20,8 +20,7 @@ from __future__ import unicode_literals
 from __future__ import print_function
 from __future__ import division
 from __future__ import absolute_import
-from future import standard_library
-standard_library.install_aliases()
+# Not installing aliases from python-future; it's unreliable and slow.
 from builtins import *  # noqa
 
 import os
@@ -176,7 +175,7 @@ class FilenameCompleter( Completer ):
       paths.extend( os.path.join(unicode_path, relative_path) 
           for relative_path in relative_paths )
 
-    return sorted( set( paths ) )
+    return paths
 
 
 def _GetAbsolutePathForCompletions( path_dir,

@@ -16,26 +16,11 @@
 // along with ycmd.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "Result.h"
-#include "standard.h"
 #include "Utils.h"
-#include <boost/algorithm/string.hpp>
-#include <boost/function.hpp>
-#include <algorithm>
-#include <locale>
-
-using boost::algorithm::istarts_with;
 
 namespace YouCompleteMe {
 
 #define kMin_Score -0x7fffffff
-
-Result::Result()
-  :
-  is_subsequence_( false ),
-  score_( kMin_Score ),
-  text_( NULL ) {
-}
-
 
 Result::Result( bool is_subsequence )
   :

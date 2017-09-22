@@ -15,6 +15,15 @@
 // You should have received a copy of the GNU General Public License
 // along with ycmd.  If not, see <http://www.gnu.org/licenses/>.
 
+/*
+ * iostream is included because there's a bug with python
+ * earlier than 2.7.12 and 3.5.3 on OSX and FreeBSD.
+ * When either no one else is using earlier versions of python
+ * or ycmd drops support for those, this include statement can be removed.
+ * Needs to be the absolute first header, so that it is imported
+ * before anything python related.
+ */
+#include <iostream>
 #include "IdentifierCompleter.h"
 #include "PythonSupport.h"
 #include "versioning.h"
@@ -32,8 +41,10 @@
 #endif // USE_CLANG_COMPLETER
 
 #include <boost/python.hpp>
-#include <boost/utility.hpp>
 #include <boost/python/suite/indexing/vector_indexing_suite.hpp>
+
+using namespace boost::python;
+using namespace YouCompleteMe;
 
 bool HasClangSupport() {
 #ifdef USE_CLANG_COMPLETER
@@ -44,16 +55,25 @@ bool HasClangSupport() {
 }
 
 
+BOOST_PYTHON_FUNCTION_OVERLOADS( FilterAndSortCandidatesOverloads,
+                                 FilterAndSortCandidates,
+                                 3, 4 )
+
+BOOST_PYTHON_MEMBER_FUNCTION_OVERLOADS( CandidatesForQueryAndTypeOverloads,
+                                        CandidatesForQueryAndType,
+                                        2, 3 )
+
+
 BOOST_PYTHON_MODULE(ycm_core)
 {
-  using namespace boost::python;
-  using namespace YouCompleteMe;
-
   // Necessary because of usage of the ReleaseGil class
   PyEval_InitThreads();
 
   def( "HasClangSupport", HasClangSupport );
-  def( "FilterAndSortCandidates", FilterAndSortCandidates );
+
+  def( "FilterAndSortCandidates", FilterAndSortCandidates,
+                                  FilterAndSortCandidatesOverloads() );
+
   def( "YcmCoreVersion", YcmCoreVersion );
 
   // This is exposed so that we can test it.
@@ -67,10 +87,11 @@ BOOST_PYTHON_MODULE(ycm_core)
     .def( "AddIdentifiersToDatabaseFromTagFiles",
           &IdentifierCompleter::AddIdentifiersToDatabaseFromTagFiles )
     .def( "CandidatesForQueryAndType",
-          &IdentifierCompleter::CandidatesForQueryAndType );
+          &IdentifierCompleter::CandidatesForQueryAndType,
+          CandidatesForQueryAndTypeOverloads() );
 
   class_< std::vector< std::string >,
-      boost::shared_ptr< std::vector< std::string > > >( "StringVector" )
+      std::shared_ptr< std::vector< std::string > > >( "StringVector" )
     .def( vector_indexing_suite< std::vector< std::string > >() );
 
 #ifdef USE_CLANG_COMPLETER
@@ -135,7 +156,7 @@ BOOST_PYTHON_MODULE(ycm_core)
     .def_readonly( "kind_", &CompletionData::kind_ );
 
   class_< std::vector< CompletionData >,
-      boost::shared_ptr< std::vector< CompletionData > > >( "CompletionVector" )
+      std::shared_ptr< std::vector< CompletionData > > >( "CompletionVector" )
     .def( vector_indexing_suite< std::vector< CompletionData > >() );
 
   class_< Location >( "Location" )
@@ -203,7 +224,7 @@ BOOST_PYTHON_MODULE(ycm_core)
                    &CompilationDatabase::GetDatabaseDirectory );
 
   class_< CompilationInfoForFile,
-      boost::shared_ptr< CompilationInfoForFile > >(
+      std::shared_ptr< CompilationInfoForFile > >(
           "CompilationInfoForFile", no_init )
     .def_readonly( "compiler_working_dir_",
                    &CompilationInfoForFile::compiler_working_dir_ )
@@ -212,10 +233,3 @@ BOOST_PYTHON_MODULE(ycm_core)
 
 #endif // USE_CLANG_COMPLETER
 }
-
-// Boost.Thread forces us to implement this.
-// We don't use any thread-specific (local) storage so it's fine to implement
-// this as an empty function.
-namespace boost {
-void tss_cleanup_implemented() {}
-};
