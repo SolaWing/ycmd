@@ -27,7 +27,7 @@ using ::testing::WhenSorted;
 
 namespace YouCompleteMe {
 
-
+/*
 TEST( IdentifierCompleterTest, SortOnEmptyQuery ) {
   EXPECT_THAT( IdentifierCompleter(
                  StringVector(
@@ -36,6 +36,7 @@ TEST( IdentifierCompleterTest, SortOnEmptyQuery ) {
                ElementsAre( "bar",
                             "foo" ) );
 }
+ */
 
 TEST( IdentifierCompleterTest, IgnoreEmptyCandidate ) {
   EXPECT_THAT( IdentifierCompleter(
@@ -90,6 +91,7 @@ TEST( IdentifierCompleterTest, FirstCharSameAsQueryWins ) {
                             "afoobar" ) );
 }
 
+/*
 TEST( IdentifierCompleterTest, CompleteMatchForWordBoundaryCharsWins ) {
   EXPECT_THAT( IdentifierCompleter(
                  StringVector(
@@ -127,6 +129,7 @@ TEST( IdentifierCompleterTest, CompleteMatchForWordBoundaryCharsWins ) {
                ElementsAre( "foo.bar.rux",
                             "foo.bar" ) );
 }
+
 
 TEST( IdentifierCompleterTest, RatioUtilizationTieBreak ) {
   EXPECT_THAT( IdentifierCompleter(
@@ -204,6 +207,7 @@ TEST( IdentifierCompleterTest, LowerMatchCharIndexSumWins ) {
                ElementsAre( "FaBarQux",
                             "FooBarQux" ) );
 }
+ */
 
 TEST( IdentifierCompleterTest, ShorterCandidateWins ) {
   EXPECT_THAT( IdentifierCompleter(
@@ -291,7 +295,7 @@ TEST( IdentifierCompleterTest, EmptyCandidatesForNonPrintable ) {
                IsEmpty() );
 }
 
-
+/*
 TEST( IdentifierCompleterTest, LotOfCandidates ) {
   // Generate a lot of candidates of the form [a-z]{5} in reverse order.
   std::vector< std::string > candidates;
@@ -315,7 +319,7 @@ TEST( IdentifierCompleterTest, LotOfCandidates ) {
                ElementsAre( "aaaaa",
                             "aaaab" ) );
 }
-
+*/
 
 TEST( IdentifierCompleterTest, TagsEndToEndWorks ) {
   IdentifierCompleter completer;

@@ -47,19 +47,6 @@ TEST_F( CandidateRepositoryTest, Basic ) {
 }
 
 
-TEST_F( CandidateRepositoryTest, TooLongCandidateSkipped ) {
-  std::vector< std::string > inputs;
-  inputs.push_back( std::string( 81, 'a' ) );  // this one is too long
-  inputs.push_back( std::string( 80, 'b' ) );  // this one is *just* right
-
-  std::vector< const Candidate * > candidates =
-    repo_.GetCandidatesForStrings( inputs );
-
-  EXPECT_EQ( "", candidates[ 0 ]->Text() );
-  EXPECT_EQ( 'b', candidates[ 1 ]->Text()[ 0 ] );
-}
-
-
 TEST_F( CandidateRepositoryTest, EmptyCandidatesForUnicode ) {
   std::vector< std::string > inputs;
   inputs.push_back( "fooδιακριτικός" );

@@ -66,6 +66,7 @@ TEST( LetterNodeTest, AsciiText ) {
 }
 
 
+    /*
 TEST( LetterNodeTest, ThrowOnNonAsciiCharacters ) {
   // UTF-8 characters representation:
   //   ¢: \xc2\xa2
@@ -73,5 +74,6 @@ TEST( LetterNodeTest, ThrowOnNonAsciiCharacters ) {
   //   𐍈: \xf0\x90\x8d\x88
   ASSERT_THROW( LetterNode root_node( "uni¢𐍈d€" ), std::out_of_range );
 }
+     */
 
 } // namespace YouCompleteMe
