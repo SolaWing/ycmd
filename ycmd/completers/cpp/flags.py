@@ -468,9 +468,9 @@ if OnMac():
       [ os.path.join( toolchain, 'usr/include/c++/v1' ),
         '/usr/local/include',
         os.path.join( toolchain, 'usr/include' ),
-        '/usr/include',
-        '/System/Library/Frameworks',
-        '/Library/Frameworks' ] +
+        '/usr/include' ] +
+        #  '/System/Library/Frameworks',
+        #  '/Library/Frameworks' ] +
       _LatestMacClangIncludes( toolchain ) +
       # We include the MacOS platform SDK because some meaningful parts of the
       # standard library are located there. If users are compiling for (say)
@@ -592,33 +592,39 @@ def _GetCompilationInfoForFile( database, file_name, file_extension ):
 def UserIncludePaths( flags, filename ):
   quoted_include_paths = [ os.path.dirname( filename ) ]
   include_paths = []
+  framework_paths = []
 
   if flags:
     quote_flag = '-iquote'
-    path_flags = [ '-isystem', '-I' ]
+    path_flags = [ '-isystem', '-I']
+    framework_flags = ['-F', '-iframework' ]
 
     try:
       it = iter( flags )
+
+      def startswith_flag_pair_paths(flag):
+          if flag.startswith(quote_flag):
+              return quote_flag, quoted_include_paths
+          for f in path_flags:
+              if flag.startswith(f):
+                  return f, include_paths
+          for f in framework_flags:
+              if flag.startswith(f):
+                  return f, framework_paths
+          return None, None
+
       for flag in it:
-        flag_len = len( flag )
-        if flag.startswith( quote_flag ):
-          quote_flag_len = len( quote_flag )
+        match_flag, paths = startswith_flag_pair_paths(flag)
+        if match_flag:
+          flag_len = len( flag )
+          match_flag_len = len( match_flag )
           # Add next flag to the include paths if current flag equals to
           # '-iquote', or add remaining string otherwise.
-          quoted_include_path = ( next( it ) if flag_len == quote_flag_len else
-                                  flag[ quote_flag_len: ] )
-          if quoted_include_path:
-            quoted_include_paths.append( ToUnicode( quoted_include_path ) )
-        else:
-          for path_flag in path_flags:
-            if flag.startswith( path_flag ):
-              path_flag_len = len( path_flag )
-              include_path = ( next( it ) if flag_len == path_flag_len else
-                               flag[ path_flag_len: ] )
-              if include_path:
-                include_paths.append( ToUnicode( include_path ) )
-              break
+          include_path = ( next( it ) if flag_len == match_flag_len else
+                                  flag[ match_flag_len: ] )
+          if include_path:
+            paths.append( ToUnicode( include_path ) )
     except StopIteration:
       pass
 
-  return quoted_include_paths, include_paths
+  return quoted_include_paths, include_paths, framework_paths

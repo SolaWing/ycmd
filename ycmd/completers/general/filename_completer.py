@@ -32,7 +32,8 @@ from ycmd.completers.completer import Completer
 from ycmd.utils import GetCurrentDirectory, OnWindows, ToUnicode
 from ycmd import responses
 
-EXTRA_INFO_MAP = { 1 : '[File]', 2 : '[Dir]', 3 : '[File&Dir]' }
+EXTRA_INFO_MAP = { 1 : '[File]', 2 : '[Dir]', 3 : '[File&Dir]',
+                   4 : '[Lib]', 5 : '[Lib&File]', 6 : '[Lib&Dir]', 7 : '[FDL]' }
 
 _logger = logging.getLogger( __name__ )
 
@@ -162,10 +163,16 @@ def GenerateCandidatesForPaths( absolute_paths ):
   basenames = []
   for absolute_path in absolute_paths:
     basename = os.path.basename( absolute_path )
+    is_framework = basename.endswith('.framework')
+    if is_framework:
+      basename = basename[:-10]
     if extra_info[ basename ] == 0:
       basenames.append( basename )
-    is_dir = os.path.isdir( absolute_path )
-    extra_info[ basename ] |= ( 2 if is_dir else 1 )
+    if is_framework:
+      extra_info[basename] |= 4
+    else:
+      is_dir = os.path.isdir( absolute_path )
+      extra_info[ basename ] |= ( 2 if is_dir else 1 )
 
   completion_dicts = []
   # Keep original ordering

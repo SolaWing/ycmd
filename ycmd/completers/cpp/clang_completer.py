@@ -123,23 +123,33 @@ class ClangCompleter( Completer ):
     # http://gcc.gnu.org/onlinedocs/cpp/Include-Syntax.html
     flags = self._FlagsForRequest( request_data )
     filepath = request_data[ 'filepath' ]
-    quoted_include_paths, include_paths = UserIncludePaths( flags, filepath )
+    quoted_include_paths, include_paths, framework_paths = UserIncludePaths( flags, filepath )
     if quoted_include:
       include_paths.extend( quoted_include_paths )
 
     paths = []
-    for include_path in include_paths:
-      unicode_path = ToUnicode( os.path.join( include_path, path_dir ) )
+
+    def extend_listdir(path):
       try:
         # We need to pass a unicode string to get unicode strings out of
         # listdir.
+        unicode_path = ToUnicode(path)
         relative_paths = os.listdir( unicode_path )
-      except Exception:
-        self._logger.exception( 'Error while listing %s folder.', unicode_path )
-        relative_paths = []
+        paths.extend( os.path.join(unicode_path, relative_path)
+                      for relative_path in relative_paths )
+      except:
+        #  self._logger.exception( 'Error while listing %s folder.', unicode_path )
+        pass
 
-      paths.extend( os.path.join( include_path, path_dir, relative_path ) for
-                    relative_path in relative_paths  )
+    for include_path in include_paths:
+      extend_listdir( os.path.join(include_path, path_dir) )
+    for p in framework_paths:
+      if path_dir:
+        framework_relative_path = path_dir[:-1] + ".framework"
+        extend_listdir( os.path.join(p, framework_relative_path, "Headers") )
+      else:
+        extend_listdir( p )
+
     return paths
 
 
@@ -292,7 +302,7 @@ class ClangCompleter( Completer ):
 
     flags = self._FlagsForRequest( request_data )
     current_file_path = request_data[ 'filepath' ]
-    quoted_include_paths, include_paths = UserIncludePaths( flags,
+    quoted_include_paths, include_paths, framework_paths = UserIncludePaths( flags,
                                                             current_file_path )
     if quoted_include:
       include_file_path = _GetAbsolutePath( include_file_name,
@@ -303,6 +313,8 @@ class ClangCompleter( Completer ):
                                             column_num = 1 )
 
     include_file_path = _GetAbsolutePath( include_file_name, include_paths )
+    if not include_file_path:
+      include_file_path = _GetFrameworkPath( include_file_name, framework_paths )
     if include_file_path:
       return responses.BuildGoToResponse( include_file_path,
                                           line_num = 1,
@@ -586,6 +598,11 @@ def _GetAbsolutePath( include_file_name, include_paths ):
     if os.path.isfile( include_file_path ):
       return include_file_path
   return None
+
+
+def _GetFrameworkPath( include_file_name, include_paths ):
+  return _GetAbsolutePath( include_file_name.replace('/', '.framework/Headers/')
+                          , include_paths )
 
 
 def GetIncompleteIncludeValue( line ):
