@@ -27,13 +27,13 @@ aliases:
         - ~/Library/Caches/Homebrew
         - ~/Library/Caches/pip
         - ~/.npm
-        - ~/.cargo
+        - ~/.rustup
         - ~/.pyenv
         - ~/mono
         - clang_archives
-        - third_party/racerd/target
         - third_party/eclipse.jdt.ls/target/cache
   restore-cache: &restore-cache
+    # TODO: remove "test"
     restore_cache:
       key: v5-ycmd-{{ .Environment.CIRCLE_JOB }}
 jobs:
