@@ -151,6 +151,8 @@ FILETYPE_TO_IDENTIFIER_REGEX = {
 
     # Spec: http://doc.perl6.org/language/syntax
     'perl6': re.compile( r"[_a-zA-Z](?:\w|[-'](?=[_a-zA-Z]))*", re.UNICODE ),
+
+    'tmux': re.compile( r"[\w-]+" ),
 }
 
 FILETYPE_TO_IDENTIFIER_REGEX[ 'typescript' ] = (
