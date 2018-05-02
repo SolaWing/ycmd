@@ -31,17 +31,32 @@ import subprocess
 import sys
 import tempfile
 import time
+import threading
 
 
-# Idiom to import urljoin and urlparse on Python 2 and 3. By exposing these
-# functions here, we can import them directly from this module:
+# Idiom to import pathname2url, url2pathname, urljoin, and urlparse on Python 2
+# and 3. By exposing these functions here, we can import them directly from this
+# module:
 #
-#   from ycmd.utils import urljoin, urlparse
+#   from ycmd.utils import pathname2url, url2pathname, urljoin, urlparse
 #
 if PY2:
   from urlparse import urljoin, urlparse
+  from urllib import pathname2url, url2pathname
 else:
   from urllib.parse import urljoin, urlparse  # noqa
+  from urllib.request import pathname2url, url2pathname  # noqa
+
+
+# We replace the re module with regex as it has better support for characters on
+# multiple code points. However, this module has a compiled component so we
+# can't import it in YCM if it is built for a different version of Python (e.g.
+# if YCM is running on Python 2 while ycmd on Python 3). We fall back to the re
+# module in that case.
+try:
+  import regex as re
+except ImportError: # pragma: no cover
+  import re # noqa
 
 
 # Creation flag to disable creating a console window on Windows. See
@@ -207,6 +222,14 @@ def GetUnusedLocalhostPort():
   return port
 
 
+def RemoveDirIfExists( dirname ):
+  try:
+    import shutil
+    shutil.rmtree( dirname )
+  except OSError:
+    pass
+
+
 def RemoveIfExists( filename ):
   try:
     os.remove( filename )
@@ -279,6 +302,12 @@ def ExecutableName( executable ):
   return executable + ( '.exe' if OnWindows() else '' )
 
 
+def ExpandVariablesInPath( path ):
+  # Replace '~' with the home directory and expand environment variables in
+  # path.
+  return os.path.expanduser( os.path.expandvars( path ) )
+
+
 def OnWindows():
   return sys.platform == 'win32'
 
@@ -324,11 +353,6 @@ def PathsToAllParentFolders( path ):
       break
     folder = parent
     yield folder
-
-
-def ForceSemanticCompletion( request_data ):
-  return ( 'force_semantic' in request_data and
-           bool( request_data[ 'force_semantic' ] ) )
 
 
 # A wrapper for subprocess.Popen that fixes quirks on Windows.
@@ -473,3 +497,10 @@ def GetCurrentDirectory():
   # OSError.
   except OSError:
     return tempfile.gettempdir()
+
+
+def StartThread( func, *args ):
+  thread = threading.Thread( target = func, args = args )
+  thread.daemon = True
+  thread.start()
+  return thread

@@ -1,5 +1,4 @@
-# Copyright (C) 2013 Google Inc.
-#               2017 ycmd contributors
+# Copyright (C) 2013-2018 ycmd contributors
 #
 # This file is part of ycmd.
 #
@@ -93,8 +92,8 @@ def BuildDisplayMessageResponse( text ):
 
 
 def BuildDetailedInfoResponse( text ):
-  """ Retuns the response object for displaying detailed information about types
-  and usage, suach as within a preview window"""
+  """ Returns the response object for displaying detailed information about types
+  and usage, such as within a preview window"""
   return {
     'detailed_info': text
   }
@@ -139,7 +138,8 @@ def BuildLocationData( location ):
   return {
     'line_num': location.line_number_,
     'column_num': location.column_number_,
-    'filepath': location.filename_,
+    'filepath': ( os.path.normpath( location.filename_ )
+                  if location.filename_ else '' ),
   }
 
 
@@ -151,12 +151,19 @@ def BuildRangeData( source_range ):
 
 
 class Diagnostic( object ):
-  def __init__ ( self, ranges, location, location_extent, text, kind ):
+  def __init__( self,
+                ranges,
+                location,
+                location_extent,
+                text,
+                kind,
+                fixits = [] ):
     self.ranges_ = ranges
     self.location_ = location
     self.location_extent_ = location_extent
     self.text_ = text
     self.kind_ = kind
+    self.fixits_ = fixits
 
 
 class FixIt( object ):
@@ -168,7 +175,7 @@ class FixIt( object ):
   must be byte offsets into the UTF-8 encoded version of the appropriate
   buffer.
   """
-  def __init__ ( self, location, chunks, text = '' ):
+  def __init__( self, location, chunks, text = '' ):
     """location of type Location, chunks of type list<FixItChunk>"""
     self.location = location
     self.chunks = chunks
@@ -178,7 +185,7 @@ class FixIt( object ):
 class FixItChunk( object ):
   """An individual replacement within a FixIt (aka Refactor)"""
 
-  def __init__ ( self, replacement_text, range ):
+  def __init__( self, replacement_text, range ):
     """replacement_text of type string, range of type Range"""
     self.replacement_text = replacement_text
     self.range = range
@@ -187,7 +194,7 @@ class FixItChunk( object ):
 class Range( object ):
   """Source code range relating to a diagnostic or FixIt (aka Refactor)."""
 
-  def __init__ ( self, start, end ):
+  def __init__( self, start, end ):
     "start of type Location, end of type Location"""
     self.start_ = start
     self.end_ = end
@@ -196,19 +203,29 @@ class Range( object ):
 class Location( object ):
   """Source code location for a diagnostic or FixIt (aka Refactor)."""
 
-  def __init__ ( self, line, column, filename ):
+  def __init__( self, line, column, filename ):
     """Line is 1-based line, column is 1-based column byte offset, filename is
     absolute path of the file"""
     self.line_number_ = line
     self.column_number_ = column
-    self.filename_ = os.path.realpath( filename )
+    if filename:
+      self.filename_ = os.path.realpath( filename )
+    else:
+      # When the filename passed (e.g. by a server) can't be recognized or
+      # parsed, we send an empty filename. This at least allows the client to
+      # know there _is_ a reference, but not exactly where it is. This can
+      # happen with the Java completer which sometimes returns references using
+      # a custom/undocumented URI scheme. Typically, such URIs point to .class
+      # files or other binary data which clients can't display anyway.
+      # FIXME: Sending a location with an empty filename could be considered a
+      # strict breach of our own protocol. Perhaps completers should be required
+      # to simply skip such a location.
+      self.filename_ = filename
 
 
 def BuildDiagnosticData( diagnostic ):
   kind = ( diagnostic.kind_.name if hasattr( diagnostic.kind_, 'name' )
            else diagnostic.kind_ )
-
-  fixits = ( diagnostic.fixits_ if hasattr( diagnostic, 'fixits_' ) else [] )
 
   return {
     'ranges': [ BuildRangeData( x ) for x in diagnostic.ranges_ ],
@@ -216,7 +233,7 @@ def BuildDiagnosticData( diagnostic ):
     'location_extent': BuildRangeData( diagnostic.location_extent_ ),
     'text': diagnostic.text_,
     'kind': kind,
-    'fixit_available': len( fixits ) > 0,
+    'fixit_available': len( diagnostic.fixits_ ) > 0,
   }
 
 

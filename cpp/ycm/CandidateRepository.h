@@ -1,4 +1,4 @@
-// Copyright (C) 2011, 2012 Google Inc.
+// Copyright (C) 2011-2018 ycmd contributors
 //
 // This file is part of ycmd.
 //
@@ -18,19 +18,18 @@
 #ifndef CANDIDATEREPOSITORY_H_K9OVCMHG
 #define CANDIDATEREPOSITORY_H_K9OVCMHG
 
-#include "DLLDefines.h"
+#include "Candidate.h"
 
-#include <vector>
+#include <memory>
+#include <mutex>
 #include <string>
 #include <unordered_map>
-#include <mutex>
+#include <vector>
 
 namespace YouCompleteMe {
 
-class Candidate;
-
-typedef std::unordered_map< std::string, const Candidate * >
-CandidateHolder;
+using CandidateHolder = std::unordered_map< std::string,
+                                            std::unique_ptr< Candidate > >;
 
 
 // This singleton stores already built Candidate objects for candidate strings
@@ -43,34 +42,36 @@ CandidateHolder;
 // This class is thread-safe.
 class CandidateRepository {
 public:
-  YCM_DLL_EXPORT static CandidateRepository &Instance();
+  YCM_EXPORT static CandidateRepository &Instance();
   // Make class noncopyable
   CandidateRepository( const CandidateRepository& ) = delete;
   CandidateRepository& operator=( const CandidateRepository& ) = delete;
 
-  int NumStoredCandidates();
+  size_t NumStoredCandidates();
 
-  YCM_DLL_EXPORT std::vector< const Candidate * > GetCandidatesForStrings(
+  YCM_EXPORT std::vector< const Candidate * > GetCandidatesForStrings(
     const std::vector< std::string > &strings );
 
   // This should only be used to isolate tests and benchmarks.
-  YCM_DLL_EXPORT void ClearCandidates();
+  YCM_EXPORT void ClearCandidates();
 
 private:
-  CandidateRepository() {};
-  ~CandidateRepository();
+  CandidateRepository() = default;
+  ~CandidateRepository() = default;
 
-  const std::string &ValidatedCandidateText( const std::string &text );
+  const std::string &ValidatedCandidateText(
+      const std::string &candidate_text );
 
-  std::mutex holder_mutex_;
-
-  static std::mutex singleton_mutex_;
   static CandidateRepository *instance_;
+  static std::mutex instance_mutex_;
 
-  const std::string empty_;
+  // MSVC 12 complains that no appropriate default constructor is available if
+  // this property is not initialized.
+  const std::string empty_{};
 
   // This data structure owns all the Candidate pointers
   CandidateHolder candidate_holder_;
+  std::mutex candidate_holder_mutex_;
 };
 
 } // namespace YouCompleteMe

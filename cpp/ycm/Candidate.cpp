@@ -1,4 +1,4 @@
-// Copyright (C) 2011, 2012 Google Inc.
+// Copyright (C) 2011-2018 ycmd contributors
 //
 // This file is part of ycmd.
 //
@@ -20,175 +20,114 @@
 
 namespace YouCompleteMe {
 
-std::string _GetWordBoundaryChars( const std::string &text ) {
-  std::string result;
+void Candidate::ComputeCaseSwappedText() {
+  for ( const auto &character : Characters() ) {
+    case_swapped_text_.append( character->SwappedCase() );
+  }
+}
 
-  if (text.size() == 0) { return result; }
-#define PushResultAtIndex(i)            \
-    result.push_back(text[i]); \
 
-  if (!ispunct( text[0] )) { PushResultAtIndex(0); }
+void Candidate::ComputeWordBoundaryChars() {
+  const CharacterSequence &characters = Characters();
 
-  // first letter, first upper letter, letter after _ will be consider as a word boundary char
-  for ( size_t i = 1; i < text.size(); ++i ) {
-    bool is_good_uppercase = IsUppercase( text[ i ] ) &&
-                             !IsUppercase( text[ i - 1 ] );
-    bool is_alpha_after_punctuation = ispunct( text[ i - 1 ] ) &&
-                                      isalpha( text[ i ] );
+  auto character_pos = characters.begin();
+  if ( character_pos == characters.end() ) {
+    return;
+  }
 
-    if ( is_good_uppercase ||
-         is_alpha_after_punctuation ) {
-      PushResultAtIndex(i);
+  const auto &first_character = *character_pos;
+  if ( !first_character->IsPunctuation() ) {
+    word_boundary_chars_.push_back( first_character );
+  }
+
+  auto previous_character_pos = characters.begin();
+  ++character_pos;
+  for ( ; character_pos != characters.end(); ++previous_character_pos,
+                                             ++character_pos ) {
+    const auto &previous_character = *previous_character_pos;
+    const auto &character = *character_pos;
+
+    if ( ( !previous_character->IsUppercase() && character->IsUppercase() ) ||
+         ( previous_character->IsPunctuation() && character->IsLetter() ) ) {
+      word_boundary_chars_.push_back( character );
+    }
+  }
+}
+
+
+void Candidate::ComputeTextIsLowercase() {
+  for ( const auto &character : Characters() ) {
+    if ( character->IsUppercase() ) {
+      text_is_lowercase_ = false;
+      return;
     }
   }
 
-  return result;
-}
-  
-std::string GetWordBoundaryChars( const std::string &text) {
-    std::string s = _GetWordBoundaryChars(text);
-    for ( char& c: s) { c = tolower(c); } // make test happy, compatibility
-    return s;
-};
-
-
-Bitset LetterBitsetFromString( const std::string &text ) {
-  Bitset letter_bitset;
-
-  for ( char letter : text ) {
-    letter_bitset.set( IndexForLetter( letter ) );
-  }
-
-  return letter_bitset;
+  text_is_lowercase_ = true;
 }
 
-int LongestCommonSubsequenceLength( const std::string &first,
-                                    const std::string &second ) {
-  const std::string &longer  = first.size() > second.size() ? first  : second;
-  const std::string &shorter = first.size() > second.size() ? second : first;
-
-  int longer_len  = longer.size();
-  int shorter_len = shorter.size();
-
-  std::vector<int> previous( shorter_len + 1, 0 );
-  std::vector<int> current(  shorter_len + 1, 0 ); // [0, max_match_length_till_(index - 1), ...]
-
-  for ( int i = 0; i < longer_len; ++i ) {
-    int longer_char = tolower(longer[i]);
-    for ( int j = 0; j < shorter_len; ++j ) {
-      if ( longer_char == tolower( shorter[ j ] ) )
-        current[ j + 1 ] = previous[ j ] + 1;
-      else
-        current[ j + 1 ] = std::max( current[ j ], previous[ j + 1 ] );
-    }
-
-    std::swap(previous, current);
-  }
-
-  return previous[ shorter_len ];
-}
 
 Candidate::Candidate( const std::string &text )
-  :
-  text_( text ),
-  word_boundary_chars_( _GetWordBoundaryChars( text ) ),
-  letters_present_( LetterBitsetFromString( text ) )
-{
-  // GetWordBoundaryChars(text, wbc_indexes_);
-  // wbc_indexes_.push_back(text.size()); // push a index at len to calculate word length
-  // wbc_indexes_.shrink_to_fit();
+  : Word( text ) {
+  ComputeCaseSwappedText();
+  ComputeWordBoundaryChars();
+  ComputeTextIsLowercase();
 }
 
-static std::tuple<bool, bool> match_char(char candidate, char query, bool case_sensitive) {
-    if (candidate == query) { return std::make_tuple(true, false); }
-    else{
-      // when case_sensitive, upper only match upper, but lower can match upper too
-      if (case_sensitive){
-        if (IsLowercase(query) && candidate + kUpperToLowerCount == query){
-            return std::make_tuple(true, true);
-        }
-      }
-      else if ((IsLowercase(query) && candidate + kUpperToLowerCount == query)
-               || (IsUppercase(query) && query + kUpperToLowerCount == candidate)){
-            return std::make_tuple(true, true);
-      }
-    }
-    return std::make_tuple(false, false);
-}
 
-#define kBasicScore 1000
-/// shorter string get more continue score
-#define ContinueScore (continue_count * continue_count * (1 + 2.0 * continue_count/candidate_len) * kBasicScore)
-Result Candidate::QueryMatchResult( const std::string &query,
-                                    bool case_sensitive ) const {
-  const int length_punish = text_.size() * 3;
-  double index_sum = -length_punish; // total score
+Result Candidate::QueryMatchResult( const Word &query ) const {
+  // Check if the query is a subsequence of the candidate and return a result
+  // accordingly. This is done by simultaneously going through the characters of
+  // the query and the candidate. If both characters match, we move to the next
+  // character in the query and the candidate. Otherwise, we only move to the
+  // next character in the candidate. The matching is a combination of smart
+  // base matching and smart case matching. If there is no character left in the
+  // query, the query is not a subsequence and we return an empty result. If
+  // there is no character left in the candidate, the query is a subsequence and
+  // we return a result with the query, the candidate, the sum of indexes of the
+  // candidate where characters matched, and a boolean that is true if the query
+  // is a prefix of the candidate.
 
-  std::string::const_iterator query_iter = query.begin(), query_end = query.end();
-  if ( query_iter == query_end )
-    return Result( true, &text_, index_sum);
-
-  std::string::size_type index = 0, candidate_len = text_.size();
-  
-  // score related
-  // front give a little priority to back
-  // short give a little priority to long
-  // match case give a little priority to convert case
-  
-  // continue_count will increase when match,
-  //  and get a lot of bonus when discontinue according to continue count.
-  
-  // word boundary give a lot of bonus according to similarity
-  
-  // the last char will get some extra bonus
-  int continue_count = 0;
-  int change_case_count = 0;
-
-  // When the query letter is uppercase, then we force an uppercase match
-  // but when the query letter is lowercase, then it can match both an
-  // uppercase and a lowercase letter. This is by design and it's much
-  // better than forcing lowercase letter matches.
-  bool change_case;
-  bool match;
-
-  while ( index < candidate_len ) {
-    std::tie( match, change_case ) = match_char(text_[index], *query_iter, case_sensitive);
-
-    if ( match ){
-      // score related
-      index_sum -= index; // give *front* priority to *back*
-      if ( change_case ) ++change_case_count; // give *match case* priority to *change case*
-      ++continue_count; // match will increase continueFactor
-
-      // move to next query char
-      ++query_iter;
-
-      // complete, return result
-      if ( query_iter == query_end ) {
-        if (continue_count > 1){ // additional bonus for last continue match
-          index_sum += ContinueScore * 1.5;
-          continue_count = 0;
-        }
-        int word_boundary_count = LongestCommonSubsequenceLength(query, word_boundary_chars_);
-        if (word_boundary_count > 0) {
-            double const word_boundary_char_utilization = word_boundary_count / (double)word_boundary_chars_.size();
-            // double const query_match_wbc_ratio = word_boundary_count / (double)query.size();
-            index_sum += word_boundary_count * word_boundary_count * (1 + word_boundary_char_utilization * 2) * kBasicScore;
-        }
-        // match last char, get extra bonus for shorter string
-        if ( index + 1 == candidate_len ) index_sum += 1500 / (candidate_len * candidate_len) * kBasicScore;
-
-        return Result( true, &text_,  index_sum - change_case_count);
-      }
-    }else {
-      if (continue_count > 1){
-        index_sum += ContinueScore;
-      }
-      continue_count = 0; // drop to 0 when not match
-    }
-    ++index;
+  if ( query.IsEmpty() ) {
+    return Result( this, &query, 0, false );
   }
-  return Result(false);
+
+  if ( Length() < query.Length() ) {
+    return Result();
+  }
+
+  size_t query_index = 0;
+  size_t candidate_index = 0;
+  size_t index_sum = 0;
+
+  const CharacterSequence &query_characters = query.Characters();
+  const CharacterSequence &candidate_characters = Characters();
+
+  auto query_character_pos = query_characters.begin();
+  auto candidate_character_pos = candidate_characters.begin();
+
+  for ( ; candidate_character_pos != candidate_characters.end();
+          ++candidate_character_pos, ++candidate_index ) {
+
+    const auto &candidate_character = *candidate_character_pos;
+    const auto &query_character = *query_character_pos;
+
+    if ( query_character->MatchesSmart( *candidate_character ) ) {
+      index_sum += candidate_index;
+
+      ++query_character_pos;
+      if ( query_character_pos == query_characters.end() ) {
+        return Result( this,
+                       &query,
+                       index_sum,
+                       candidate_index == query_index );
+      }
+
+      ++query_index;
+    }
+  }
+
+  return Result();
 }
 
 } // namespace YouCompleteMe

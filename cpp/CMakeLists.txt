@@ -1,19 +1,19 @@
-# Copyright (C) 2011, 2012  Google Inc.
+# Copyright (C) 2011-2018 ycmd contributors
 #
-# This file is part of YouCompleteMe.
+# This file is part of ycmd.
 #
-# YouCompleteMe is free software: you can redistribute it and/or modify
+# ycmd is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
 #
-# YouCompleteMe is distributed in the hope that it will be useful,
+# ycmd is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License
-# along with YouCompleteMe.  If not, see <http://www.gnu.org/licenses/>.
+# along with ycmd.  If not, see <http://www.gnu.org/licenses/>.
 
 if ( APPLE )
   # OSX requires CMake >= 2.8.12, see YCM issue #1439
@@ -126,6 +126,29 @@ endif()
 
 #############################################################################
 
+# MSVC has symbols hidden by default. On GCC and Clang we need to explicitly
+# set the visibility to hidden to achieve the same result and then manually
+# expose what we need. This results in smaller ycm_core dynamic library and thus
+# a shorter loading time and higher performance.
+if( CMAKE_COMPILER_IS_GNUCXX OR COMPILER_IS_CLANG )
+  set( CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fvisibility=hidden" )
+endif()
+
+if ( DEFINED ENV{YCM_BENCHMARK} OR DEFINED ENV{YCM_TESTRUN})
+  if ( MSVC )
+    add_definitions( -DYCM_EXPORT=__declspec\(\ dllexport\ \) )
+  elseif( CMAKE_COMPILER_IS_GNUCXX OR COMPILER_IS_CLANG )
+    add_definitions(
+      -DYCM_EXPORT=__attribute__\(\(visibility\(\"default\"\)\)\) )
+  else()
+    add_definitions( -DYCM_EXPORT= )
+  endif()
+else()
+  add_definitions( -DYCM_EXPORT= )
+endif()
+
+#############################################################################
+
 # Force release build by default, speed is of the essence
 if ( NOT CMAKE_BUILD_TYPE )
   set( CMAKE_BUILD_TYPE Release )
@@ -146,38 +169,30 @@ elseif( COMPILER_IS_CLANG )
     set( CMAKE_XCODE_ATTRIBUTE_CLANG_CXX_LIBRARY "libc++" )
   endif()
 elseif( MSVC )
-  if ( NOT MSVC_VERSION LESS 1800 )
+  if ( NOT MSVC_VERSION LESS 1900 )
     set( CPP11_AVAILABLE true )
   endif()
 endif()
 
 #############################################################################
 
-# For MSVC enable UNICODE and compilation on multiple processors
+# For MSVC enable UNICODE and compilation on multiple processors. Increase the
+# number of sections that an object file can hold. This is needed for storing
+# the Unicode table. Also, force MSVC to treat source files as UTF-8 encoded.
 if ( MSVC )
   add_definitions( /DUNICODE /D_UNICODE /Zc:wchar_t- )
-  set( CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /MP" )
+  set( CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /MP /bigobj /utf-8" )
 endif()
-
-# Solves the conflict in names of hypot in python sources and boost::python
-if ( MINGW )
-  set( CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -include cmath")
-endif()
-
 
 if( MSVC OR CYGWIN OR MSYS)
   # BOOST_ALL_NO_LIB turns off MSVC library autolinking
   add_definitions( -DBOOST_ALL_NO_LIB )
 endif()
 
-if( WIN32 OR CYGWIN OR MSYS)
-  # BOOST_PYTHON_SOURCE makes boost use the correct __declspec
-  add_definitions( -DBOOST_PYTHON_SOURCE -DBOOST_THREAD_USE_LIB )
-  if ( NOT MSVC AND 64_BIT_PLATFORM )
-      # Enables Python compilation for 64-bit Windows. Already defined by Python
-      # headers when compiling with MSVC.
-    add_definitions( -DMS_WIN64 )
-  endif()
+# Enables Python compilation for 64-bit Windows. Already defined by Python
+# headers when compiling with MSVC.
+if( WIN32 OR CYGWIN OR MSYS AND NOT MSVC AND 64_BIT_PLATFORM )
+  add_definitions( -DMS_WIN64 )
 endif()
 
 #############################################################################
@@ -229,8 +244,7 @@ endif()
 option( USE_PYTHON2 "If on, link to Python 2 instead of 3" ON )
 
 if ( USE_PYTHON2 )
-  set( Python_ADDITIONAL_VERSIONS 2.7 2.6 )
-  find_package( PythonLibs 2.6 REQUIRED )  # 2.6 is ONLY the mininum
+  find_package( PythonLibs 2.7 REQUIRED )
 
   if ( NOT PYTHONLIBS_VERSION_STRING VERSION_LESS "3.0.0" )
     message( FATAL_ERROR
@@ -239,8 +253,8 @@ if ( USE_PYTHON2 )
       "necessary python2 headers & libraries." )
   endif()
 else()
-  set( Python_ADDITIONAL_VERSIONS 3.6 3.5 3.4 3.3 )
-  find_package( PythonLibs 3.3 REQUIRED )  # 3.3 is ONLY the mininum
+  set( Python_ADDITIONAL_VERSIONS 3.6 3.5 3.4 )
+  find_package( PythonLibs 3.4 REQUIRED )  # 3.4 is ONLY the mininum
 endif()
 
 #############################################################################

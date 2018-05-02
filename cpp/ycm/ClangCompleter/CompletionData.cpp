@@ -31,27 +31,27 @@ namespace {
 CompletionKind CursorKindToCompletionKind( CXCursorKind kind ) {
   switch ( kind ) {
     case CXCursor_StructDecl:
-      return STRUCT;
+      return CompletionKind::STRUCT;
 
     case CXCursor_ClassDecl:
     case CXCursor_ClassTemplate:
     case CXCursor_ObjCInterfaceDecl:
     case CXCursor_ObjCImplementationDecl:
-      return CLASS;
+      return CompletionKind::CLASS;
 
     case CXCursor_EnumDecl:
-      return ENUM;
+      return CompletionKind::ENUM;
 
     case CXCursor_UnexposedDecl:
     case CXCursor_UnionDecl:
     case CXCursor_TypedefDecl:
-      return TYPE;
+      return CompletionKind::TYPE;
 
     case CXCursor_FieldDecl:
     case CXCursor_ObjCIvarDecl:
     case CXCursor_ObjCPropertyDecl:
     case CXCursor_EnumConstantDecl:
-      return MEMBER;
+      return CompletionKind::MEMBER;
 
     case CXCursor_FunctionDecl:
     case CXCursor_CXXMethod:
@@ -61,23 +61,23 @@ CompletionKind CursorKindToCompletionKind( CXCursorKind kind ) {
     case CXCursor_Destructor:
     case CXCursor_ObjCClassMethodDecl:
     case CXCursor_ObjCInstanceMethodDecl:
-      return FUNCTION;
+      return CompletionKind::FUNCTION;
 
     case CXCursor_VarDecl:
-      return VARIABLE;
+      return CompletionKind::VARIABLE;
 
     case CXCursor_MacroDefinition:
-      return MACRO;
+      return CompletionKind::MACRO;
 
     case CXCursor_ParmDecl:
-      return PARAMETER;
+      return CompletionKind::PARAMETER;
 
     case CXCursor_Namespace:
     case CXCursor_NamespaceAlias:
-      return NAMESPACE;
+      return CompletionKind::NAMESPACE;
 
     default:
-      return UNKNOWN;
+      return CompletionKind::UNKNOWN;
   }
 }
 
@@ -143,8 +143,9 @@ bool IsMainCompletionTextInfo( CXCompletionChunkKind kind ) {
 
 std::string ChunkToString( CXCompletionString completion_string,
                            size_t chunk_num ) {
-  if ( !completion_string )
+  if ( !completion_string ) {
     return std::string();
+  }
 
   return YouCompleteMe::CXStringToString(
            clang_getCompletionChunkText( completion_string, chunk_num ) );
@@ -155,14 +156,16 @@ std::string OptionalChunkToString( CXCompletionString completion_string,
                                    size_t chunk_num ) {
   std::string final_string;
 
-  if ( !completion_string )
+  if ( !completion_string ) {
     return final_string;
+  }
 
   CXCompletionString optional_completion_string =
     clang_getCompletionChunkCompletionString( completion_string, chunk_num );
 
-  if ( !optional_completion_string )
+  if ( !optional_completion_string ) {
     return final_string;
+  }
 
   size_t optional_num_chunks = clang_getNumCompletionChunks(
                                optional_completion_string );
@@ -174,9 +177,7 @@ std::string OptionalChunkToString( CXCompletionString completion_string,
     if ( kind == CXCompletionChunk_Optional ) {
       final_string.append( OptionalChunkToString( optional_completion_string,
                                                   j ) );
-    }
-
-    else {
+    } else {
       final_string.append( ChunkToString( optional_completion_string, j ) );
     }
   }
@@ -187,10 +188,12 @@ std::string OptionalChunkToString( CXCompletionString completion_string,
 
 bool IdentifierEndsWith( const std::string &identifier,
                          const std::string &end ) {
-  if ( identifier.size() >= end.size() )
+  if ( identifier.size() >= end.size() ) {
     return 0 == identifier.compare( identifier.length() - end.length(),
                                     end.length(),
                                     end );
+  }
+
   return false;
 }
 
@@ -213,8 +216,9 @@ std::string RemoveTrailingParens( std::string text ) {
 CompletionData::CompletionData( const CXCompletionResult &completion_result ) {
   CXCompletionString completion_string = completion_result.CompletionString;
 
-  if ( !completion_string )
+  if ( !completion_string ) {
     return;
+  }
 
   size_t num_chunks = clang_getNumCompletionChunks( completion_string );
   bool saw_left_paren = false;
@@ -254,17 +258,13 @@ void CompletionData::ExtractDataFromChunk( CXCompletionString completion_string,
   if ( IsMainCompletionTextInfo( kind ) ) {
     if ( kind == CXCompletionChunk_LeftParen ) {
       saw_left_paren = true;
-    }
-
-    else if ( saw_left_paren &&
-              !saw_function_params &&
-              kind != CXCompletionChunk_RightParen &&
-              kind != CXCompletionChunk_Informative ) {
+    } else if ( saw_left_paren &&
+                !saw_function_params &&
+                kind != CXCompletionChunk_RightParen &&
+                kind != CXCompletionChunk_Informative ) {
       saw_function_params = true;
       everything_except_return_type_.append( " " );
-    }
-
-    else if ( saw_function_params && kind == CXCompletionChunk_RightParen ) {
+    } else if ( saw_function_params && kind == CXCompletionChunk_RightParen ) {
       // in objc complete declared method, there have multi paren.
       // if not set false, everything_except_return_type_ will
       // have space at right but doesn't have at left
@@ -276,9 +276,7 @@ void CompletionData::ExtractDataFromChunk( CXCompletionString completion_string,
     if ( kind == CXCompletionChunk_Optional ) {
       everything_except_return_type_.append(
         OptionalChunkToString( completion_string, chunk_num ) );
-    }
-
-    else {
+    } else {
       everything_except_return_type_.append(
         ChunkToString( completion_string, chunk_num ) );
     }

@@ -1,4 +1,4 @@
-# Copyright (C) 2011, 2012, 2013 Google Inc.
+# Copyright (C) 2011-2018 ycmd contributors
 #
 # This file is part of ycmd.
 #
@@ -25,12 +25,14 @@ from builtins import *  # noqa
 import abc
 import threading
 from ycmd import utils
-from ycmd.utils import ForceSemanticCompletion
 from ycmd.completers import completer_utils
 from ycmd.responses import NoDiagnosticSupport
 from future.utils import with_metaclass
 
 NO_USER_COMMANDS = 'This completer does not define any commands.'
+
+# Number of seconds to block before returning True in PollForMessages
+MESSAGE_POLL_TIMEOUT = 10
 
 
 class Completer( with_metaclass( abc.ABCMeta, object ) ):
@@ -146,9 +148,24 @@ class Completer( with_metaclass( abc.ABCMeta, object ) ):
   Override the Shutdown() member function if your Completer subclass needs to do
   custom cleanup logic on server shutdown.
 
+  If the completer server provides unsolicited messages, such as used in
+  Language Server Protocol, then you can override the PollForMessagesInner
+  method. This method is called by the client in the "long poll" fashion to
+  receive unsolicited messages. The method should block until a message is
+  available and return a message response when one becomes available, or True if
+  no message becomes available before the timeout. The return value must be one
+  of the following:
+   - a list of messages to send to the client
+   - True if a timeout occurred, and the poll should be restarted
+   - False if an error occurred, and no further polling should be attempted
+
   If your completer uses an external server process, then it can be useful to
   implement the ServerIsHealthy member function to handle the /healthy request.
-  This is very useful for the test suite."""
+  This is very useful for the test suite.
+
+  If your server is based on the Language Server Protocol (LSP), take a look at
+  language_server/language_server_completer, which provides most of the work
+  necessary to get a LSP-based completion engine up and running."""
 
   def __init__( self, user_options ):
     self.user_options = user_options
@@ -162,10 +179,6 @@ class Completer( with_metaclass( abc.ABCMeta, object ) ):
     self._max_candidates = user_options[ 'max_num_candidates' ]
 
 
-  def CompletionType( self, request_data ):
-    return 0
-
-
   # It's highly likely you DON'T want to override this function but the *Inner
   # version of it.
   def ShouldUseNow( self, request_data ):
@@ -177,9 +190,7 @@ class Completer( with_metaclass( abc.ABCMeta, object ) ):
     # call because we have to ensure a different thread doesn't change the cache
     # data.
     cache_completions = self._completions_cache.GetCompletionsIfCacheValid(
-        request_data[ 'line_num' ],
-        request_data[ 'start_column' ],
-        self.CompletionType( request_data ) )
+      request_data )
 
     # If None, then the cache isn't valid and we know we should return true
     if cache_completions is None:
@@ -212,7 +223,7 @@ class Completer( with_metaclass( abc.ABCMeta, object ) ):
   # It's highly likely you DON'T want to override this function but the *Inner
   # version of it.
   def ComputeCandidates( self, request_data ):
-    if ( not ForceSemanticCompletion( request_data ) and
+    if ( not request_data[ 'force_semantic' ] and
          not self.ShouldUseNow( request_data ) ):
       return []
 
@@ -220,12 +231,7 @@ class Completer( with_metaclass( abc.ABCMeta, object ) ):
     if request_data[ 'query' ]:
       candidates = self.FilterAndSortCandidates( candidates,
                                                  request_data[ 'query' ] )
-      self._completions_cache.UpdateFilter(
-          request_data[ 'line_num' ],
-          request_data[ 'start_column' ],
-          self.CompletionType( request_data ),
-          request_data[ 'query' ],
-          candidates )
+      self._completions_cache.UpdateFilter( request_data, candidates )
     return candidates
 
   def QuickCandidates( self, request_data ): return []
@@ -233,10 +239,7 @@ class Completer( with_metaclass( abc.ABCMeta, object ) ):
     #  import logging
     #  logger = logging.getLogger( __name__ )
     cache_completions = self._completions_cache.GetCompletionsIfCacheValid(
-          request_data[ 'line_num' ],
-          request_data[ 'start_column' ],
-          self.CompletionType( request_data ),
-          query = request_data['query'] )
+      request_data )
 
     if cache_completions is not None:
       #  logger.info("cache response %d, %d", request_data['line_num'], request_data['start_column'])
@@ -246,12 +249,7 @@ class Completer( with_metaclass( abc.ABCMeta, object ) ):
       # TODO: may have exception and lock complete?
       raw_completions = self.QuickCandidates(request_data)
       if raw_completions is None: raw_completions = []
-      self._completions_cache.Update(
-          request_data[ 'line_num' ],
-          request_data[ 'start_column' ],
-          self.CompletionType( request_data ),
-          raw_completions
-      )
+      self._completions_cache.Update( request_data, raw_completions )
       if len(raw_completions) > 0:
           #  logger.info("quick response %d, %d", request_data['line_num'], request_data['start_column'])
           utils.Executor().submit(self._ComputeCandidates, request_data)
@@ -262,13 +260,9 @@ class Completer( with_metaclass( abc.ABCMeta, object ) ):
 
 
   def _ComputeCandidates(self, request_data):
-      raw_completions = self.ComputeCandidatesInner( request_data )
-      self._completions_cache.UpdateCache(
-          request_data[ 'line_num' ],
-          request_data[ 'start_column' ],
-          self.CompletionType( request_data ),
-          raw_completions )
-      return raw_completions
+    raw_completions = self.ComputeCandidatesInner( request_data )
+    self._completions_cache.UpdateCache( request_data, raw_completions )
+    return raw_completions
 
 
   def ComputeCandidatesInner( self, request_data ):
@@ -412,9 +406,20 @@ class Completer( with_metaclass( abc.ABCMeta, object ) ):
     return True
 
 
+  def PollForMessages( self, request_data ):
+    return self.PollForMessagesInner( request_data, MESSAGE_POLL_TIMEOUT )
+
+
+  def PollForMessagesInner( self, request_data, timeout ):
+    # Most completers don't implement this. It's only required where unsolicited
+    # messages or diagnostics are supported, such as in the Language Server
+    # Protocol. As such, the default implementation just returns False, meaning
+    # that unsolicited messages are not supported for this filetype.
+    return False
+
+
 class CompletionsCache( object ):
-  """Completions for a particular request. Importantly, columns are byte
-  offsets, not unicode codepoints."""
+  """Cache of computed completions for a particular request."""
 
   def __init__( self ):
     self._access_lock = threading.Lock()
@@ -423,39 +428,37 @@ class CompletionsCache( object ):
 
   def Invalidate( self ):
     with self._access_lock:
-      self._identifier = None
+      self._request_data = None
       self._completions = None
       self._query = None
 
 
-  # start_column is a byte offset.
-  def Update( self, line_num, start_column, completion_type, completions):
+  def Update( self, request_data, completions ):
     with self._access_lock:
-      self._identifier = (line_num, start_column, completion_type)
+      self._request_data = request_data
       self._completions = completions
       self._query = None
 
   # start_column is a byte offset.
-  def UpdateCache( self, line_num, start_column, completion_type, completions):
+  def UpdateCache( self, request_data, completions):
     with self._access_lock:
-      if self._CacheValidNoLock(line_num, start_column, completion_type):
+      if self._CacheValidNoLock( request_data ):
           self._completions = completions
           self._query = None
 
-  def UpdateFilter(self, line_num, start_column, completion_type, query, filterd_completions):
+  def UpdateFilter(self, request_data, filterd_completions):
     if filterd_completions:
       with self._access_lock:
-        if self._CacheValidNoLock(line_num, start_column, completion_type):
-          self._query = query
+        if self._CacheValidNoLock( request_data ):
+          self._query = request_data['query']
           self._filterd_completions = filterd_completions
 
   # start_column is a byte offset.
-  def GetCompletionsIfCacheValid( self, line_num, start_column,
-                                  completion_type, query = None ):
+  def GetCompletionsIfCacheValid( self, request_data ):
     with self._access_lock:
-      if not self._CacheValidNoLock( line_num, start_column,
-                                     completion_type ):
+      if not self._CacheValidNoLock( request_data ):
         return None
+      query = request_data['query']
       # furthur filter already partial filtered completions
       if query and self._query and query.startswith(self._query):
           return self._filterd_completions
@@ -463,5 +466,5 @@ class CompletionsCache( object ):
 
 
   # start_column is a byte offset.
-  def _CacheValidNoLock( self, line_num, start_column, completion_type ):
-    return self._identifier == (line_num, start_column, completion_type)
+  def _CacheValidNoLock( self, request_data ):
+    return self._request_data and self._request_data == request_data

@@ -1,8 +1,10 @@
 #!/usr/bin/env python
 
+# Passing an environment variable containing unicode literals to a subprocess
+# on Windows and Python2 raises a TypeError. Since there is no unicode
+# string in this script, we don't import unicode_literals to avoid the issue.
 from __future__ import print_function
 from __future__ import division
-from __future__ import unicode_literals
 from __future__ import absolute_import
 # Not installing aliases from python-future; it's unreliable and slow.
 from builtins import *  # noqa
@@ -29,6 +31,8 @@ for folder in os.listdir( DIR_OF_THIRD_PARTY ):
   # sys.path the path is.
   if folder == 'python-future':
     continue
+  if folder == 'regex':
+    folder = p.join( folder, 'py{}'.format( sys.version_info[ 0 ] ) )
   python_path.append( p.abspath( p.join( DIR_OF_THIRD_PARTY, folder ) ) )
 if os.environ.get( 'PYTHONPATH' ) is not None:
   python_path.append( os.environ['PYTHONPATH'] )
@@ -42,10 +46,7 @@ import argparse
 def RunFlake8():
   print( 'Running flake8' )
   subprocess.check_call( [
-    sys.executable,
-    # __main__ is required on Python 2.6.
-    '-m', 'flake8.__main__',
-    p.join( DIR_OF_THIS_SCRIPT, 'ycmd' )
+    sys.executable, '-m', 'flake8', p.join( DIR_OF_THIS_SCRIPT, 'ycmd' )
   ] )
 
 
@@ -85,6 +86,11 @@ COMPLETERS = {
     'test': [ '--exclude-dir=ycmd/tests/python' ],
     'aliases': [ 'jedi', 'jedihttp', ]
   },
+  'java': {
+    'build': [ '--java-completer' ],
+    'test': [ '--exclude-dir=ycmd/tests/java' ],
+    'aliases': [ 'jdt' ],
+  },
 }
 
 
@@ -118,7 +124,7 @@ def ParseArguments():
                         COMPLETERS.keys()) )
   parser.add_argument( '--skip-build', action = 'store_true',
                        help = 'Do not build ycmd before testing.' )
-  parser.add_argument( '--msvc', type = int, choices = [ 12, 14, 15 ],
+  parser.add_argument( '--msvc', type = int, choices = [ 14, 15 ],
                        default = 15, help = 'Choose the Microsoft Visual '
                        'Studio version (default: %(default)s).' )
   parser.add_argument( '--coverage', action = 'store_true',
@@ -128,6 +134,8 @@ def ParseArguments():
   parser.add_argument( '--dump-path', action = 'store_true',
                        help = 'Dump the PYTHONPATH required to run tests '
                               'manually, then exit.' )
+  parser.add_argument( '--no-retry', action = 'store_true',
+                       help = 'Disable retry of flaky tests' )
 
   parsed_args, nosetests_args = parser.parse_known_args()
 
@@ -148,11 +156,11 @@ def FixupCompleters( parsed_args ):
   elif parsed_args.no_clang_completer:
     print( 'WARNING: The "--no-clang-completer" flag is deprecated. '
            'Please use "--no-completers cfamily" instead.' )
-    completers.remove( 'cfamily' )
+    completers.discard( 'cfamily' )
 
   if 'USE_CLANG_COMPLETER' in os.environ:
     if os.environ[ 'USE_CLANG_COMPLETER' ] == 'false':
-      completers.remove( 'cfamily' )
+      completers.discard( 'cfamily' )
     else:
       completers.add( 'cfamily' )
 
@@ -171,6 +179,7 @@ def BuildYcmdLibs( args ):
     build_cmd = [
       sys.executable,
       p.join( DIR_OF_THIS_SCRIPT, 'build.py' ),
+      '--quiet',
     ]
 
     for key in COMPLETERS:
@@ -193,26 +202,38 @@ def BuildYcmdLibs( args ):
 def NoseTests( parsed_args, extra_nosetests_args ):
   # Always passing --with-id to nosetests enables non-surprising usage of
   # its --failed flag.
-  nosetests_args = [ '-v', '--with-id' ]
+  # By default, nose does not include files starting with a underscore in its
+  # report but we want __main__.py to be included. Only ignore files starting
+  # with a dot and setup.py.
+  nosetests_args = [ '-v', '--with-id', '--ignore-files=(^\.|^setup\.py$)' ]
 
   for key in COMPLETERS:
     if key not in parsed_args.completers:
       nosetests_args.extend( COMPLETERS[ key ][ 'test' ] )
 
   if parsed_args.coverage:
-    nosetests_args += [ '--with-coverage',
+    # We need to exclude the ycmd/tests/python/testdata directory since it
+    # contains Python files and its base name starts with "test".
+    nosetests_args += [ '--exclude-dir=ycmd/tests/python/testdata',
+                        '--with-coverage',
                         '--cover-erase',
                         '--cover-package=ycmd',
-                        '--cover-html' ]
+                        '--cover-html',
+                        '--cover-inclusive' ]
 
   if extra_nosetests_args:
     nosetests_args.extend( extra_nosetests_args )
   else:
     nosetests_args.append( p.join( DIR_OF_THIS_SCRIPT, 'ycmd' ) )
 
-  subprocess.check_call( [ sys.executable,
-                           # __main__ is required on Python 2.6.
-                           '-m', 'nose.__main__' ] + nosetests_args )
+  env = os.environ.copy()
+
+  if parsed_args.no_retry:
+    # Useful for _writing_ tests
+    env[ 'YCM_TEST_NO_RETRY' ] = '1'
+
+  subprocess.check_call( [ sys.executable, '-m', 'nose' ] + nosetests_args,
+                         env=env )
 
 
 def Main():
@@ -225,6 +246,7 @@ def Main():
     RunFlake8()
   BuildYcmdLibs( parsed_args )
   NoseTests( parsed_args, nosetests_args )
+
 
 if __name__ == "__main__":
   Main()
