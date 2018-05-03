@@ -32,7 +32,8 @@ import threading
 from collections import defaultdict, namedtuple
 from ycmd import responses
 from ycmd.completers.general.filename_completer import ( GetPathType,
-                                                         GetPathTypeName )
+                                                         GetPathTypeName,
+                                                         FILE )
 
 import logging
 _logger = logging.getLogger( __name__ )
@@ -90,6 +91,7 @@ class IncludeCache( object ):
       includes = self._ListIncludes( path )
       self._AddToCache( path, includes )
 
+    # _logger.info(f"GetIncludes: {path}, return:\n{includes}")
     return includes
 
 
@@ -121,14 +123,19 @@ class IncludeCache( object ):
     try:
       names = os.listdir( path )
     except OSError:
-      _logger.exception( 'Can not list entries for include path %s.', path )
+      # _logger.exception( 'Can not list entries for include path %s.', path )
       return []
 
     includes = []
     for name in names:
       inc_path = os.path.join( path, name )
       entry_type = GetPathType( inc_path )
-      if name.endswith('.framework'): name = name[:-10]
+      n, e = os.path.splitext(name)
+      if e == '.framework':
+          p = os.path.join(inc_path, 'Headers', "%s.h"%(n))
+          if os.path.isfile(p):
+              includes.append( IncludeEntry( "%s/%s.h"%(n,n), FILE ) )
+          name = n
       includes.append( IncludeEntry( name, entry_type ) )
 
     return includes
@@ -138,6 +145,6 @@ def _GetModificationTime( path ):
   try:
     return os.path.getmtime( path )
   except OSError:
-    _logger.exception( 'Can not get modification time for include path %s.',
-                       path )
+    # _logger.exception( 'Can not get modification time for include path %s.',
+    #                    path )
     return 0
