@@ -31,7 +31,7 @@ namespace {
 
 // We set a reasonable max limit to prevent issues with huge candidate strings
 // entering the database. Such large candidates are almost never desirable.
-const size_t MAX_CANDIDATE_SIZE = 1024;
+const size_t MAX_CANDIDATE_SIZE = 512;
 
 }  // unnamed namespace
 
