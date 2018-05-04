@@ -27,7 +27,7 @@ from future import standard_library
 from future.utils import native
 standard_library.install_aliases()
 
-from ycmd.utils import ToBytes, ToUnicode, ProcessIsRunning, ForceSemanticCompletion
+from ycmd.utils import ToBytes, ToUnicode, ProcessIsRunning
 from ycmd.completers.completer import Completer
 from ycmd.completers.completer_utils import GetFileContents
 from ycmd import responses, utils, hmac_utils
@@ -105,11 +105,13 @@ class SwiftCompleter( Completer ):
       return self._flags_for_file[ filename ]
     except KeyError: pass
 
+    abs_filename = os.path.abspath(filename)
     module = extra_conf_store.ModuleForSourceFile( filename )
-    if not module or not module.FlagsForSwift: return []
+    if not module or not module.FlagsForSwift: return [abs_filename]
 
     response = module.FlagsForSwift( filename )
     flags = response['flags']
+    if abs_filename not in flags: flags = [abs_filename] + flags
     if response.get('do_cache', True): self._flags_for_file[filename] = flags
     return flags
 
@@ -125,15 +127,13 @@ class SwiftCompleter( Completer ):
       else:
           column = request_data[ 'start_column' ] - 1
       additional_flags = self.FlagsForFile(filename)
-      abs_filename = os.path.abspath(filename)
-      if abs_filename not in additional_flags: additional_flags = [abs_filename] + additional_flags
 
       (source_bytes, offset) = ToBytesWithCursor(file_contents, line, column)
       return (abs_filename, source_bytes, offset, additional_flags)
 
 
   def QuickCandidates(self, request_data):
-      if ForceSemanticCompletion(request_data) and request_data[ 'query' ]:
+      if request_data['force_semantic'] and request_data[ 'query' ]:
           return self._big_cache
       return []
 

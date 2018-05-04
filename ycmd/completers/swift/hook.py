@@ -23,7 +23,7 @@ from future import standard_library
 standard_library.install_aliases()
 from builtins import *  # noqa
 
-from ycmd.completers.swift.swift_completer import SwiftCompleter
+from ycmd.completers.swift.my_swift_completer import SwiftCompleter
 
 
 def GetCompleter( user_options ):
