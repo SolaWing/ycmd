@@ -105,13 +105,12 @@ class SwiftCompleter( Completer ):
       return self._flags_for_file[ filename ]
     except KeyError: pass
 
-    abs_filename = os.path.abspath(filename)
     module = extra_conf_store.ModuleForSourceFile( filename )
-    if not module or not module.FlagsForSwift: return [abs_filename]
+    if not module or not module.FlagsForSwift: return [filename]
 
     response = module.FlagsForSwift( filename )
     flags = response['flags']
-    if abs_filename not in flags: flags = [abs_filename] + flags
+    if filename not in flags: flags = [filename] + flags
     if response.get('do_cache', True): self._flags_for_file[filename] = flags
     return flags
 
@@ -129,7 +128,7 @@ class SwiftCompleter( Completer ):
       additional_flags = self.FlagsForFile(filename)
 
       (source_bytes, offset) = ToBytesWithCursor(file_contents, line, column)
-      return (abs_filename, source_bytes, offset, additional_flags)
+      return (filename, source_bytes, offset, additional_flags)
 
 
   def QuickCandidates(self, request_data):
