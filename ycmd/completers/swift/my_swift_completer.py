@@ -57,7 +57,7 @@ class SwiftCompleter( Completer ):
   """
 
   def __init__( self, user_options ):
-    super( SwiftCompleter, self ).__init__( user_options )
+    super().__init__( user_options )
     self._logger = logging.getLogger( __name__ )
     #  self._logfile_stdout = None
     #  self._logfile_stderr = None

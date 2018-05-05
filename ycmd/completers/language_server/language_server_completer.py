@@ -715,6 +715,7 @@ class LanguageServerCompleter( Completer ):
     completed successfully. Implementations must not issue requests until this
     method returns True."""
     if not self.ServerIsHealthy():
+      # _logger.info("ServerIsHealthy false")
       return False
 
     if self._initialize_event.is_set():
@@ -722,10 +723,12 @@ class LanguageServerCompleter( Completer ):
       return True
 
     if self._initialize_response is None:
+      # _logger.info("_initialize_response false")
       # We never sent the initialize response
       return False
 
     # Initialize request in progress. Will be handled asynchronously.
+    # _logger.info("Initialize request")
     return False
 
 
@@ -834,6 +837,7 @@ class LanguageServerCompleter( Completer ):
     # Significant completions, such as imports, do not work without it in
     # jdt.ls.
     #
+    # _logger.info(f"_ResolveCompletionItem {items}")
     completions = []
     start_codepoints = []
     unique_start_codepoints = []
@@ -1210,6 +1214,7 @@ class LanguageServerCompleter( Completer ):
                             self._GetProjectDirectory( request_data  ) )
 
       def response_handler( response, message ):
+        # _logger.info(f"LSP message is {message}")
         if message is None:
           return
 
@@ -1265,6 +1270,7 @@ class LanguageServerCompleter( Completer ):
       # Notify the other threads that we have completed the initialize exchange.
       self._initialize_response = None
       self._initialize_event.set()
+      # _logger.info("_initialize_event did set")
 
     # Fire any events that are pending on the completion of the initialize
     # exchange. Typically, this will be calls to _UpdateServerWithFileContents
