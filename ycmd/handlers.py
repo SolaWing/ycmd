@@ -121,7 +121,8 @@ def GetCompletions():
 
   # max return item is 30
   if completions:
-      completions = completions[:30]
+      max_num_candidates = _server_state.user_options[ 'max_num_candidates' ]
+      if max_num_candidates > 0: completions = completions[:max_num_candidates]
   else:
       completions = []
   return _JsonResponse(
@@ -141,7 +142,7 @@ def FilterAndSortCandidates():
     request_data[ 'candidates'],
     request_data[ 'sort_property' ],
     request_data[ 'query' ],
-    _server_state.user_options[ 'max_num_candidates' ] ) )
+    0 ) )
 
 
 @app.get( '/healthy' )

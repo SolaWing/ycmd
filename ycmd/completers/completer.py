@@ -328,7 +328,7 @@ class Completer( with_metaclass( abc.ABCMeta, object ) ):
 
   def FilterAndSortCandidatesInner( self, candidates, sort_property, query ):
     return completer_utils.FilterAndSortCandidatesWrap(
-      candidates, sort_property, query, self._max_candidates )
+      candidates, sort_property, query, 0 )
 
 
   def OnFileReadyToParse( self, request_data ):
