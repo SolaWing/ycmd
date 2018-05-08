@@ -229,9 +229,9 @@ class Completer( with_metaclass( abc.ABCMeta, object ) ):
 
     candidates = self._GetCandidatesFromSubclass( request_data )
     if request_data[ 'query' ]:
-      candidates = self.FilterAndSortCandidates( candidates,
-                                                 request_data[ 'query' ] )
-      self._completions_cache.UpdateFilter( request_data, candidates )
+        candidates = self.FilterAndSortCandidates( candidates, request_data[ 'query' ] )
+    elif self._max_candidates > 0:
+        candidates = candidates[:self._max_candidates]
     return candidates
 
   def QuickCandidates( self, request_data ): return []
@@ -241,11 +241,11 @@ class Completer( with_metaclass( abc.ABCMeta, object ) ):
     cache_completions = self._completions_cache.GetCompletionsIfCacheValid(
       request_data )
 
+    # placeholder to ensure only have one request for fixed position
     if cache_completions is not None:
       #  logger.info("cache response %d, %d", request_data['line_num'], request_data['start_column'])
       return cache_completions
     else:
-      # placeholder to ensure only have one request for fixed position
       # TODO: may have exception and lock complete?
       raw_completions = self.QuickCandidates(request_data)
       if raw_completions is None: raw_completions = []
@@ -328,7 +328,7 @@ class Completer( with_metaclass( abc.ABCMeta, object ) ):
 
   def FilterAndSortCandidatesInner( self, candidates, sort_property, query ):
     return completer_utils.FilterAndSortCandidatesWrap(
-      candidates, sort_property, query, 0 )
+      candidates, sort_property, query, self._max_candidates )
 
 
   def OnFileReadyToParse( self, request_data ):
@@ -430,39 +430,26 @@ class CompletionsCache( object ):
     with self._access_lock:
       self._request_data = None
       self._completions = None
-      self._query = None
 
 
   def Update( self, request_data, completions ):
     with self._access_lock:
       self._request_data = request_data
       self._completions = completions
-      self._query = None
 
   # start_column is a byte offset.
   def UpdateCache( self, request_data, completions):
     with self._access_lock:
       if self._CacheValidNoLock( request_data ):
           self._completions = completions
-          self._query = None
 
-  def UpdateFilter(self, request_data, filterd_completions):
-    if filterd_completions:
-      with self._access_lock:
-        if self._CacheValidNoLock( request_data ):
-          self._query = request_data['query']
-          self._filterd_completions = filterd_completions
 
   # start_column is a byte offset.
   def GetCompletionsIfCacheValid( self, request_data ):
     with self._access_lock:
-      if not self._CacheValidNoLock( request_data ):
-        return None
-      query = request_data['query']
-      # furthur filter already partial filtered completions
-      if query and self._query and query.startswith(self._query):
-          return self._filterd_completions
-      return self._completions
+      if self._CacheValidNoLock( request_data ):
+        return self._completions
+      return None
 
 
   # start_column is a byte offset.

@@ -119,14 +119,8 @@ def GetCompletions():
     completions = _server_state.GetGeneralCompleter().ComputeCandidates(
       request_data )
 
-  # max return item is 30
-  if completions:
-      max_num_candidates = _server_state.user_options[ 'max_num_candidates' ]
-      if max_num_candidates > 0: completions = completions[:max_num_candidates]
-  else:
-      completions = []
   return _JsonResponse(
-      BuildCompletionResponse( completions,
+      BuildCompletionResponse( completions if completions else [],
                                request_data[ 'start_column' ],
                                errors = errors ) )
 
@@ -142,7 +136,7 @@ def FilterAndSortCandidates():
     request_data[ 'candidates'],
     request_data[ 'sort_property' ],
     request_data[ 'query' ],
-    0 ) )
+    _server_state.user_options[ 'max_num_candidates' ] ) )
 
 
 @app.get( '/healthy' )
