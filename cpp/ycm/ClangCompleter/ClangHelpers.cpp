@@ -18,8 +18,8 @@
 #include "ClangHelpers.h"
 #include "ClangUtils.h"
 #include "Location.h"
-#include "Range.h"
 #include "PythonSupport.h"
+#include "Range.h"
 #include "UnsavedFile.h"
 #include "Utils.h"
 
@@ -246,7 +246,7 @@ std::vector< CompletionData > ToCompletionDataVector(
 }
 
 
-Diagnostic BuildDiagnostic( DiagnosticWrap diagnostic_wrap,
+Diagnostic BuildDiagnostic( const DiagnosticWrap &diagnostic_wrap,
                             CXTranslationUnit translation_unit ) {
   Diagnostic diagnostic;
 
