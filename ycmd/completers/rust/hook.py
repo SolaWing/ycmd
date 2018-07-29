@@ -22,8 +22,10 @@ from __future__ import absolute_import
 # Not installing aliases from python-future; it's unreliable and slow.
 from builtins import *  # noqa
 
+# from ycmd.completers.rust.rls_completer import RustCompleter as RLS, ShouldEnableRustCompleter
 from ycmd.completers.rust.rust_completer import RustCompleter
 
 
 def GetCompleter( user_options ):
+  # if ShouldEnableRustCompleter(): return RLS(user_options)
   return RustCompleter( user_options )
