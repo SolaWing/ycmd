@@ -46,3 +46,6 @@
 	path = third_party/cregex
 	url = https://github.com/micbou/regex.git
 	ignore = untracked
+[submodule "third_party/SourceKitten"]
+	path = third_party/SourceKitten
+	url = https://github.com/SolaWing/SourceKitten
