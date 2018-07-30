@@ -32,7 +32,6 @@ from ycmd.completers.completer import Completer
 from ycmd.completers.completer_utils import GetFileContents
 from ycmd import responses, utils, hmac_utils
 from ycmd import extra_conf_store
-from tempfile import NamedTemporaryFile
 from io import BytesIO
 
 import json
@@ -41,6 +40,7 @@ from subprocess import PIPE
 import sys
 import os
 import threading
+import tempfile
 
 _logger = logging.getLogger( __name__ )
 # _logger.setLevel(logging.DEBUG)
@@ -48,9 +48,11 @@ _logger = logging.getLogger( __name__ )
 import re
 header_pattern = re.compile(rb'(\S+)\s*:\s*(\S+)')
 
-BINARY_NOT_FOUND_MESSAGE = ( 'The specified sourceKitten {0} ' +
-                             'was not found. Did you specify it correctly?' )
-LOGFILE_FORMAT = 'swift_{port}_{std}_'
+# BINARY_NOT_FOUND_MESSAGE = ( 'The specified sourceKitten {0} ' +
+#                              'was not found. Did you specify it correctly?' )
+# LOGFILE_FORMAT = 'swift_{port}_{std}_'
+
+# see: https://github.com/apple/swift/blob/master/tools/SourceKit/docs/Protocol.md
 PATH_TO_SOURCEKITTEN = os.path.abspath( os.path.join(
     os.path.dirname(__file__),
     '../../..',
@@ -114,7 +116,7 @@ class SwiftCompleter( Completer ):
 
   def _ServerIsRunning(self):
       return self._server_handle is not None
-  
+
   def _RestartServer( self, request_data ):
     with self._server_state_mutex:
       self._StopServer()
@@ -264,6 +266,7 @@ class SwiftCompleter( Completer ):
 
   def request(self, name, requestObject):
       request  = json.dumps(requestObject, ensure_ascii=False)
+      # sourcekitd only support direct name, can't ecode as json string
       request = "{key.request: " + name + "," + request[1:]
       return self._SendRequest("yaml", request).get("result")
 
@@ -278,7 +281,9 @@ class SwiftCompleter( Completer ):
     }
 
   def CursorRequest(self, request_data):
-      data = self.RequestDataExtract(request_data, current=True)
+      return self._CursorRequest( self.RequestDataExtract(request_data, current=True) )
+
+  def _CursorRequest(self, data):
       if data is None: return
 
       output = self.request("source.request.cursorinfo", {
@@ -290,6 +295,26 @@ class SwiftCompleter( Completer ):
       if not output: return
       return json.loads(output)
 
+  def _InterfacePath(self, moduleName):
+      return os.path.join( tempfile.gettempdir(), moduleName + ".swift")
+
+  def _ModuleVirtualName(self, moduleName):
+      return self._InterfacePath(moduleName)
+
+  def _OpenInterface(self, data, moduleName):
+      if not moduleName or data is None: return
+      output = self.request("source.request.editor.open.interface", {
+          "key.name": self._ModuleVirtualName(moduleName),
+          "key.modulename": moduleName,
+          "key.compilerargs": data[3],
+      })
+      if not output: return
+      interface = json.loads(output)
+      source = interface.get("key.sourcetext")
+      if source:
+          with open(self._InterfacePath(moduleName), "w") as f:
+              f.write(source)
+      return interface
 
   def GetType(self, request_data, args):
       cursorInfo = self.CursorRequest(request_data)
@@ -325,12 +350,33 @@ class SwiftCompleter( Completer ):
           ))
 
   def GoTo(self, request_data, args):
-      cursorInfo = self.CursorRequest(request_data)
+      data = self.RequestDataExtract(request_data, current=True)
+      cursorInfo = self._CursorRequest(data)
       if not cursorInfo: return
 
       if 'key.filepath' not in cursorInfo:
-          return responses.BuildDisplayMessageResponse("goto module entity is not support yet!")
-      
+          moduleName = cursorInfo.get('key.modulename')
+          # open module and goto
+          interface = self._OpenInterface(data, moduleName)
+          if interface:
+              filepath = self._InterfacePath(moduleName)
+              offset = 0
+
+              usr = cursorInfo.get('key.usr')
+              if usr:
+                  output = self.request("source.request.editor.find_usr", {
+                      "key.usr": usr,
+                      "key.sourcefile": self._ModuleVirtualName(moduleName)
+                  })
+                  if output:
+                      r = json.loads(output)
+                      offset = r.get("key.offset", 0)
+              return {
+                  'filepath': filepath,
+                  'byte_offset': offset
+              }
+          return responses.BuildDisplayMessageResponse("error in goto symbol, please see logs for detail")
+
       return {
           'filepath': cursorInfo['key.filepath'],
           'byte_offset': cursorInfo['key.offset']
@@ -338,16 +384,17 @@ class SwiftCompleter( Completer ):
 
 
 def ToBytesWithCursor(file_contents, line, column):
+    assert line >= 0
     offset = column
     with BytesIO() as f:
         if line > 0:
             f.write( utils.ToBytes( "\n".join(file_contents[:line]) ) )
             f.write( b"\n" )
-            offset += f.tell()
-            f.write( utils.ToBytes( "\n".join(file_contents[line:]) ) )
-            f.write( b"\n" )
-            f.flush()
-            return (f.getvalue(), offset)
+        offset += f.tell()
+        f.write( utils.ToBytes( "\n".join(file_contents[line:]) ) )
+        f.write( b"\n" )
+        f.flush()
+        return (f.getvalue(), offset)
 
 def KindFromKittenKind(sourcekind):
       return {
