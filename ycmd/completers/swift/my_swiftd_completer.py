@@ -188,6 +188,16 @@ class SwiftCompleter( Completer ):
   #   return super().OnFileReadyToParse( request_data )
 
   def DebugInfo( self, request_data ):
+    items = []
+    filename = request_data[ 'filepath' ]
+    if filename:
+        flags = self.FlagsForFile(filename)
+        flags_item = responses.DebugInfoItem(
+          key = 'flags', value = '{0}'.format( list( flags ) ) )
+        filename_item = responses.DebugInfoItem(
+          key = 'translation unit', value = filename )
+        items.append(flags_item)
+        items.append(filename_item)
     return responses.BuildDebugInfoResponse(
       name = "Swift",
       servers = [
@@ -199,7 +209,9 @@ class SwiftCompleter( Completer ):
             self._server_stderr,
           ],
         )
-      ] )
+      ],
+      items = items,
+    )
 
   def FlagsForFile(self, filename):
     try:
