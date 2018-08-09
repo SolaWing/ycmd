@@ -161,7 +161,12 @@ class SwiftCompleter( Completer ):
     try:
         content_length = int(headers[b'Content-Length'])
         r = json.loads( self._server_handle.stdout.read(content_length))
-        _logger.debug(f"get response: {r}")
+        error = None
+        if isinstance(r, dict): error = r.get("error")
+        if error:
+            _logger.error(f"response error: {error}")
+        else:
+            _logger.debug(f"get response: {r}")
         return r
     except (KeyError, ValueError) as e:
         _logger.exception( 'Error while read package' )
