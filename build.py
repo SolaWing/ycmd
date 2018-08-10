@@ -38,9 +38,9 @@ for folder in os.listdir( DIR_OF_THIRD_PARTY ):
   abs_folder_path = p.join( DIR_OF_THIRD_PARTY, folder )
   if p.isdir( abs_folder_path ) and not os.listdir( abs_folder_path ):
     sys.exit(
-      'ERROR: some folders in {0} are empty; you probably forgot to run:\n'
-      '\tgit submodule update --init --recursive\n'.format(
-        DIR_OF_THIRD_PARTY )
+      'ERROR: folder {} in {} is empty; you probably forgot to run:\n'
+      '\tgit submodule update --init --recursive\n'.format( folder,
+                                                            DIR_OF_THIRD_PARTY )
     )
 
 sys.path.insert( 1, p.abspath( p.join( DIR_OF_THIRD_PARTY, 'argparse' ) ) )
@@ -321,8 +321,6 @@ def ParseArguments():
                        help = 'Enable Go semantic completion engine.' )
   parser.add_argument( '--rust-completer', action = 'store_true',
                        help = 'Enable Rust semantic completion engine.' )
-  parser.add_argument( '--js-completer', action = 'store_true',
-                       help = 'Enable JavaScript semantic completion engine.' ),
   parser.add_argument( '--java-completer', action = 'store_true',
                        help = 'Enable Java semantic completion engine.' ),
   parser.add_argument( '--system-boost', action = 'store_true',
@@ -376,6 +374,8 @@ def ParseArguments():
   parser.add_argument( '--racer-completer', action = 'store_true',
                        help = argparse.SUPPRESS )
   parser.add_argument( '--tern-completer', action = 'store_true',
+                       help = argparse.SUPPRESS )
+  parser.add_argument( '--js-completer', action = 'store_true',
                        help = argparse.SUPPRESS )
 
   args = parser.parse_args()
