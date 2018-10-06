@@ -84,11 +84,11 @@ class IncludeCache( object ):
     self._cache_lock = threading.Lock()
 
 
-  def GetIncludes( self, path ):
-    includes = self._GetCached( path )
+  def GetIncludes( self, path, is_framework = False ):
+    includes = self._GetCached( path, is_framework )
 
     if includes is None:
-      includes = self._ListIncludes( path )
+      includes = self._ListIncludes( path, is_framework )
       self._AddToCache( path, includes )
 
     # _logger.info(f"GetIncludes: {path}, return:\n{includes}")
@@ -104,14 +104,14 @@ class IncludeCache( object ):
         self._cache[ path ] = { 'mtime': mtime, 'includes': includes }
 
 
-  def _GetCached( self, path ):
+  def _GetCached( self, path, is_framework ):
     includes = None
     with self._cache_lock:
       cache_entry = self._cache.get( path )
     if cache_entry:
       mtime = _GetModificationTime( path )
       if mtime > cache_entry[ 'mtime' ]:
-        includes = self._ListIncludes( path )
+        includes = self._ListIncludes( path, is_framework )
         self._AddToCache( path, includes, mtime )
       else:
         includes = cache_entry[ 'includes' ]
@@ -119,7 +119,7 @@ class IncludeCache( object ):
     return includes
 
 
-  def _ListIncludes( self, path ):
+  def _ListIncludes( self, path, is_framework ):
     try:
       names = os.listdir( path )
     except OSError:
@@ -128,14 +128,15 @@ class IncludeCache( object ):
 
     includes = []
     for name in names:
+      if is_framework:
+        if not name.endswith( '.framework' ):
+          continue
+        name = name[ : -len( '.framework' ) ]
+        includes.append( IncludeEntry( "%s/%s.h"%(name, name), FILE ) )
+
       inc_path = os.path.join( path, name )
-      entry_type = GetPathType( inc_path )
-      n, e = os.path.splitext(name)
-      if e == '.framework':
-          p = os.path.join(inc_path, 'Headers', "%s.h"%(n))
-          if os.path.isfile(p):
-              includes.append( IncludeEntry( "%s/%s.h"%(n,n), FILE ) )
-          name = n
+      entry_type = GetPathType( inc_path, is_framework )
+      # append <Foundation/Foundation.h> like framework headers, to avoid complete twice
       includes.append( IncludeEntry( name, entry_type ) )
 
     return includes

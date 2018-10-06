@@ -1,5 +1,4 @@
-# Copyright (C) 2013 Stanislav Golovanov <stgolovanov@gmail.com>
-#                    Google Inc.
+# Copyright (C) 2013-2018 ycmd contributors
 #
 # This file is part of ycmd.
 #
@@ -33,12 +32,18 @@ from ycmd import responses
 
 FILE = 1
 DIR = 2
-LIB = 4
-# This mapping is also used for the #include completion.
-# We have option 3, because some entries could simultaneously be
-# both a file and a directory.
-EXTRA_INFO_MAP = { FILE : '[File]', DIR : '[Dir]', 3 : '[File&Dir]',
-                   LIB : '[Lib]', 5 : '[Lib&File]', 6 : '[Lib&Dir]', 7 : '[FDL]' }
+FRAMEWORK = 4
+# This mapping is also used for the #include completion. Entries can
+# simultaneously be a file, a directory, and/or a framework.
+EXTRA_INFO_MAP = {
+  FILE:      '[File]',
+  DIR:       '[Dir]',
+  3:         '[File&Dir]',
+  FRAMEWORK: '[Framework]',
+  5:         '[File&Framework]',
+  6:         '[Dir&Framework]',
+  7:         '[File&Dir&Framework]'
+}
 
 _logger = logging.getLogger( __name__ )
 
@@ -178,11 +183,12 @@ def _GetPathCompletionCandidates( path_dir, use_working_dir,
   return entries
 
 
-def GetPathType( path ):
-    if os.path.isdir( path ):
-        if os.path.splitext(path)[1] == ".framework": return LIB
-        return DIR
-    return FILE
+def GetPathType( path, is_framework = False ):
+  if is_framework:
+    return FRAMEWORK
+  if os.path.isdir( path ):
+    return DIR
+  return FILE
 
 
 def GetPathTypeName( path_type ):
