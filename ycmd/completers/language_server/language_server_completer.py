@@ -1517,12 +1517,16 @@ def _CompletionItemToCompletionData( insertion_text, item, fixits ):
     kind = lsp.ITEM_KIND[ item.get( 'kind', 0 ) ]
   except IndexError:
     kind = lsp.ITEM_KIND[ 0 ] # Fallback to None for unsupported kinds.
+
+  documentation = item.get( 'documentation', '')
+  if isinstance(documentation, dict):
+      documentation = documentation.get('value', '')
   return responses.BuildCompletionData(
     insertion_text,
     extra_menu_info = item.get( 'detail', None ),
     detailed_info = ( item[ 'label' ] +
                       '\n\n' +
-                      item.get( 'documentation', '' ) ),
+                      documentation ),
     menu_text = item[ 'label' ],
     kind = kind,
     extra_data = fixits )

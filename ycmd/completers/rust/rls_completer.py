@@ -38,10 +38,11 @@ from ycmd.completers.language_server import language_server_protocol as lsp
 NO_DOCUMENTATION_MESSAGE = 'No documentation available for current context'
 
 _logger = logging.getLogger( __name__ )
+_logger.setLevel( logging.DEBUG )
 
 LANGUAGE_SERVER_BIN = os.path.expanduser("~/.cargo/bin/rls")
 PROJECT_FILE_TAILS = [
-  '.git',
+  'Cargo.toml',
 ]
 
 # The authors of jdt.ls say that we should re-use workspaces. They also say that

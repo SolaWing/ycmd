@@ -36,10 +36,12 @@ from collections import deque
 _logger = logging.getLogger( __name__ )
 
 LOGFILE_FORMAT = 'rls_'
-TOOLCHAIN_CHANNEL = 'nightly'
-TOOLCHAIN_DATE = '2018-02-15'
-TOOLCHAIN = '{channel}-{date}'.format( channel = TOOLCHAIN_CHANNEL,
-                                       date = TOOLCHAIN_DATE )
+# TOOLCHAIN_CHANNEL = 'nightly'
+# TOOLCHAIN_DATE = '2018-02-15'
+# TOOLCHAIN = '{channel}-{date}'.format( channel = TOOLCHAIN_CHANNEL,
+#                                        date = TOOLCHAIN_DATE )
+TOOLCHAIN = 'nightly'
+TOOLCHAIN = 'stable'
 RUSTUP_TOOLCHAIN_REGEX = re.compile( r'^(?P<toolchain>[\w-]+)' )
 RUSTUP_VERSION = re.compile( r'^rustup (?P<version>.*)$' )
 RLS_VERSION = re.compile( r'^rls-preview (?P<version>.*)$' )
@@ -153,7 +155,7 @@ class RustCompleter( language_server_completer.LanguageServerCompleter ):
         continue
 
       toolchain = match.group( 'toolchain' )
-      if TOOLCHAIN_CHANNEL in toolchain and TOOLCHAIN_DATE in toolchain:
+      if TOOLCHAIN in toolchain:
         return toolchain
     return None
 
