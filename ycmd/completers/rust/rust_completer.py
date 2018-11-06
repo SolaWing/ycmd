@@ -40,8 +40,9 @@ LOGFILE_FORMAT = 'rls_'
 # TOOLCHAIN_DATE = '2018-02-15'
 # TOOLCHAIN = '{channel}-{date}'.format( channel = TOOLCHAIN_CHANNEL,
 #                                        date = TOOLCHAIN_DATE )
-TOOLCHAIN = 'nightly'
 TOOLCHAIN = 'stable'
+TOOLCHAIN = 'nightly'
+# TOOLCHAIN = 'nightly-x86_64'
 RUSTUP_TOOLCHAIN_REGEX = re.compile( r'^(?P<toolchain>[\w-]+)' )
 RUSTUP_VERSION = re.compile( r'^rustup (?P<version>.*)$' )
 RLS_VERSION = re.compile( r'^rls-preview (?P<version>.*)$' )

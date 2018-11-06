@@ -224,7 +224,7 @@ class SwiftCompleter( Completer ):
     except KeyError: pass
 
     module = extra_conf_store.ModuleForSourceFile( filename )
-    if not module or not module.FlagsForSwift: return [filename]
+    if not module or not hasattr(module, 'FlagsForSwift'): return [filename]
 
     response = module.FlagsForSwift( filename )
     flags = response['flags']
@@ -249,6 +249,8 @@ class SwiftCompleter( Completer ):
       (source_bytes, offset) = ToBytesWithCursor(file_contents, line, column)
       return (filename, source_bytes, offset, additional_flags)
 
+  # def OnFileReadyToParse( self, request_data ):
+  #     pass
 
   def QuickCandidates(self, request_data):
       if request_data['force_semantic'] and request_data[ 'query' ]:
