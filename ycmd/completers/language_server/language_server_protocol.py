@@ -30,7 +30,9 @@ from ycmd.utils import ( ByteOffsetToCodepointOffset,
                          pathname2url,
                          ToBytes,
                          ToUnicode,
+                         unquote,
                          url2pathname,
+                         urlparse,
                          urljoin )
 
 
@@ -192,16 +194,14 @@ def BuildNotification( method, parameters ):
   } )
 
 
-def Initialize( request_id, project_directory ):
+def Initialize( request_id, project_directory, settings ):
   """Build the Language Server initialize request"""
 
   return BuildRequest( request_id, 'initialize', {
     'processId': os.getpid(),
     'rootPath': project_directory,
     'rootUri': FilePathToUri( project_directory ),
-    'initializationOptions': {
-      # We don't currently support any server-specific options.
-    },
+    'initializationOptions': settings,
     'capabilities': {
       'textDocument': {
         'completion': {
@@ -408,10 +408,18 @@ def FilePathToUri( file_name ):
 
 
 def UriToFilePath( uri ):
-  if uri[ : 5 ] != "file:":
+  parsed_uri = urlparse( uri )
+  if parsed_uri.scheme != 'file':
     raise InvalidUriException( uri )
 
-  return os.path.abspath( url2pathname( uri[ 5 : ] ) )
+  # url2pathname doesn't work as expected when uri.path is percent-encoded and
+  # is a windows path for ex:
+  # url2pathname('/C%3a/') == 'C:\\C:'
+  # whereas
+  # url2pathname('/C:/') == 'C:\\'
+  # Therefore first unquote pathname.
+  pathname = unquote( parsed_uri.path )
+  return os.path.abspath( url2pathname( pathname ) )
 
 
 def _BuildMessageData( message ):

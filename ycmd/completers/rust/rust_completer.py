@@ -128,12 +128,6 @@ class RustCompleter( language_server_completer.LanguageServerCompleter ):
     return self._connection
 
 
-  def OnFileReadyToParse( self, request_data ):
-    self._StartServer( request_data )
-
-    return super( RustCompleter, self ).OnFileReadyToParse( request_data )
-
-
   def _FindRustup( self ):
     for path in [ 'rustup', os.path.expanduser( '~/.cargo/bin/rustup' ) ]:
       rustup = utils.FindExecutable( path )
@@ -299,12 +293,19 @@ class RustCompleter( language_server_completer.LanguageServerCompleter ):
       self._StopServer()
       self._StartServer( request_data )
 
+  def StartServer( self, request_data, **kwargs ):
+      self._StartServer(request_data)
+
+  def Language( self ):
+      return "rust"
 
   def _StartServer( self, request_data ):
     with self._server_state_mutex:
       if self._server_starting.is_set():
         raise RuntimeError( 'Already starting server.' )
 
+      if self._server_started:
+        return
       self._server_starting.set()
 
     thread = threading.Thread( target = self._StartServerInThread,

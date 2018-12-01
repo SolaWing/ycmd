@@ -65,25 +65,27 @@ NO_PYTHON_HEADERS_ERROR = 'ERROR: Python headers are missing in {include_dir}.'
 #    exist so we look for the versioned names too;
 #  - on Windows, the .lib extension is used instead of the .dll one. See
 #    https://en.wikipedia.org/wiki/Dynamic-link_library#Import_libraries
-STATIC_PYTHON_LIBRARY_REGEX = '^libpython{major}\.{minor}m?\.a$'
+STATIC_PYTHON_LIBRARY_REGEX = '^libpython{major}\\.{minor}m?\\.a$'
 DYNAMIC_PYTHON_LIBRARY_REGEX = """
   ^(?:
   # Linux, BSD
-  libpython{major}\.{minor}m?\.so(\.\d+)*|
+  libpython{major}\\.{minor}m?\\.so(\\.\\d+)*|
   # OS X
-  libpython{major}\.{minor}m?\.dylib|
+  libpython{major}\\.{minor}m?\\.dylib|
   # Windows
-  python{major}{minor}\.lib|
+  python{major}{minor}\\.lib|
   # Cygwin
-  libpython{major}\.{minor}\.dll\.a
+  libpython{major}\\.{minor}\\.dll\\.a
   )$
 """
 
-JDTLS_MILESTONE = '0.25.0'
-JDTLS_BUILD_STAMP = '201809172205'
+JDTLS_MILESTONE = '0.26.0'
+JDTLS_BUILD_STAMP = '201810021912'
 JDTLS_SHA256 = (
-  '7eb952056243f8ac7cd43405d8ed29dc111395866fee9fe895a80efcc2a8140c'
+  '37c02deb37335668321643571e7316a231d94d07707325afdb83b16c953f2244'
 )
+
+TSSERVER_VERSION = '3.1.3'
 
 BUILD_ERROR_MESSAGE = (
   'ERROR: the build failed.\n\n'
@@ -131,13 +133,13 @@ def FindExecutable( executable ):
   if OnWindows() and extension.lower() not in WIN_EXECUTABLE_EXTS:
     extensions = WIN_EXECUTABLE_EXTS
   else:
-    extensions = ['']
+    extensions = [ '' ]
 
   for extension in extensions:
     executable_name = executable + extension
     if not os.path.isfile( executable_name ):
       for path in paths:
-        executable_path = os.path.join(path, executable_name )
+        executable_path = os.path.join( path, executable_name )
         if os.path.isfile( executable_path ):
           return executable_path
     else:
@@ -322,10 +324,11 @@ def ParseArguments():
                        help = 'Enable C# semantic completion engine.' )
   parser.add_argument( '--go-completer', action = 'store_true',
                        help = 'Enable Go semantic completion engine.' )
-  parser.add_argument( '--rust-completer', action = 'store_true',
-                       help = 'Enable Rust semantic completion engine.' )
   parser.add_argument( '--java-completer', action = 'store_true',
                        help = 'Enable Java semantic completion engine.' ),
+  parser.add_argument( '--ts-completer', action = 'store_true',
+                       help = 'Enable JavaScript and TypeScript semantic '
+                              'completion engine.' ),
   parser.add_argument( '--system-boost', action = 'store_true',
                        help = 'Use the system boost instead of bundled one. '
                        'NOT RECOMMENDED OR SUPPORTED!' )
@@ -376,8 +379,6 @@ def ParseArguments():
   parser.add_argument( '--gocode-completer', action = 'store_true',
                        help = argparse.SUPPRESS )
   parser.add_argument( '--racer-completer', action = 'store_true',
-                       help = argparse.SUPPRESS )
-  parser.add_argument( '--rust-completer', action = 'store_true',
                        help = argparse.SUPPRESS )
   parser.add_argument( '--tern-completer', action = 'store_true',
                        help = argparse.SUPPRESS )
@@ -626,7 +627,6 @@ def EnableGoCompleter( args ):
 
 
 def EnableJavaScriptCompleter( args ):
-  node = FindExecutableOrDie( 'node', 'node is required to set up Tern.' )
   npm = FindExecutableOrDie( 'npm', 'npm is required to set up Tern.' )
 
   # We install Tern into a runtime directory. This allows us to control
@@ -713,6 +713,16 @@ def EnableJavaCompleter( switches ):
     print( 'OK' )
 
 
+def EnableTypeScriptCompleter( args ):
+  npm = FindExecutableOrDie( 'npm', 'npm is required to install TSServer.' )
+  tsserver_folder = p.join( DIR_OF_THIRD_PARTY, 'tsserver' )
+  CheckCall( [ npm, 'install', '-g', '--prefix', tsserver_folder,
+               'typescript@{version}'.format( version = TSSERVER_VERSION ) ],
+             quiet = args.quiet,
+             status_message = 'Installing TSServer for JavaScript '
+                              'and TypeScript completion' )
+
+
 def WritePythonUsedDuringBuild():
   path = p.join( DIR_OF_THIS_SCRIPT, 'PYTHON_USED_DURING_BUILDING' )
   with open( path, 'w' ) as f:
@@ -737,6 +747,8 @@ def Main():
     EnableJavaScriptCompleter( args )
   if args.java_completer or args.all_completers:
     EnableJavaCompleter( args )
+  if args.ts_completer or args.all_completers:
+    EnableTypeScriptCompleter( args )
 
 
 if __name__ == '__main__':

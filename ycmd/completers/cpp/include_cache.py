@@ -34,9 +34,8 @@ from ycmd import responses
 from ycmd.completers.general.filename_completer import ( GetPathType,
                                                          GetPathTypeName,
                                                          FILE )
+from ycmd.utils import GetModificationTime, ListDirectory
 
-import logging
-_logger = logging.getLogger( __name__ )
 
 """ Represents single include completion candidate.
 name is the name/string of the completion candidate,
@@ -97,7 +96,7 @@ class IncludeCache( object ):
 
   def _AddToCache( self, path, includes, mtime = None ):
     if not mtime:
-      mtime = _GetModificationTime( path )
+      mtime = GetModificationTime( path )
     # mtime of 0 is "a magic value" to represent inaccessible directory mtime.
     if mtime:
       with self._cache_lock:
@@ -109,7 +108,7 @@ class IncludeCache( object ):
     with self._cache_lock:
       cache_entry = self._cache.get( path )
     if cache_entry:
-      mtime = _GetModificationTime( path )
+      mtime = GetModificationTime( path )
       if mtime > cache_entry[ 'mtime' ]:
         includes = self._ListIncludes( path, is_framework )
         self._AddToCache( path, includes, mtime )
@@ -120,14 +119,8 @@ class IncludeCache( object ):
 
 
   def _ListIncludes( self, path, is_framework ):
-    try:
-      names = os.listdir( path )
-    except OSError:
-      # _logger.exception( 'Can not list entries for include path %s.', path )
-      return []
-
     includes = []
-    for name in names:
+    for name in ListDirectory( path ):
       if is_framework:
         if not name.endswith( '.framework' ):
           continue
@@ -140,12 +133,3 @@ class IncludeCache( object ):
       includes.append( IncludeEntry( name, entry_type ) )
 
     return includes
-
-
-def _GetModificationTime( path ):
-  try:
-    return os.path.getmtime( path )
-  except OSError:
-    # _logger.exception( 'Can not get modification time for include path %s.',
-    #                    path )
-    return 0

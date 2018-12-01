@@ -52,7 +52,8 @@ NO_DIAGNOSTIC_MESSAGE = 'No diagnostic for current line!'
 PRAGMA_DIAG_TEXT_TO_IGNORE = '#pragma once in main file'
 TOO_MANY_ERRORS_DIAG_TEXT_TO_IGNORE = 'too many errors emitted, stopping now'
 NO_DOCUMENTATION_MESSAGE = 'No documentation available for current context'
-INCLUDE_REGEX = re.compile( '(\s*#\s*(?:include|import)\s*)(?:"[^"]*|<[^>]*)' )
+INCLUDE_REGEX = re.compile(
+  '(\\s*#\\s*(?:include|import)\\s*)(?:"[^"]*|<[^>]*)' )
 
 
 class ClangCompleter( Completer ):
@@ -480,20 +481,26 @@ class ClangCompleter( Completer ):
     return self._flags.FlagsForFile( filename, client_data = client_data )
 
 
-def ConvertCompletionData( completion_data ):
-  doc_string = completion_data.DocString()
-  template = completion_data.TemplateString()
+def BuildExtraData( completion_data ):
   extra_data = {}
-  if doc_string: extra_data['doc_string'] = doc_string
-  if template: extra_data['template'] = template
+  fixit = completion_data.fixit_
+  if fixit.chunks:
+    extra_data.update( responses.BuildFixItResponse( [ fixit ] ) )
+  if completion_data.DocString():
+    extra_data[ 'doc_string' ] = completion_data.DocString()
+  if completion_data.TemplateString():
+    extra_data[ 'template' ] = completion_data.TemplateString()
+  return extra_data
+
+
+def ConvertCompletionData( completion_data ):
   return responses.BuildCompletionData(
     insertion_text = completion_data.TextToInsertInBuffer(),
     menu_text = completion_data.MainCompletionText(),
     extra_menu_info = completion_data.ExtraMenuInfo(),
     kind = completion_data.kind_.name,
     detailed_info = completion_data.DetailedInfoForPreviewWindow(),
-    extra_data = extra_data
-  )
+    extra_data = BuildExtraData( completion_data ) )
 
 
 def DiagnosticsToDiagStructure( diagnostics ):
@@ -546,12 +553,13 @@ def _ResponseForLocation( location ):
 #  - 2 or 3 '/' followed by '<' or '!'
 #  - '/' then 1 or 2 '*' followed by optional '<' or '!'
 #  - '*' followed by optional '/'
-STRIP_LEADING_COMMENT = re.compile( '^[ \t]*(/{2,3}[<!]?|/\*{1,2}[<!]?|\*/?)' )
+STRIP_LEADING_COMMENT = re.compile(
+  '^[ \t]*(/{2,3}[<!]?|/\\*{1,2}[<!]?|\\*/?)' )
 
 # And the following trailing strings
 # - <whitespace>*/
 # - <whitespace>
-STRIP_TRAILING_COMMENT = re.compile( '[ \t]*\*/[ \t]*$|[ \t]*$' )
+STRIP_TRAILING_COMMENT = re.compile( '[ \t]*\\*/[ \t]*$|[ \t]*$' )
 
 
 def _FormatRawComment( comment ):

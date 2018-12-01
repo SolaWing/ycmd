@@ -75,3 +75,6 @@ third_party/eclipse.jdt.ls
 
 # Rust
 ycmd/tests/rust/testdata/common/target
+
+# TSServer
+third_party/tsserver
