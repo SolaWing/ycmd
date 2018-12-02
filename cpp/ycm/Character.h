@@ -72,6 +72,9 @@ public:
   inline bool operator== ( const Character &other ) const {
     return normal_ == other.normal_;
   };
+  inline bool operator!= ( const Character &other ) const {
+    return !(*this == other);
+  };
 
   inline bool EqualsBase( const Character &other ) const {
     return base_ == other.base_;

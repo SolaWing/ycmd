@@ -20,11 +20,55 @@
 
 namespace YouCompleteMe {
 
+namespace {
+
+size_t LongestCommonSubsequenceLength( const CharacterSequence &first,
+                                       const CharacterSequence &second ) {
+  const auto &longer  = first.size() > second.size() ? first  : second;
+  const auto &shorter = first.size() > second.size() ? second : first;
+
+  size_t longer_len  = longer.size();
+  size_t shorter_len = shorter.size();
+
+  // 迭代找出i,j时的最长通用子串, 并用表记录下来
+  // j+1记录为current j字符比对后最长数, j为previous比对前最长数
+  // 所以当i加入一个新字符并匹配时, 比对后最长数j+1 = *之前*比对前最长数 + 1 (i只有一个字符，最多加1, 所以不是当前比对前最长数)
+  // 不匹配时，要么保留之前的最长值，要么保留当前前一个字符比对的最长值
+  std::vector< size_t > previous( shorter_len + 1, 0 );
+  std::vector< size_t > current(  shorter_len + 1, 0 );
+
+  size_t full_matched_len = 0; // 已经前面都匹配上了，达到最大值，可直接从后面进行比较。
+  for ( size_t i = 0; i < longer_len; ++i ) {
+    for ( size_t j = full_matched_len; j < shorter_len; ++j ) {
+      if ( longer[ i ]->EqualsBase( *shorter[ j ] ) ) {
+        current[ j + 1 ] = previous[ j ] + 1;
+      } else {
+        current[ j + 1 ] = std::max( current[ j ], previous[ j + 1 ] );
+      }
+    }
+
+    for ( size_t j = full_matched_len; j < shorter_len; ++j ) {
+      previous[ j + 1 ] = current[ j + 1 ];
+    }
+    for ( size_t j = full_matched_len; j < shorter_len; ++j ) {
+      if (j + 1 == previous[ j + 1 ]) full_matched_len = j + 1;
+      else { break; }
+    }
+  }
+
+  return current[ shorter_len ];
+}
+
+
+} // unnamed namespace
+
+/*
 void Candidate::ComputeCaseSwappedText() {
   for ( const auto &character : Characters() ) {
     case_swapped_text_.append( character->SwappedCase() );
   }
 }
+*/
 
 
 void Candidate::ComputeWordBoundaryChars() {
@@ -55,6 +99,7 @@ void Candidate::ComputeWordBoundaryChars() {
 }
 
 
+/*
 void Candidate::ComputeTextIsLowercase() {
   for ( const auto &character : Characters() ) {
     if ( character->IsUppercase() ) {
@@ -65,16 +110,17 @@ void Candidate::ComputeTextIsLowercase() {
 
   text_is_lowercase_ = true;
 }
+*/
 
 
 Candidate::Candidate( const std::string &text )
   : Word( text ) {
-  ComputeCaseSwappedText();
+  // ComputeCaseSwappedText();
   ComputeWordBoundaryChars();
-  ComputeTextIsLowercase();
+  // ComputeTextIsLowercase();
 }
 
-
+/*
 Result Candidate::QueryMatchResult( const Word &query ) const {
   // Check if the query is a subsequence of the candidate and return a result
   // accordingly. This is done by simultaneously going through the characters of
@@ -128,6 +174,141 @@ Result Candidate::QueryMatchResult( const Word &query ) const {
   }
 
   return Result();
+}
+*/
+
+Result Candidate::QueryMatchResult( const Word &query ) const {
+    if ( query.IsEmpty() ) {
+        return Result( this, 0);
+    }
+
+    if ( Length() < query.Length() ) {
+        return Result();
+    }
+
+    const auto &candidate_chars = Characters(), &query_chars = query.Characters();
+    auto query_iter = query_chars.begin(), query_end = query_chars.end();
+    auto query_begin = query_iter;
+    auto candidate_begin = candidate_chars.begin();
+
+    // 记录连续匹配的起点 [query_start, candidate_start]
+    std::vector<std::pair<decltype(query_iter), decltype(candidate_chars.begin())>> match_pairs;
+    match_pairs.reserve(query_chars.size() + 1);
+    bool continuous = false;
+
+    for (auto candidate_iter = candidate_begin, e = candidate_chars.end(); candidate_iter != e; ++candidate_iter) {
+        const auto &candidate_char = *candidate_iter;
+        const auto &query_char = *query_iter;
+        if (query_char->MatchesSmart(*candidate_char)) {
+            if (!continuous) {
+                continuous = true;
+                match_pairs.emplace_back(query_iter, candidate_iter);
+            }
+            ++query_iter;
+            if ( query_iter == query_end ) {
+                match_pairs.emplace_back(query_end, candidate_iter+1);
+                goto calculate_score;
+            }
+        } else {
+            continuous = false;
+        }
+    }
+    // query_chars not match.
+    return Result();
+
+calculate_score:
+    // 有push才会进这个分支.
+    const int64_t BASIC_SCORE = 1000;
+
+    // score related
+
+    // continue_count will increase when match,
+    //  and get a lot of bonus when discontinue according to continue count.
+
+    // word boundary give a lot of bonus according to similarity
+
+    // front give a little priority to back
+    // short give a little priority to long
+    // match case give a little priority to convert case
+
+    // the last char will get some extra bonus
+    size_t word_boundary_count = LongestCommonSubsequenceLength(WordBoundaryChars(), query_chars);
+    { // find longest continuous and try fix match early
+      size_t longest_start_index = 0, longest_count = 0;
+      for (auto b = match_pairs.cbegin(), it = b + 1, e = match_pairs.cend(); it != e; ++it) {
+          size_t len = it->first - (it-1)->first;
+          if (len >= longest_count) {
+              longest_start_index = it - 1 - b;
+              longest_count = len;
+          }
+      }
+      // 连续匹配可能因为前缀被前面字符串部分匹配，而导致最佳连续数算错。
+      // 如: aaabcd, abcd中a会匹配第一个a,导致连续数只有3，但应该是4。
+      if (longest_count >= 2 && longest_start_index > 0) { // 至少2个以上连续时才尝试修正.
+          auto previous_unmatch_candidate_iter = match_pairs[longest_start_index].second-1;
+          auto origin_start = match_pairs[longest_start_index].first;
+          auto extend_start_to = origin_start;
+          do {
+              // extend_start_to won't == 0
+              if ( (*(extend_start_to - 1))->MatchesSmart(**previous_unmatch_candidate_iter) ) {
+                  --extend_start_to;
+                  --previous_unmatch_candidate_iter;
+              } else {
+                  break;
+              }
+          } while( extend_start_to != query_begin );
+          if (extend_start_to < origin_start) { // continuous extend, fix match data
+              match_pairs[longest_start_index] = {extend_start_to, previous_unmatch_candidate_iter+1};
+              auto end = match_pairs.begin() + longest_start_index, erase_start = end;
+              while (erase_start > match_pairs.begin() && (erase_start-1)->first >= extend_start_to) {
+                  --erase_start;
+              }
+              if (erase_start < end) {
+                  match_pairs.erase(erase_start, end);
+              }
+          }
+      }
+    }
+
+    size_t index_sum = 0;
+    size_t change_case_count = 0;
+    {
+        auto match_pairs_it = match_pairs.begin();
+        auto query_it = match_pairs_it->first;
+        decltype(match_pairs_it->second) candidate_iter;
+        while( query_it != query_chars.end() ) {
+            if (query_it == match_pairs_it->first) {
+                candidate_iter = match_pairs_it->second;
+                ++match_pairs_it;
+            } else {
+                ++candidate_iter;
+            }
+
+            index_sum += candidate_iter - candidate_begin;
+            if ( **query_it != **candidate_iter ) { ++change_case_count; }
+
+            ++query_it;
+        }
+    }
+
+    int64_t score = 0;
+    if (word_boundary_count > 0) {
+        double const word_boundary_char_utilization = word_boundary_count / (double)word_boundary_chars_.size();
+        score += word_boundary_count * word_boundary_count * (1 + word_boundary_char_utilization * 2) * BASIC_SCORE;
+    }
+    for (auto it = match_pairs.begin() + 1, e = match_pairs.end(); it != e; ++it) {
+        auto len = it->first - (it-1)->first;
+        if (len > 1) { // 相同字符,WB分更高，其次连续
+            score += len * len * 2 * BASIC_SCORE;
+        }
+    }
+    score -= candidate_chars.size() * 3; // longer length have less score
+    score -= change_case_count; // change case have less score
+    score -= index_sum; // match previous have lower index_sum, and give litte priority
+//    if (matched_pos.back() == candidate_chars.size() - 1) { // last char give a change to select easily, especially for short string
+//        score += 1500 / (candidate_chars.size() * candidate_chars.size()) * BASIC_SCORE;
+//    }
+    return Result(this, score);
 }
 
 } // namespace YouCompleteMe

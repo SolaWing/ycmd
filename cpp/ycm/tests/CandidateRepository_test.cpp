@@ -49,8 +49,8 @@ TEST_F( CandidateRepositoryTest, Basic ) {
 
 TEST_F( CandidateRepositoryTest, TooLongCandidateSkipped ) {
   std::vector< std::string > inputs;
-  inputs.push_back( std::string( 81, 'a' ) );  // this one is too long
-  inputs.push_back( std::string( 80, 'b' ) );  // this one is *just* right
+  inputs.push_back( std::string( 513, 'a' ) );  // this one is too long
+  inputs.push_back( std::string( 512, 'b' ) );  // this one is *just* right
 
   std::vector< const Candidate * > candidates =
     repo_.GetCandidatesForStrings( inputs );

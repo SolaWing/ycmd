@@ -30,11 +30,16 @@ public:
   ~Result() = default;
 
   Result( const Candidate *candidate,
-          const Word *query,
-          size_t char_match_index_sum,
-          bool query_is_candidate_prefix );
+          int64_t score
+          );
 
-  bool operator< ( const Result &other ) const;
+  bool operator< ( const Result &other ) const {
+      if (score_ == other.score_) { // 大量相等score可能会花大量时间, 此时用字符串排序
+          return candidate_->Text() < other.candidate_->Text();
+      } else {
+          return score_ > other.score_;
+      }
+  }
 
   inline const std::string &Text() const {
     return candidate_->Text();
@@ -45,10 +50,11 @@ public:
   }
 
   inline bool IsSubsequence() const {
-    return is_subsequence_;
+    return candidate_ != nullptr;
   }
 
 private:
+  /*
   void SetResultFeaturesFromQuery();
 
   // true when the characters of the query are a subsequence of the characters
@@ -79,6 +85,7 @@ private:
   //  - the character is uppercase but not the previous one;
   //  - the character is a letter and the previous one is a punctuation.
   size_t num_wb_matches_;
+  */
 
   // NOTE: we don't use references for the query and the candidate because we
   // are sorting results through std::sort or std::partial_sort and these
@@ -88,8 +95,11 @@ private:
   // Points to the candidate.
   const Candidate *candidate_;
 
+  // the score match get. the front, word begin char, continue chars will get more score
+  int64_t score_;
+
   // Points to the query.
-  const Word *query_;
+  // const Word *query_;
 };
 
 template< class T >

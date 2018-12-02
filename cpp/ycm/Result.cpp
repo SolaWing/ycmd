@@ -20,6 +20,19 @@
 
 namespace YouCompleteMe {
 
+const int64_t MIN_SCORE = -0x7fffffff;
+
+Result::Result() :
+    candidate_(nullptr),
+    score_(MIN_SCORE)
+{ }
+
+Result::Result( const Candidate *candidate, int64_t score ) :
+    candidate_(candidate),
+    score_(score)
+{ }
+
+/*
 namespace {
 
 size_t LongestCommonSubsequenceLength( const CharacterSequence &first,
@@ -30,11 +43,16 @@ size_t LongestCommonSubsequenceLength( const CharacterSequence &first,
   size_t longer_len  = longer.size();
   size_t shorter_len = shorter.size();
 
+  // 迭代找出i,j时的最长通用子串, 并用表记录下来
+  // j+1记录为current j字符比对后最长数, j为previous比对前最长数
+  // 所以当i加入一个新字符并匹配时, 比对后最长数j+1 = *之前*比对前最长数 + 1 (i只有一个字符，最多加1, 所以不是当前比对前最长数)
+  // 不匹配时，要么保留之前的最长值，要么保留当前前一个字符比对的最长值
   std::vector< size_t > previous( shorter_len + 1, 0 );
   std::vector< size_t > current(  shorter_len + 1, 0 );
 
+  size_t full_matched_len = 0; // 已经前面都匹配上了，达到最大值，可直接从后面进行比较。
   for ( size_t i = 0; i < longer_len; ++i ) {
-    for ( size_t j = 0; j < shorter_len; ++j ) {
+    for ( size_t j = full_matched_len; j < shorter_len; ++j ) {
       if ( longer[ i ]->EqualsBase( *shorter[ j ] ) ) {
         current[ j + 1 ] = previous[ j ] + 1;
       } else {
@@ -42,8 +60,12 @@ size_t LongestCommonSubsequenceLength( const CharacterSequence &first,
       }
     }
 
-    for ( size_t j = 0; j < shorter_len; ++j ) {
+    for ( size_t j = full_matched_len; j < shorter_len; ++j ) {
       previous[ j + 1 ] = current[ j + 1 ];
+    }
+    for ( size_t j = full_matched_len; j < shorter_len; ++j ) {
+      if (j + 1 == previous[ j + 1 ]) full_matched_len = j + 1;
+      else { break; }
     }
   }
 
@@ -162,5 +184,6 @@ void Result::SetResultFeaturesFromQuery() {
   num_wb_matches_ = LongestCommonSubsequenceLength(
     query_->Characters(), candidate_->WordBoundaryChars() );
 }
+*/
 
 } // namespace YouCompleteMe

@@ -36,28 +36,32 @@ public:
   Candidate& operator=( const Candidate& ) = delete;
   ~Candidate() = default;
 
+  /*
   inline const std::string &CaseSwappedText() const {
     return case_swapped_text_;
   }
+  */
 
   inline const CharacterSequence &WordBoundaryChars() const {
     return word_boundary_chars_;
   }
 
+  /*
   inline bool TextIsLowercase() const {
     return text_is_lowercase_;
   }
+  */
 
   YCM_EXPORT Result QueryMatchResult( const Word &query ) const;
 
 private:
-  void ComputeCaseSwappedText();
-  void ComputeTextIsLowercase();
+  // void ComputeCaseSwappedText();
+  // void ComputeTextIsLowercase();
   void ComputeWordBoundaryChars();
 
-  std::string case_swapped_text_;
+  // std::string case_swapped_text_;
   CharacterSequence word_boundary_chars_;
-  bool text_is_lowercase_;
+  // bool text_is_lowercase_;
 };
 
 } // namespace YouCompleteMe

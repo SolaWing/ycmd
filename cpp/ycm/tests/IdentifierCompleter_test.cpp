@@ -123,11 +123,11 @@ TEST( IdentifierCompleterTest, CompleteMatchForWordBoundaryCharsWins ) {
 }
 
 TEST( IdentifierCompleterTest, RatioUtilizationTieBreak ) {
-  EXPECT_THAT( IdentifierCompleter( {
-                 "aGaaFooBarQux",
-                 "aBaafbq" } ).CandidatesForQuery( "fbq" ),
-               ElementsAre( "aGaaFooBarQux",
-                            "aBaafbq" ) );
+//  EXPECT_THAT( IdentifierCompleter( {
+//                 "aGaaFooBarQux",
+//                 "aBaafbq" } ).CandidatesForQuery( "fbq" ),
+//               ElementsAre( "aGaaFooBarQux",
+//                            "aBaafbq" ) );
 
   EXPECT_THAT( IdentifierCompleter( {
                  "aFooBarQux",
@@ -220,11 +220,11 @@ TEST( IdentifierCompleterTest, PreferLowercaseCandidate ) {
                ElementsAre( "chatContentExtension",
                             "ChatContentExtension" ) );
 
-  EXPECT_THAT( IdentifierCompleter( {
-                 "fooBar",
-                 "FooBar" } ).CandidatesForQuery( "oba" ),
-               ElementsAre( "fooBar",
-                            "FooBar" ) );
+//  EXPECT_THAT( IdentifierCompleter( {
+//                 "fooBar",
+//                 "FooBar" } ).CandidatesForQuery( "oba" ),
+//               ElementsAre( "fooBar",
+//                            "FooBar" ) );
 }
 
 TEST( IdentifierCompleterTest, ShorterAndLowercaseWins ) {
