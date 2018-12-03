@@ -219,18 +219,6 @@ Result Candidate::QueryMatchResult( const Word &query ) const {
 calculate_score:
     // 有push才会进这个分支.
     const int64_t BASIC_SCORE = 1000;
-
-    // score related
-
-    // continue_count will increase when match,
-    //  and get a lot of bonus when discontinue according to continue count.
-
-    // word boundary give a lot of bonus according to similarity
-
-    // front give a little priority to back
-    // short give a little priority to long
-    // match case give a little priority to convert case
-
     // the last char will get some extra bonus
     size_t word_boundary_count = LongestCommonSubsequenceLength(WordBoundaryChars(), query_chars);
     { // find longest continuous and try fix match early
@@ -272,42 +260,51 @@ calculate_score:
 
     size_t index_sum = 0;
     size_t change_case_count = 0;
-    {
-        auto match_pairs_it = match_pairs.begin();
-        auto query_it = match_pairs_it->first;
-        decltype(match_pairs_it->second) candidate_iter;
-        while( query_it != query_chars.end() ) {
-            if (query_it == match_pairs_it->first) {
-                candidate_iter = match_pairs_it->second;
-                ++match_pairs_it;
-            } else {
-                ++candidate_iter;
+    { // loop for calculate index_sum and change_case_count
+        for (auto range = match_pairs.cbegin(), e = match_pairs.cend() - 1; range != e; ++range) {
+            auto query_it = range->first;
+            auto candidate_iter = range->second;
+            auto next_query = (range+1)->first;
+            for ( ; query_it != next_query; ++query_it, ++candidate_iter ) {
+                index_sum += candidate_iter - candidate_begin;
+                if ( **query_it != **candidate_iter ) { ++change_case_count; }
             }
-
-            index_sum += candidate_iter - candidate_begin;
-            if ( **query_it != **candidate_iter ) { ++change_case_count; }
-
-            ++query_it;
         }
     }
 
+    // 计算score
+
+    // continue_count will increase when match,
+    //  and get a lot of bonus when discontinue according to continue count.
+
+    // word boundary give a lot of bonus according to similarity
+
+    // front give a little priority to back
+    // short give a little priority to long
+    // match case give a little priority to convert case
+
     int64_t score = 0;
     if (word_boundary_count > 0) {
+        // FIXME: 现在的 word_boundary_count算法只比对公用子串，但query中不匹配的部分不一定真的匹配到原字符串。
         double const word_boundary_char_utilization = word_boundary_count / (double)word_boundary_chars_.size();
         score += word_boundary_count * word_boundary_count * (1 + word_boundary_char_utilization * 2) * BASIC_SCORE;
     }
     for (auto it = match_pairs.begin() + 1, e = match_pairs.end(); it != e; ++it) {
+        // FIXME: 都是连续的，但更多的字符会导致上面的WBC得更多的分，导致短小的单个单词选中不了。如dict vs XXXdictXXX
+        // 按连续算时，WBC是不是不应该得那么多分，特别是按连续的匹配算时，其实根本没有匹配WBC。
+        // 是不是应该尝试一种连续匹配和WBC匹配，取高分?
         auto len = it->first - (it-1)->first;
-        if (len > 1) { // 相同字符,WB分更高，其次连续
+        if (len > 1) { // 相同字符3个以下时，WB分更高
             score += len * len * 2 * BASIC_SCORE;
         }
     }
     score -= candidate_chars.size() * 3; // longer length have less score
     score -= change_case_count; // change case have less score
     score -= index_sum; // match previous have lower index_sum, and give litte priority
-//    if (matched_pos.back() == candidate_chars.size() - 1) { // last char give a change to select easily, especially for short string
-//        score += 1500 / (candidate_chars.size() * candidate_chars.size()) * BASIC_SCORE;
-//    }
+    // 暂时不算最后的bonous
+    // if (matched_pos.back() == candidate_chars.size() - 1) { // last char give a change to select easily, especially for short string
+    //     score += 1500 / (candidate_chars.size() * candidate_chars.size()) * BASIC_SCORE;
+    // }
     return Result(this, score);
 }
 
