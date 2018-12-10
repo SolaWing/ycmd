@@ -39,6 +39,10 @@ YCM_EXPORT pybind11::list FilterAndSortCandidates(
 /// a string. Supports newstr and newbytes from python-future on Python 2.
 std::string GetUtf8String( const pybind11::object &value );
 
+// 比对两个字符串，输出开始变化字节offset, 删除length, 和新加字符串. 相等时输出(0,0, "")
+YCM_EXPORT std::tuple<size_t, size_t, std::string>
+DiffString( const std::string &o, const std::string &n );
+
 } // namespace YouCompleteMe
 
 #endif /* end of include guard: PYTHONSUPPORT_H_KWGFEX0V */

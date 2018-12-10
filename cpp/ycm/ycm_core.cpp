@@ -66,6 +66,9 @@ PYBIND11_MODULE( ycm_core, mod )
            py::arg("query"),
            py::arg("max_candidates") = 0 );
 
+  // my extension
+  mod.def( "DiffString", &DiffString );
+
   mod.def( "YcmCoreVersion", &YcmCoreVersion );
 
   // This is exposed so that we can test it.

@@ -17,6 +17,7 @@
 
 #include "TestUtils.h"
 #include "Utils.h"
+#include "PythonSupport.h"
 
 #include <gtest/gtest.h>
 
@@ -90,5 +91,55 @@ TEST_F( UtilsTest, NormalizePath ) {
                Equals( existing_path / "bar" / "xyz" ) );
 }
 
+TEST_F( UtilsTest, DiffString ) {
+    { // 相等
+        auto a = DiffString("abc", "abc");
+        EXPECT_THAT( a,   Equals( decltype(a){0, 0, ""} ) );
+    }
+    { // 加后缀
+        auto a = DiffString("abc", "abcde");
+        EXPECT_THAT( a,   Equals( decltype(a){3, 0, "de"} ) );
+    }
+    { // 删后缀
+        auto a = DiffString("abc", "ab");
+        EXPECT_THAT( a,   Equals( decltype(a){2, 1, ""} ) );
+    }
+    { // 加前缀
+        auto a = DiffString("abc", "ddabc");
+        EXPECT_THAT( a,   Equals( decltype(a){0, 0, "dd"} ) );
+    }
+    { // 删除前缀
+        auto a = DiffString("abc", "bc");
+        EXPECT_THAT( a,   Equals( decltype(a){0, 1, ""} ) );
+    }
+    { // 改中间
+        auto a = DiffString("abcde", "abgde");
+        EXPECT_THAT( a,   Equals( decltype(a){2, 1, "g"} ) );
+    }
+    {
+        auto a = DiffString("abcde", "abggde");
+        EXPECT_THAT( a,   Equals( decltype(a){2, 1, "gg"} ) );
+    }
+    { // 加中间
+        auto a = DiffString("abcde", "abcggde");
+        EXPECT_THAT( a,   Equals( decltype(a){3, 0, "gg"} ) );
+    }
+    { // 减中间
+        auto a = DiffString("abcde", "abde");
+        EXPECT_THAT( a,   Equals( decltype(a){2, 1, ""} ) );
+    }
+    { // 后缀子串
+        auto a = DiffString("abcde", "ababcde");
+        EXPECT_THAT( a,   Equals( decltype(a){2, 0, "ab"} ) );
+    }
+    { // utf8前缀
+        auto a = DiffString(u8"\u00a3", u8"\u00a4");
+        EXPECT_THAT( a,   Equals( decltype(a){0, 2, u8"\u00a4"} ) );
+    }
+    { // utf8后缀
+        auto a = DiffString("\xc2\xa2", "\xc3\xa2");
+        EXPECT_THAT( a,   Equals( decltype(a){0, 2, u8"\xc3\xa2"} ) );
+    }
+}
 
 } // namespace YouCompleteMe

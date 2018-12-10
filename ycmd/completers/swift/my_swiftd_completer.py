@@ -27,6 +27,7 @@ from future import standard_library
 from future.utils import native
 standard_library.install_aliases()
 
+from ycm_core import DiffString
 from ycmd.utils import ToBytes, ToUnicode, ProcessIsRunning
 from ycmd.completers.completer import Completer
 from ycmd.completers.completer_utils import GetFileContents
@@ -46,6 +47,7 @@ _logger = logging.getLogger( __name__ )
 # _logger.setLevel(logging.DEBUG)
 
 import re
+import time
 header_pattern = re.compile(rb'(\S+)\s*:\s*(\S+)')
 
 # BINARY_NOT_FOUND_MESSAGE = ( 'The specified sourceKitten {0} ' +
@@ -71,11 +73,10 @@ class SwiftCompleter( Completer ):
 
   def __init__( self, user_options ):
     super().__init__( user_options )
-    #  self._logfile_stdout = None
-    #  self._logfile_stderr = None
-    #  self._keep_logfiles = user_options[ 'server_keep_logfiles' ]
+    self.max_diagnostics_to_display = user_options[ 'max_diagnostics_to_display' ]
     self._flags_for_file = {}
     self._big_cache = []
+    self._source_repository = {}
 
     # Used to ensure that starting/stopping of the server is synchronized
     self._request_id = 0
@@ -94,8 +95,10 @@ class SwiftCompleter( Completer ):
           _logger.info( 'Starting SwiftLSP Language Server...' )
           self._server_stderr = utils.CreateLogfile( 'SwiftD_stderr_' )
           with utils.OpenForStdHandle( self._server_stderr ) as stderr:
-              self._server_handle = utils.SafePopen([self._sourcekitten_binary_path, "daemon"],
-                                                    stdin = PIPE, stdout = PIPE, stderr = stderr) # type: subprocess.Popen
+              self._server_handle = utils.SafePopen(
+                  [self._sourcekitten_binary_path, "daemon"],
+                  env = ({"SOURCEKIT_LOGGING": "3"} if _logger.level == logging.DEBUG else None),
+                  stdin = PIPE, stdout = PIPE, stderr = stderr) # type: subprocess.Popen
 
   def _StopServer(self):
       with self._server_state_mutex:
@@ -246,11 +249,81 @@ class SwiftCompleter( Completer ):
           column = request_data[ 'start_column' ] - 1
       additional_flags = self.FlagsForFile(filename)
 
+      # calculate byteoffset
       (source_bytes, offset) = ToBytesWithCursor(file_contents, line, column)
       return (filename, source_bytes, offset, additional_flags)
 
-  # def OnFileReadyToParse( self, request_data ):
-  #     pass
+  def OnFileReadyToParse( self, request_data ):
+    filename = request_data[ 'filepath' ]
+    if not filename: return
+    # 限制不要重复编译
+    contents = GetFileContents( request_data, filename )
+    with self._server_state_mutex:
+        file_state = self._source_repository.get(filename)
+        if file_state is None:
+            file_state = {'parse_id': 0, 'last_contents': contents}
+            self._source_repository[filename] = file_state
+
+            output = self.request("source.request.editor.open", {
+                "key.sourcefile": filename,
+                "key.name": filename,
+                "key.sourcetext": contents,
+                "key.compilerargs": self.FlagsForFile(filename),
+                "key.enablesyntaxmap": 0,
+                "key.enablesubstructure": 0
+            }) # type: dict
+            if not output: _logger.warn("editor open error!"); return
+            output = json.loads(output)
+        else:
+            diff = DiffString(file_state['last_contents'], contents)
+            file_state['last_contents'] = contents
+            file_state['parse_id'] += 1
+            output = self.request("source.request.editor.replacetext", {
+                "key.sourcefile": filename,
+                "key.name": filename,
+                "key.offset": diff[0],
+                "key.length": diff[1],
+                "key.sourcetext": diff[2],
+            })
+            if not output: _logger.warn("editor open error!"); return
+            output = json.loads(output)
+        parse_id = file_state['parse_id']
+
+    diag = output.get("key.diagnostics")
+    c = 0
+    while not diag and output.get("key.diagnostic_stage") == "source.diagnostic.stage.swift.parse":
+        if c > 5: _logger.warn("get diag timeout!"); return
+        time.sleep(1)
+        c += 1
+        if file_state['parse_id'] != parse_id: # new request, ignore old loop query
+            return
+
+        output = self.request("source.request.editor.replacetext", {
+            "key.sourcefile": filename,
+            "key.name": filename,
+            "key.offset": 0,
+            "key.length": 0,
+            "key.sourcetext": "",
+        })
+        if not output: _logger.warn("get diag error!"); return
+        output = json.loads(output)
+        diag = output.get("key.diagnostics")
+
+    if not diag: return
+    diag = list(filter(bool, map(ConvertToYCMDDiag, diag)))
+    _logger.debug("%d diags", len(diag))
+    return responses.BuildDiagnosticResponse(diag, filename, self.max_diagnostics_to_display)
+
+  def OnBufferUnload( self, request_data ):
+    filename = request_data[ 'filepath' ]
+    if not filename: return
+    with self._server_state_mutex:
+        file_state = self._source_repository.pop(filename, None)
+        if file_state: file_state['parse_id'] += 1 # cancel waiting parsing
+        self.request("source.request.editor.close", {
+            "key.sourcefile": filename,
+            "key.name": filename,
+        })
 
   def QuickCandidates(self, request_data):
       if request_data['force_semantic'] and request_data[ 'query' ]:
@@ -401,6 +474,23 @@ class SwiftCompleter( Completer ):
           'byte_offset': cursorInfo['key.offset']
       }
 
+def ConvertToYCMDDiag(sourcekit_diag):
+    path = sourcekit_diag.get("key.filepath")
+    line = sourcekit_diag.get("key.line")
+    if not path or not line: return None
+    column = sourcekit_diag.get("key.column")
+    start = responses.Location(line, column, path)
+    end = responses.Location(line, column, path)
+    r = responses.Range(start, end)
+    #  TODO: fixit # 
+    #  TODO: swiftc compiler args #
+    return responses.Diagnostic(
+        ranges = [r],
+        location = r.start_,
+        location_extent = r,
+        text = sourcekit_diag.get("key.description"),
+        kind = DiagTypeFromKitten(sourcekit_diag.get("key.severity"))
+    )
 
 def ToBytesWithCursor(file_contents, line, column):
     assert line >= 0
@@ -434,3 +524,10 @@ def KindFromKittenKind(sourcekind):
           "source.lang.swift.literal.color"                 : "LITERALCOLOR",
           "source.lang.swift.literal.image"                 : "LITERALIMAGE",
       }.get(sourcekind, 'UNKNOWN')
+
+def DiagTypeFromKitten(sourcekind):
+    return {
+        "source.diagnostic.severity.note": "INFORMATION",
+        "source.diagnostic.severity.warning": "WARNING",
+        "source.diagnostic.severity.error": "ERROR"
+    }.get(sourcekind)
