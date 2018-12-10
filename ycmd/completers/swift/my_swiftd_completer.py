@@ -240,18 +240,17 @@ class SwiftCompleter( Completer ):
       filename = request_data[ 'filepath' ]
       if not filename: return
 
-      file_contents = utils.SplitLines( GetFileContents( request_data, filename ) )
-      # 0 based line and column
-      line = request_data[ 'line_num' ] - 1
+      contents = GetFileContents( request_data, filename )
+      # 1 based line and column
+      line = request_data[ 'line_num' ]
       if current:
-          column = request_data['column_num'] - 1
+          column = request_data['column_num']
       else:
-          column = request_data[ 'start_column' ] - 1
+          column = request_data[ 'start_column' ]
       additional_flags = self.FlagsForFile(filename)
 
-      # calculate byteoffset
-      (source_bytes, offset) = ToBytesWithCursor(file_contents, line, column)
-      return (filename, source_bytes, offset, additional_flags)
+      offset = len(utils.ToBytes(contents[:LineOffsetInStr(contents, line)])) + column - 1
+      return (filename, contents, offset, additional_flags)
 
   def OnFileReadyToParse( self, request_data ):
     filename = request_data[ 'filepath' ]
@@ -342,7 +341,7 @@ class SwiftCompleter( Completer ):
 
       output = self.request("source.request.codecomplete", {
           "key.sourcefile" : data[0],
-          "key.sourcetext" : utils.ToUnicode( data[1] ),
+          "key.sourcetext" : data[1],
           "key.offset" : data[2],
           "key.compilerargs" : data[3],
       } )
@@ -387,7 +386,7 @@ class SwiftCompleter( Completer ):
 
       output = self.request("source.request.cursorinfo", {
           "key.sourcefile" : data[0],
-          "key.sourcetext" : utils.ToUnicode( data[1] ),
+          "key.sourcetext" : data[1],
           "key.offset" : data[2],
           "key.compilerargs" : data[3],
       } )
@@ -585,18 +584,14 @@ def ConvertToYCMDDiag(sourcekit_diag, bytes_contents):
         fixits = fixits
     )
 
-def ToBytesWithCursor(file_contents, line, column):
-    assert line >= 0
-    offset = column
-    with BytesIO() as f:
-        if line > 0:
-            f.write( utils.ToBytes( "\n".join(file_contents[:line]) ) )
-            f.write( b"\n" )
-        offset += f.tell()
-        f.write( utils.ToBytes( "\n".join(file_contents[line:]) ) )
-        f.write( b"\n" )
-        f.flush()
-        return (f.getvalue(), offset)
+# return 0 if line overflow
+def LineOffsetInStr(file_contents, line):
+    i = -1
+    while line > 1:
+        i = file_contents.find("\n", i + 1)
+        if i < 0: return 0
+        line -= 1
+    return i + 1
 
 def KindFromKittenKind(sourcekind):
       return {
