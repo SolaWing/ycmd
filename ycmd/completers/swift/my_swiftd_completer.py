@@ -278,6 +278,7 @@ class SwiftCompleter( Completer ):
             diff = DiffString(file_state['last_contents'], contents)
             file_state['last_contents'] = contents
             file_state['parse_id'] += 1
+            file_state.pop('last_diag', None)
             output = self.request("source.request.editor.replacetext", {
                 "key.sourcefile": filename,
                 "key.name": filename,
@@ -310,8 +311,13 @@ class SwiftCompleter( Completer ):
         diag = output.get("key.diagnostics")
 
     if not diag: return
-    diag = list(filter(bool, map(ConvertToYCMDDiag, diag)))
+    bytes_contents = utils.ToBytes(contents)
+    diag = list(filter(bool, map(lambda d: ConvertToYCMDDiag(d, bytes_contents), diag)))
     _logger.debug("%d diags", len(diag))
+    with self._server_state_mutex:
+        if file_state['parse_id'] == parse_id: # no changes, save last diag
+            file_state['last_diag'] = diag
+
     return responses.BuildDiagnosticResponse(diag, filename, self.max_diagnostics_to_display)
 
   def OnBufferUnload( self, request_data ):
@@ -370,6 +376,7 @@ class SwiftCompleter( Completer ):
         'RestartServer': (
             lambda self, request_data, args: self._RestartServer( request_data )
         ),
+        'FixIt' : SwiftCompleter.Fixit,
     }
 
   def CursorRequest(self, request_data):
@@ -473,23 +480,109 @@ class SwiftCompleter( Completer ):
           'filepath': cursorInfo['key.filepath'],
           'byte_offset': cursorInfo['key.offset']
       }
+  def Fixit(self, request_data, args):
+    filename = request_data[ 'filepath' ]
+    contents = GetFileContents( request_data, filename )
 
-def ConvertToYCMDDiag(sourcekit_diag):
+    line = request_data[ 'line_num' ]
+    column = request_data[ 'column_num' ]
+    location = responses.Location(line, column, filename)
+
+    with self._server_state_mutex:
+        file_state = self._source_repository.get(filename)
+        if file_state is None: return
+        if file_state['last_contents'] != contents: # force reparse
+            self.OnFileReadyToParse(request_data)
+        diag = file_state.get('last_diag')
+        if diag is None: return
+        for fixits in (d.fixits_ for d in diag
+                       if d.fixits_ and LocationInRange(location, d.location_extent_) ):
+            return responses.BuildFixItResponse(fixits)
+        # no accurate column match, try only line match
+        for fixits in (d.fixits_ for d in diag
+                       if d.fixits_ and LocationLineInRange(location, d.location_extent_) ):
+            return responses.BuildFixItResponse(fixits)
+        return
+
+def LocationInRange(location, location_range):
+    if location.filename_ != location_range.start_.filename_: return False
+    after_start = (location.line_number_ > location_range.start_.line_number_ or
+                   (location.line_number_ == location_range.start_.line_number_ and
+                    location.column_number_ >= location_range.start_.column_number_))
+    before_end = (location.line_number_ < location_range.end_.line_number_ or
+                  (location.line_number_ == location_range.end_.line_number_ and
+                   location.column_number_ < location_range.end_.column_number_))
+    return after_start and before_end
+
+def LocationLineInRange(location, location_range):
+    if location.filename_ != location_range.start_.filename_: return False
+    after_start = location.line_number_ >= location_range.start_.line_number_
+    before_end = location.line_number_ <= location_range.end_.line_number_
+    return after_start and before_end
+
+def LineColumnFromOffset(bytes_contents, offset):
+    """
+    offset is 0 based, return 1-based line and byte column
+    note: no check column offset overflow
+    """
+    line = bytes_contents.count(b"\n", 0, offset) + 1
+    line_start = bytes_contents.rfind(b"\n", 0, offset) + 1 # return -1 when not found, so + 1 is the line_start offset
+    return (line, offset - line_start + 1)
+
+def BuildRangeFromOffset(name, bytes_contents, offset, length):
+    start = LineColumnFromOffset(bytes_contents, offset)
+    end = LineColumnFromOffset(bytes_contents[offset:], length) # don't recount lines
+    if end[0] == 1:
+        end = (start[0], start[1] + end[1] - 1)
+    else:
+        end = (start[0] + end[0] - 1, end[1])
+    return responses.Range( responses.Location(*start, name),
+                            responses.Location(*end, name) )
+
+def ConvertFixit(location, desc, chunks, bytes_contents):
+    if not chunks: return None
+    chunks = [responses.FixItChunk(c["key.sourcetext"],
+                                   BuildRangeFromOffset(location.filename_, bytes_contents,
+                                                        c["key.offset"], c["key.length"]))
+              for c in chunks]
+    return responses.FixIt( location, chunks, desc )
+
+def LocationFromDiag(sourcekit_diag):
     path = sourcekit_diag.get("key.filepath")
     line = sourcekit_diag.get("key.line")
     if not path or not line: return None
-    column = sourcekit_diag.get("key.column")
-    start = responses.Location(line, column, path)
-    end = responses.Location(line, column, path)
+    column = sourcekit_diag.get("key.column", 1)
+    return responses.Location(line, column, path)
+
+
+def ConvertToYCMDDiag(sourcekit_diag, bytes_contents):
+    start = LocationFromDiag(sourcekit_diag)
+    if start is None: return
+    try:
+        length = sourcekit_diag["key.ranges"][0]["key.length"]
+    except Exception as e:
+        _logger.debug("get ranges error: %s", e)
+        length = 1
+    end = responses.Location(start.line_number_, start.column_number_+length, start.filename_)
     r = responses.Range(start, end)
-    #  TODO: fixit # 
+
+    fixits = []
+    f = ConvertFixit(start, "", sourcekit_diag.get("key.fixits"), bytes_contents)
+    if f: fixits.append(f)
+    
+    for subdiag in sourcekit_diag.get("key.diagnostics", []):
+        l = LocationFromDiag(subdiag)
+        f = ConvertFixit(l, subdiag.get("key.description",""), subdiag.get("key.fixits"), bytes_contents)
+        if f: fixits.append(f)
+
     #  TODO: swiftc compiler args #
     return responses.Diagnostic(
         ranges = [r],
         location = r.start_,
         location_extent = r,
         text = sourcekit_diag.get("key.description"),
-        kind = DiagTypeFromKitten(sourcekit_diag.get("key.severity"))
+        kind = DiagTypeFromKitten(sourcekit_diag.get("key.severity")),
+        fixits = fixits
     )
 
 def ToBytesWithCursor(file_contents, line, column):
@@ -531,3 +624,4 @@ def DiagTypeFromKitten(sourcekind):
         "source.diagnostic.severity.warning": "WARNING",
         "source.diagnostic.severity.error": "ERROR"
     }.get(sourcekind)
+

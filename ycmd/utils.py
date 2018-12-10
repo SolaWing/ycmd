@@ -189,6 +189,7 @@ def ToBytes( value ):
   return ToBytes( str( value ) )
 
 
+# seems offset is 1 based?
 def ByteOffsetToCodepointOffset( line_value, byte_offset ):
   """The API calls for byte offsets into the UTF-8 encoded version of the
   buffer. However, ycmd internally uses unicode strings. This means that
