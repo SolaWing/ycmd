@@ -77,6 +77,7 @@ class SwiftCompleter( Completer ):
     self._flags_for_file = {}
     self._big_cache = []
     self._source_repository = {}
+    self._open_modules = {}
 
     # Used to ensure that starting/stopping of the server is synchronized
     self._request_id = 0
@@ -260,6 +261,8 @@ class SwiftCompleter( Completer ):
     with self._server_state_mutex:
         file_state = self._source_repository.get(filename)
         if file_state is None:
+            if filename in self._open_modules:
+                return # module file 不需要编译, rare cause delay in rare execute branch
             file_state = {'parse_id': 0, 'last_contents': contents}
             self._source_repository[filename] = file_state
 
@@ -323,6 +326,7 @@ class SwiftCompleter( Completer ):
     filename = request_data[ 'filepath' ]
     if not filename: return
     with self._server_state_mutex:
+        if filename in self._open_modules: return
         file_state = self._source_repository.pop(filename, None)
         if file_state: file_state['parse_id'] += 1 # cancel waiting parsing
         self.request("source.request.editor.close", {
@@ -394,13 +398,19 @@ class SwiftCompleter( Completer ):
       return json.loads(output)
 
   def _InterfacePath(self, moduleName):
-      return os.path.join( tempfile.gettempdir(), moduleName + ".swift")
+      return os.path.realpath(os.path.join( tempfile.gettempdir(), moduleName + ".swift"))
 
   def _ModuleVirtualName(self, moduleName):
       return self._InterfacePath(moduleName)
 
   def _OpenInterface(self, data, moduleName):
+      """
+      :return bool: 是否打开成功
+      """
       if not moduleName or data is None: return
+      filename = self._InterfacePath(moduleName)
+      if filename in self._open_modules: return True # already open, don't need to reopen
+
       output = self.request("source.request.editor.open.interface", {
           "key.name": self._ModuleVirtualName(moduleName),
           "key.modulename": moduleName,
@@ -410,8 +420,12 @@ class SwiftCompleter( Completer ):
       interface = json.loads(output)
       source = interface.get("key.sourcetext")
       if source:
-          with open(self._InterfacePath(moduleName), "w") as f:
+          with open(filename, "w") as f:
               f.write(source)
+          # with open(filename+"raw", "w") as f:
+          #     f.write(output) # cache the openInterface output, since recall open interface is slow
+          self._open_modules[filename] = data[3]
+          self._flags_for_file[filename] = data[3] # use same compile flags as open args
       return interface
 
   def GetType(self, request_data, args):
@@ -455,8 +469,8 @@ class SwiftCompleter( Completer ):
       if 'key.filepath' not in cursorInfo:
           moduleName = cursorInfo.get('key.modulename')
           # open module and goto
-          interface = self._OpenInterface(data, moduleName)
-          if interface:
+          opened = self._OpenInterface(data, moduleName)
+          if opened:
               filepath = self._InterfacePath(moduleName)
               offset = 0
 
