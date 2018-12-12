@@ -380,6 +380,7 @@ class SwiftCompleter( Completer ):
             lambda self, request_data, args: self._RestartServer( request_data )
         ),
         'FixIt' : SwiftCompleter.Fixit,
+        'DocComment': SwiftCompleter.DocComment,
     }
 
   def CursorRequest(self, request_data):
@@ -493,6 +494,44 @@ class SwiftCompleter( Completer ):
           'filepath': cursorInfo['key.filepath'],
           'byte_offset': cursorInfo['key.offset']
       }
+
+  def DocComment(self, request_data, args):
+      cursorInfo = self.CursorRequest(request_data)
+      if not cursorInfo: return
+      line = request_data[ 'line_num' ]
+      filename = request_data[ 'filepath' ]
+      line_value = request_data['line_value'] # type: str
+      indent = len(line_value) - len(line_value.lstrip())
+      prefix = indent * " " + "///"
+
+      from xml.etree import ElementTree
+      root = ElementTree.fromstring( cursorInfo['key.fully_annotated_decl'] )
+      if root.tag.startswith('decl.function'):
+          def yieldArgs():
+              for i in root.iterfind("decl.var.parameter"):
+                  name = i.find("decl.var.parameter.name")
+                  # bool(Element) return false for empty child
+                  if name is None: name = i.find("decl.var.parameter.argument_label")
+                  if name is None: continue
+                  yield "".join(name.itertext())
+          args = list(yieldArgs())
+          text = [" Description"]
+          if len(args) > 0:
+              text.append("")
+              text.append(" - Parameters:")
+              text.extend("   - %s: "%(i) for i in args)
+          text.append(' - Returns: ')
+          text = "".join("".join((prefix, i, os.linesep)) for i in text)
+      else:
+          text = prefix + os.linesep # simply add at top line
+      start = responses.Location(line, 1, filename)
+      return responses.BuildFixItResponse(
+          [responses.FixIt(
+              start,
+              [responses.FixItChunk(text, responses.Range(start, start))]
+          )]
+      )
+
   def Fixit(self, request_data, args):
     filename = request_data[ 'filepath' ]
     contents = GetFileContents( request_data, filename )
