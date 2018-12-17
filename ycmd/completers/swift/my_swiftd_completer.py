@@ -274,8 +274,7 @@ class SwiftCompleter( Completer ):
                 "key.enablesyntaxmap": 0,
                 "key.enablesubstructure": 0
             }) # type: dict
-            if not output: _logger.warn("editor open error!"); return
-            output = json.loads(output)
+            if output is None: _logger.warn("editor open error!"); return
         else:
             diff = DiffString(file_state['last_contents'], contents)
             file_state['last_contents'] = contents
@@ -288,8 +287,7 @@ class SwiftCompleter( Completer ):
                 "key.length": diff[1],
                 "key.sourcetext": diff[2],
             })
-            if not output: _logger.warn("editor open error!"); return
-            output = json.loads(output)
+            if output is None: _logger.warn("editor open error!"); return
         parse_id = file_state['parse_id']
 
     diag = output.get("key.diagnostics")
@@ -308,8 +306,7 @@ class SwiftCompleter( Completer ):
             "key.length": 0,
             "key.sourcetext": "",
         })
-        if not output: _logger.warn("get diag error!"); return
-        output = json.loads(output)
+        if output is None: _logger.warn("get diag error!"); return
         diag = output.get("key.diagnostics")
 
     if not diag: return
@@ -349,7 +346,7 @@ class SwiftCompleter( Completer ):
           "key.offset" : data[2],
           "key.compilerargs" : data[3],
       } )
-      if not output: return []
+      if output is None: return []
 
       completions = [ responses.BuildCompletionData(
         completion['key.name'],
@@ -358,7 +355,7 @@ class SwiftCompleter( Completer ):
         menu_text     = completion.get('key.description'),
         kind          = KindFromKittenKind(completion.get('key.kind')),
         extra_data    = { 'template' : completion.get('key.sourcetext') }
-      ) for completion in json.loads( output )["key.results"] ]
+      ) for completion in output["key.results"] ]
       # cache for QuickCandidates when big than 1M
       if len(output) > 1e6 :
           _logger.debug("swift cache %d", len(output))
@@ -389,14 +386,12 @@ class SwiftCompleter( Completer ):
   def _CursorRequest(self, data):
       if data is None: return
 
-      output = self.request("source.request.cursorinfo", {
+      return self.request("source.request.cursorinfo", {
           "key.sourcefile" : data[0],
           "key.sourcetext" : data[1],
           "key.offset" : data[2],
           "key.compilerargs" : data[3],
       } )
-      if not output: return
-      return json.loads(output)
 
   def _InterfacePath(self, moduleName):
       return os.path.realpath(os.path.join( tempfile.gettempdir(), moduleName + ".swift"))
@@ -412,13 +407,12 @@ class SwiftCompleter( Completer ):
       filename = self._InterfacePath(moduleName)
       if filename in self._open_modules: return True # already open, don't need to reopen
 
-      output = self.request("source.request.editor.open.interface", {
+      interface = self.request("source.request.editor.open.interface", {
           "key.name": self._ModuleVirtualName(moduleName),
           "key.modulename": moduleName,
           "key.compilerargs": data[3],
       })
-      if not output: return
-      interface = json.loads(output)
+      if interface is None: return
       source = interface.get("key.sourcetext")
       if source:
           with open(filename, "w") as f:
@@ -481,9 +475,8 @@ class SwiftCompleter( Completer ):
                       "key.usr": usr,
                       "key.sourcefile": self._ModuleVirtualName(moduleName)
                   })
-                  if output:
-                      r = json.loads(output)
-                      offset = r.get("key.offset", 0)
+                  if output is not None:
+                      offset = output.get("key.offset", 0)
               return {
                   'filepath': filepath,
                   'byte_offset': offset
