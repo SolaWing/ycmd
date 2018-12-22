@@ -191,7 +191,7 @@ Result Candidate::QueryMatchResult( const Word &query ) const {
     auto query_begin = query_iter;
     auto candidate_begin = candidate_chars.begin();
 
-    // 记录连续匹配的起点 [query_start, candidate_start]
+    // 记录连续匹配的起点 [query_start, candidate_start], range_length = next_query_start - query_start
     std::vector<std::pair<decltype(query_iter), decltype(candidate_chars.begin())>> match_pairs;
     match_pairs.reserve(query_chars.size() + 1);
     bool continuous = false;
@@ -213,14 +213,15 @@ Result Candidate::QueryMatchResult( const Word &query ) const {
             continuous = false;
         }
     }
-    // query_chars not match.
+    // query_chars not full match.
     return Result();
 
 calculate_score:
     // 有push才会进这个分支.
-    const int64_t BASIC_SCORE = 1000;
-    // the last char will get some extra bonus
+    const int64_t BASIC_SCORE = 1 << 10;
+
     size_t word_boundary_count = LongestCommonSubsequenceLength(WordBoundaryChars(), query_chars);
+
     { // find longest continuous and try fix match early
       size_t longest_start_index = 0, longest_count = 0;
       for (auto b = match_pairs.cbegin(), it = b + 1, e = match_pairs.cend(); it != e; ++it) {
@@ -274,30 +275,39 @@ calculate_score:
 
     // 计算score
 
-    // continue_count will increase when match,
-    //  and get a lot of bonus when discontinue according to continue count.
-
-    // word boundary give a lot of bonus according to similarity
+    // continue count will give a lot of bonus by count
+    // word boundary match give a lot of bonus according to similarity
 
     // front give a little priority to back
     // short give a little priority to long
     // match case give a little priority to convert case
 
     int64_t score = 0;
+
+    // FIXME: 都是连续的，但更多的字符会导致WBC得更多的分，导致短小的单个单词选中不了。如dict vs XXXdictXXX
+    // 而且连续和WBC通常并不是同时都匹配。所以不应该相加。
+    // 所以现在两种算法，一种考虑word_boundary, 一种不考虑word_boundary，不考虑word_boundary的要连续较多字符才生效
+    int64_t word_boundary_score = 0, continue_score = 0;
     if (word_boundary_count > 0) {
         // FIXME: 现在的 word_boundary_count算法只比对公用子串，但query中不匹配的部分不一定真的匹配到原字符串。
-        double const word_boundary_char_utilization = word_boundary_count / (double)word_boundary_chars_.size();
-        score += word_boundary_count * word_boundary_count * (1 + word_boundary_char_utilization * 2) * BASIC_SCORE;
+        word_boundary_score = word_boundary_count * BASIC_SCORE
+            // unmatch word_boundary数量多的, 排在相对后面一点
+            - (word_boundary_chars_.size() - word_boundary_count);
     }
     for (auto it = match_pairs.begin() + 1, e = match_pairs.end(); it != e; ++it) {
-        // FIXME: 都是连续的，但更多的字符会导致上面的WBC得更多的分，导致短小的单个单词选中不了。如dict vs XXXdictXXX
-        // 按连续算时，WBC是不是不应该得那么多分，特别是按连续的匹配算时，其实根本没有匹配WBC。
-        // 是不是应该尝试一种连续匹配和WBC匹配，取高分?
-        auto len = it->first - (it-1)->first;
-        if (len > 1) { // 相同字符3个以下时，WB分更高
-            score += len * len * 2 * BASIC_SCORE;
-        }
+        auto c = it->first - (it-1)->first - 1;
+        if ( c < 1 ) { continue; }
+        // 大概连续3个字符，等于1个word_boundary的分, 之后每个连续的都多于一个word_boundary.
+        // 字符匹配大概为0.4, 0.7, 1, 1.3的等差数列. 积累分为: 0.4, 1.1, 2.1, 3.4
+        word_boundary_score += BASIC_SCORE * (0.4 + 0.3 * c + 0.1) * c / 2;
+        // 只算连续的分，按连续数给大量分, 并按匹配数忽略相应的WB数量
+        // (wbc也有少量连续分，所以差值需要多于WBC匹配的, 现在4个字符连续大概忽略2个WB, 5个基本可以算完全忽略了)
+        // 期望4个连续字符稍胜2个WB+连续. 低于时不过。最好初值能大于0, 不然少量连续还减分..
+        // 另外4个连续字符以上应该胜过同字符数的WB.  同时连续 + 大量WB误匹配概率应该不高
+        continue_score += BASIC_SCORE * c * c / 2; // 这个累积分为: (0.5, 2, 4.5, 8)
     }
+    // 连续和词头通常不是同一匹配，因此应该此匹配最高的。
+    score += std::max(continue_score, word_boundary_score);
     score -= candidate_chars.size() * 3; // longer length have less score
     score -= change_case_count; // change case have less score
     score -= index_sum; // match previous have lower index_sum, and give litte priority

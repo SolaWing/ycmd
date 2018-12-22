@@ -89,6 +89,50 @@ TEST( IdentifierCompleterTest, FirstCharSameAsQueryWins ) {
                             "afoobar" ) );
 }
 
+TEST( IdentifierCompleterTest, ContinueCharsWins ) {
+  // 3个比2个优先
+  EXPECT_THAT( IdentifierCompleter( {
+                 "foobarqux",
+                 "bxar" } ).CandidatesForQuery( "bar" ),
+               ElementsAre( "foobarqux",
+                            "bxar" ) );
+
+  // 4个字符以上连续时，连续比WBC优先. 多字符连续比WBC match更不容易误匹配, 所以应该优先
+  EXPECT_THAT( IdentifierCompleter( {
+                 "AaBbCcDd",
+                 "xxxxxxabcdxxxxxxxxxxxx" } ).CandidatesForQuery( "abcd" ),
+               ElementsAre( "xxxxxxabcdxxxxxxxxxxxx",
+                            "AaBbCcDd" ) );
+}
+TEST( IdentifierCompleterTest, ManyContinueCharsIgnoreWBC ) {
+  // 现在能忽略的WBC也是有限制的，不太可能连续时还匹配大量的WBC
+  EXPECT_THAT( IdentifierCompleter( {
+                 "abcdeAxBxCxxxxxxxxxxx",
+                 "abcdexxxxxxxxxxxx" } ).CandidatesForQuery( "abcde" ),
+               ElementsAre( "abcdexxxxxxxxxxxx",
+                            "abcdeAxBxCxxxxxxxxxxx" ) );
+}
+
+TEST( IdentifierCompleterTest, WordBoundaryCharsWinsLittleContinue ) {
+  // 三个字符及以下是，以WB优先
+  EXPECT_THAT( IdentifierCompleter( {
+                 "AaBbCcDd",
+                 "xxxxxxabcdxxxxxxxxxxxx" } ).CandidatesForQuery( "abc" ),
+               ElementsAre( "AaBbCcDd" , "xxxxxxabcdxxxxxxxxxxxx") );
+
+  // 3个连续字符才胜过一个WB match
+  EXPECT_THAT( IdentifierCompleter( {
+                 "AxBxCxcxDx",
+                 "AxBxCcxd" } ).CandidatesForQuery( "abccd" ),
+               ElementsAre( "AxBxCxcxDx" , "AxBxCcxd") );
+
+  EXPECT_THAT( IdentifierCompleter( {
+                 "AxBxCxcxDx",
+                 "AxBxCcdxxxxx" } ).CandidatesForQuery( "abccd" ),
+               ElementsAre( "AxBxCcdxxxxx" , "AxBxCxcxDx") );
+}
+
+
 TEST( IdentifierCompleterTest, CompleteMatchForWordBoundaryCharsWins ) {
   EXPECT_THAT( IdentifierCompleter( {
                  "FooBarQux",
@@ -123,11 +167,11 @@ TEST( IdentifierCompleterTest, CompleteMatchForWordBoundaryCharsWins ) {
 }
 
 TEST( IdentifierCompleterTest, RatioUtilizationTieBreak ) {
-//  EXPECT_THAT( IdentifierCompleter( {
-//                 "aGaaFooBarQux",
-//                 "aBaafbq" } ).CandidatesForQuery( "fbq" ),
-//               ElementsAre( "aGaaFooBarQux",
-//                            "aBaafbq" ) );
+  EXPECT_THAT( IdentifierCompleter( {
+                 "aGaaFooBarQux",
+                 "aBaafbq" } ).CandidatesForQuery( "fbq" ),
+               ElementsAre( "aGaaFooBarQux",
+                            "aBaafbq" ) );
 
   EXPECT_THAT( IdentifierCompleter( {
                  "aFooBarQux",
@@ -135,11 +179,13 @@ TEST( IdentifierCompleterTest, RatioUtilizationTieBreak ) {
                ElementsAre( "aFooBarQux",
                             "afbq" ) );
 
+  /* NOTE: 连续多了就忽略WB, 这种Case可以只输WB, 不连续来匹配
   EXPECT_THAT( IdentifierCompleter( {
                  "acaaCaaFooGxx",
                  "aCaafoog" } ).CandidatesForQuery( "caafoo" ),
                ElementsAre( "acaaCaaFooGxx",
                             "aCaafoog" ) );
+  */
 
   EXPECT_THAT( IdentifierCompleter( {
                  "FooBarQux",
@@ -219,12 +265,13 @@ TEST( IdentifierCompleterTest, PreferLowercaseCandidate ) {
                } ).CandidatesForQuery( "chatContent" ),
                ElementsAre( "chatContentExtension",
                             "ChatContentExtension" ) );
-
-//  EXPECT_THAT( IdentifierCompleter( {
-//                 "fooBar",
-//                 "FooBar" } ).CandidatesForQuery( "oba" ),
-//               ElementsAre( "fooBar",
-//                            "FooBar" ) );
+  /* NOTE: 这种没匹配到的字符就不管大小写排序了。
+  EXPECT_THAT( IdentifierCompleter( {
+                 "fooBar",
+                 "FooBar" } ).CandidatesForQuery( "oba" ),
+               ElementsAre( "fooBar",
+                            "FooBar" ) );
+  */
 }
 
 TEST( IdentifierCompleterTest, ShorterAndLowercaseWins ) {

@@ -198,11 +198,4 @@ TEST( CandidateTest, QueryMatchResultIsNotSubsequence ) {
   EXPECT_THAT( "f𐍈oβaåaR", Not( IsSubsequence( "F𐍈oβaÅAr" ) ) );
 }
 
-//TEST( CandidateTest, ShortPerformance ) {
-//    for (int i = 0; i < 1000000; ++i) {
-//        Candidate candidate( "pthread_create(<#pthread_t *#>, <#const pthread_attr_t *#>, <#void *(*)(void *)#>, <#void *#>)" );
-//        candidate.QueryMatchResult("pc", true);
-//    }
-//}
-
 } // namespace YouCompleteMe

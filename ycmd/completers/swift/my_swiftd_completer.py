@@ -176,26 +176,6 @@ class SwiftCompleter( Completer ):
         _logger.exception( 'Error while read package' )
         return {}
 
-  # def _GetExtraData( self, completion ):
-  #     location = {}
-  #     if completion[ 'module_path' ]:
-  #       location[ 'filepath' ] = completion[ 'module_path' ]
-  #     if completion[ 'line' ]:
-  #       location[ 'line_num' ] = completion[ 'line' ]
-  #     if completion[ 'column' ]:
-  #       location[ 'column_num' ] = completion[ 'column' ] + 1
-
-  #     if location:
-  #       extra_data = {}
-  #       extra_data[ 'location' ] = location
-  #       return extra_data
-  #     else:
-  #       return None
-
-  # def OnFileReadyToParse( self, request_data ):
-  #   self._StartServer( request_data )
-  #   return super().OnFileReadyToParse( request_data )
-
   def DebugInfo( self, request_data ):
     items = []
     filename = request_data[ 'filepath' ]
