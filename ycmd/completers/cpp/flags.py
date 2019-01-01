@@ -579,7 +579,8 @@ if OnMac():
 
 
 def _AddMacIncludePaths( flags ):
-  if OnMac() and not _SysRootSpecifedIn( flags ):
+  # 暂时Mac上始终加上paths. 否则可能报错
+  if OnMac():
     flags.extend( MAC_INCLUDE_PATHS )
   return flags
 
