@@ -407,7 +407,8 @@ class SwiftCompleter( Completer ):
       cursorInfo = self.CursorRequest(request_data)
       if not cursorInfo: return
 
-      return responses.BuildDisplayMessageResponse( ToUnicode(cursorInfo["key.typename"]) )
+      typename = ToUnicode(cursorInfo.get("key.typename", "UNKNOWN"))
+      return responses.BuildDisplayMessageResponse( typename )
 
   def GetDoc(self, request_data, args):
       cursorInfo = self.CursorRequest(request_data)
