@@ -415,27 +415,47 @@ class SwiftCompleter( Completer ):
       if not cursorInfo: return
 
       from xml.etree import ElementTree
-      def textFromKey(key, tags):
-          try:
-              root = ElementTree.fromstring( cursorInfo[key] )
-              def textInTag(t):
-                  declaration = root.find( t ) if root.tag != t else root
-                  return "".join(declaration.itertext()) if declaration is not None else ""
-              return [ textInTag(t) for t in tags ]
-          except:
-              return [""] * len(tags)
+      def textInTag(root, t):
+          if root is None: return ""
+          declaration = root.find( t ) if root.tag != t else root
+          return "".join(declaration.itertext()) if declaration is not None else ""
 
-      brief, full = textFromKey("key.doc.full_as_xml", ('Abstract', 'Discussion'))
-      decl = textFromKey("key.annotated_decl", ["Declaration"])[0]
+      def XMLFrom(key):
+          try: return ElementTree.fromstring( cursorInfo[key] )
+          except: return None
 
-      return responses.BuildDetailedInfoResponse(
-          '{filepath}:+{offset}\n{decl}\n\n{brief}\n\n{discuss}'.format(
-              filepath = cursorInfo.get("key.filepath", "module"),
-              offset = cursorInfo.get("key.offset", 0),
-              decl = decl,
-              brief = brief,
-              discuss = full,
-          ))
+      v = {}
+      v['Declaration'] = textInTag(XMLFrom('key.annotated_decl'), 'Declaration')
+      doc = XMLFrom('key.doc.full_as_xml')
+      if doc:
+          CommentParts = doc.find('CommentParts')
+          if CommentParts:
+              v['Abstract'] = textInTag(CommentParts, 'Abstract')
+              v['Discussion'] = textInTag(CommentParts, 'Discussion')
+              v['Parameters'] = CommentParts.find('Parameters')
+              v['ResultDiscussion'] = textInTag(CommentParts, 'ResultDiscussion')
+          else:
+              v['Abstract'] = textInTag(doc, 'Abstract')
+              v['Discussion'] = textInTag(doc, 'Discussion')
+
+      lines = ['{filepath}:+{offset}'.format(
+          filepath = cursorInfo.get("key.filepath", "module"),
+          offset = cursorInfo.get("key.offset", 0)
+      ), v['Declaration']]
+
+      t = v.get('Abstract')
+      if t: lines.append(''); lines.append(t)
+      t = v.get('Discussion')
+      if t: lines.append(''); lines.append(t)
+      t = v.get('Parameters')
+      if t:
+          lines.append(''); lines.append("Parameters:")
+          for p in t.findall('Parameter'):
+              lines.append("- {name}: {desc}".format(name=textInTag(p, 'Name'), desc=textInTag(p, 'Discussion')))
+      t = v.get('ResultDiscussion')
+      if t: lines.append(''); lines.append("Returns: " + t)
+
+      return responses.BuildDetailedInfoResponse( os.linesep.join(lines) )
 
   def GoTo(self, request_data, args):
       data = self.RequestDataExtract(request_data, current=True)
