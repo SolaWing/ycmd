@@ -155,12 +155,13 @@ FILETYPE_TO_IDENTIFIER_REGEX = {
 
     'tmux': re.compile( r"[\w-]+" ),
     # https://www.scheme.com/tspl4/grammar.html#grammar:symbols
-    'scheme': re.compile( r"\+|\-|\.\.\.|"
-                          r"(?:->|(:?\\x[0-9A-Fa-f]+;|[!$%&*/:<=>?~^]|[^\W\d]))"
+    'scheme': re.compile(
+                          r"(?:->|(?:\\x[0-9A-Fa-f]+;|[!$%&*/:<=>?~^]|[^\W\d]))"
                           r"(?:\\x[0-9A-Fa-f]+;|[-+.@!$%&*/:<=>?~^\w])*",
                           re.UNICODE ),
 }
 
+FILETYPE_TO_IDENTIFIER_REGEX[ 'racket' ] = FILETYPE_TO_IDENTIFIER_REGEX[ 'scheme' ]
 FILETYPE_TO_IDENTIFIER_REGEX[ 'typescript' ] = (
   FILETYPE_TO_IDENTIFIER_REGEX[ 'javascript' ] )
 FILETYPE_TO_IDENTIFIER_REGEX[ 'scss' ] = FILETYPE_TO_IDENTIFIER_REGEX[ 'css' ]
