@@ -56,18 +56,20 @@ import os
 
 class MockCompleter( lsc.LanguageServerCompleter, DummyCompleter ):
   def __init__( self, custom_options = {} ):
-    self._connection = MockConnection()
     user_options = handlers._server_state._user_options.copy()
     user_options.update( custom_options )
     super( MockCompleter, self ).__init__( user_options )
 
+    self._connection = MockConnection()
+    self._started = False
 
   def Language( self ):
     return 'foo'
 
 
   def StartServer( self, request_data, **kwargs ):
-    pass
+    self._started = True
+    return True
 
 
   def GetConnection( self ):
@@ -80,12 +82,12 @@ class MockCompleter( lsc.LanguageServerCompleter, DummyCompleter ):
 
 
   def ServerIsHealthy( self ):
-    return True
+    return self._started
 
 
 @IsolatedYcmd( { 'global_ycm_extra_conf':
-                 PathToTestFile( 'extra_confs', 'empty_extra_conf.py' ) } )
-def LanguageServerCompleter_ExtraConf_FileEmpty_test( app ):
+                 PathToTestFile( 'extra_confs', 'settings_extra_conf.py' ) } )
+def LanguageServerCompleter_ExtraConf_ServerReset_test( app ):
   filepath = PathToTestFile( 'extra_confs', 'foo' )
   app.post_json( '/event_notification',
                  BuildRequest( filepath = filepath,
@@ -93,10 +95,44 @@ def LanguageServerCompleter_ExtraConf_FileEmpty_test( app ):
                                contents = '',
                                event_name = 'FileReadyToParse' ) )
 
-  completer = MockCompleter()
   request_data = RequestWrap( BuildRequest() )
+
+  completer = MockCompleter()
+
+  eq_( None, completer._project_directory )
+
+  completer.OnFileReadyToParse( request_data )
+  assert_that( completer._project_directory, is_not( None ) )
+  assert_that( completer._settings, is_not( empty() ) )
+
+  completer.ServerReset()
+  assert_that( completer._settings, empty() )
+  eq_( None, completer._project_directory )
+
+
+@IsolatedYcmd( { 'global_ycm_extra_conf':
+                 PathToTestFile( 'extra_confs', 'empty_extra_conf.py' ) } )
+def LanguageServerCompleter_ExtraConf_FileEmpty_test( app ):
+  filepath = PathToTestFile( 'extra_confs', 'foo' )
+
+  completer = MockCompleter()
+  request_data = RequestWrap( BuildRequest( filepath = filepath,
+                                            filetype = 'ycmtest',
+                                            contents = '' ) )
   completer.OnFileReadyToParse( request_data )
   eq_( {}, completer._settings )
+
+  # Simulate receipt of response and initialization complete
+  initialize_response = {
+    'result': {
+      'capabilities': {}
+    }
+  }
+  completer._HandleInitializeInPollThread( initialize_response )
+  eq_( {}, completer._settings )
+  # We shouldn't have used the extra_conf path for the project directory, but
+  # that _also_ happens to be the path of the file we opened.
+  eq_( PathToTestFile( 'extra_confs' ), completer._project_directory )
 
 
 @IsolatedYcmd( { 'global_ycm_extra_conf':
@@ -104,47 +140,89 @@ def LanguageServerCompleter_ExtraConf_FileEmpty_test( app ):
                                  'settings_none_extra_conf.py' ) } )
 def LanguageServerCompleter_ExtraConf_SettingsReturnsNone_test( app ):
   filepath = PathToTestFile( 'extra_confs', 'foo' )
-  app.post_json( '/event_notification',
-                 BuildRequest( filepath = filepath,
-                               filetype = 'foo',
-                               contents = '',
-                               event_name = 'FileReadyToParse' ) )
 
   completer = MockCompleter()
-  request_data = RequestWrap( BuildRequest() )
+  request_data = RequestWrap( BuildRequest( filepath = filepath,
+                                            filetype = 'ycmtest',
+                                            contents = '' ) )
   completer.OnFileReadyToParse( request_data )
   eq_( {}, completer._settings )
+  # We shouldn't have used the extra_conf path for the project directory, but
+  # that _also_ happens to be the path of the file we opened.
+  eq_( PathToTestFile( 'extra_confs' ), completer._project_directory )
 
 
 @IsolatedYcmd( { 'global_ycm_extra_conf':
                  PathToTestFile( 'extra_confs', 'settings_extra_conf.py' ) } )
 def LanguageServerCompleter_ExtraConf_SettingValid_test( app ):
   filepath = PathToTestFile( 'extra_confs', 'foo' )
-  app.post_json( '/event_notification',
-                 BuildRequest( filepath = filepath,
-                               filetype = 'foo',
-                               contents = '',
-                               event_name = 'FileReadyToParse' ) )
 
   completer = MockCompleter()
-  request_data = RequestWrap( BuildRequest() )
+  request_data = RequestWrap( BuildRequest( filepath = filepath,
+                                            filetype = 'ycmtest',
+                                            working_dir = PathToTestFile(),
+                                            contents = '' ) )
+
+  eq_( {}, completer._settings )
   completer.OnFileReadyToParse( request_data )
   eq_( { 'java.rename.enabled' : False }, completer._settings )
+  # We use the working_dir not the path to the global extra conf (which is
+  # ignored)
+  eq_( PathToTestFile(), completer._project_directory )
 
 
 @IsolatedYcmd( { 'extra_conf_globlist': [ '!*' ] } )
 def LanguageServerCompleter_ExtraConf_NoExtraConf_test( app ):
   filepath = PathToTestFile( 'extra_confs', 'foo' )
-  app.post_json( '/event_notification',
-                 BuildRequest( filepath = filepath,
-                               filetype = 'foo',
-                               contents = '',
-                               event_name = 'FileReadyToParse' ) )
 
   completer = MockCompleter()
-  request_data = RequestWrap( BuildRequest() )
+  request_data = RequestWrap( BuildRequest( filepath = filepath,
+                                            filetype = 'ycmtest',
+                                            working_dir = PathToTestFile(),
+                                            contents = '' ) )
+
+  eq_( {}, completer._settings )
   completer.OnFileReadyToParse( request_data )
   eq_( {}, completer._settings )
+
+  # Simulate receipt of response and initialization complete
+  initialize_response = {
+    'result': {
+      'capabilities': {}
+    }
+  }
+  completer._HandleInitializeInPollThread( initialize_response )
+  eq_( {}, completer._settings )
+  # We use the client working directory
+  eq_( PathToTestFile(), completer._project_directory )
+
+
+@IsolatedYcmd( { 'extra_conf_globlist': [ '*' ] } )
+def LanguageServerCompleter_ExtraConf_NonGlobal_test( app ):
+  filepath = PathToTestFile( 'project',
+                             'settings_extra_conf',
+                             'foo' )
+
+  completer = MockCompleter()
+  request_data = RequestWrap( BuildRequest( filepath = filepath,
+                                            filetype = 'ycmtest',
+                                            # ignored; ycm conf path used
+                                            working_dir = 'ignore_this',
+                                            contents = '' ) )
+
+  eq_( {}, completer._settings )
+  completer.OnFileReadyToParse( request_data )
+  eq_( { 'java.rename.enabled' : False }, completer._settings )
+
+  # Simulate receipt of response and initialization complete
+  initialize_response = {
+    'result': {
+      'capabilities': {}
+    }
+  }
+  completer._HandleInitializeInPollThread( initialize_response )
+  eq_( PathToTestFile( 'project', 'settings_extra_conf' ),
+       completer._project_directory )
 
 
 def LanguageServerCompleter_Initialise_Aborted_test():
@@ -157,7 +235,7 @@ def LanguageServerCompleter_Initialise_Aborted_test():
 
     assert_that( completer.ServerIsReady(), equal_to( False ) )
 
-    completer.SendInitialize( request_data )
+    completer.OnFileReadyToParse( request_data )
 
     with patch.object( completer, '_HandleInitializeInPollThread' ) as handler:
       completer.GetConnection().run()
@@ -181,7 +259,7 @@ def LanguageServerCompleter_Initialise_Shutdown_test():
 
     assert_that( completer.ServerIsReady(), equal_to( False ) )
 
-    completer.SendInitialize( request_data )
+    completer.OnFileReadyToParse( request_data )
 
     with patch.object( completer, '_HandleInitializeInPollThread' ) as handler:
       completer.GetConnection().run()
@@ -421,13 +499,12 @@ def LanguageServerCompleter_DelayedInitialization_test( app ):
 
   with patch.object( completer, '_UpdateServerWithFileContents' ) as update:
     with patch.object( completer, '_PurgeFileFromServer' ) as purge:
-      completer.SendInitialize( request_data )
       completer.OnFileReadyToParse( request_data )
       completer.OnBufferUnload( request_data )
       update.assert_not_called()
       purge.assert_not_called()
 
-      # Simulate recept of response and initialization complete
+      # Simulate receipt of response and initialization complete
       initialize_response = {
         'result': {
           'capabilities': {}
@@ -588,8 +665,8 @@ def LanguageServerCompleter_Diagnostics_MaxDiagnosticsNumberExceeded_test():
   completer.HandleNotificationInPollThread( notification )
 
   with patch.object( completer, 'ServerIsReady', return_value = True ):
-    completer.SendInitialize( request_data )
-    # Simulate recept of response and initialization complete
+    completer.OnFileReadyToParse( request_data )
+    # Simulate receipt of response and initialization complete
     initialize_response = {
       'result': {
         'capabilities': {}
@@ -662,8 +739,8 @@ def LanguageServerCompleter_Diagnostics_NoLimitToNumberOfDiagnostics_test():
   completer.HandleNotificationInPollThread( notification )
 
   with patch.object( completer, 'ServerIsReady', return_value = True ):
-    completer.SendInitialize( request_data )
-    # Simulate recept of response and initialization complete
+    completer.OnFileReadyToParse( request_data )
+    # Simulate receipt of response and initialization complete
     initialize_response = {
       'result': {
         'capabilities': {}
@@ -750,8 +827,8 @@ def LanguageServerCompleter_Diagnostics_PercentEncodeCannonical_test():
   completer.HandleNotificationInPollThread( notification )
 
   with patch.object( completer, 'ServerIsReady', return_value = True ):
-    completer.SendInitialize( request_data )
-    # Simulate recept of response and initialization complete
+    completer.OnFileReadyToParse( request_data )
+    # Simulate receipt of response and initialization complete
     initialize_response = {
       'result': {
         'capabilities': {}
@@ -809,8 +886,8 @@ def LanguageServerCompleter_OnFileReadyToParse_InvalidURI_test():
   completer.HandleNotificationInPollThread( notification )
 
   with patch.object( completer, 'ServerIsReady', return_value = True ):
-    completer.SendInitialize( request_data )
-    # Simulate recept of response and initialization complete
+    completer.OnFileReadyToParse( request_data )
+    # Simulate receipt of response and initialization complete
     initialize_response = {
       'result': {
         'capabilities': {}

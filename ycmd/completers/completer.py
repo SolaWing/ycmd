@@ -122,7 +122,11 @@ class Completer( with_metaclass( abc.ABCMeta, object ) ):
   ycmd.responses.BuildCompletionData to build the detailed response. See
   clang_completer.py to see how its used in practice.
 
-  Again, you probably want to override ComputeCandidatesInner().
+  Again, you probably want to override ComputeCandidatesInner(). If computing
+  the fields of the candidates is costly, you should consider building only the
+  "insertion_text" field in ComputeCandidatesInner() then fill the remaining
+  fields in DetailCandidates() which is called after the filtering is done. See
+  python_completer.py for an example.
 
   You also need to implement the SupportedFiletypes() function which should
   return a list of strings, where the strings are Vim filetypes your completer
@@ -236,7 +240,7 @@ class Completer( with_metaclass( abc.ABCMeta, object ) ):
         candidates = self.FilterAndSortCandidates( candidates, request_data[ 'query' ] )
     elif self._max_candidates > 0:
         candidates = candidates[:self._max_candidates]
-    return candidates
+    return self.DetailCandidates( request_data, candidates )
 
   def QuickCandidates( self, request_data ): return []
   def _GetCandidatesFromSubclass( self, request_data ):
@@ -267,6 +271,10 @@ class Completer( with_metaclass( abc.ABCMeta, object ) ):
     raw_completions = self.ComputeCandidatesInner( request_data )
     self._completions_cache.UpdateCache( request_data, raw_completions )
     return raw_completions
+
+
+  def DetailCandidates( self, request_data, candidates ):
+    return candidates
 
 
   def ComputeCandidatesInner( self, request_data ):

@@ -22,13 +22,12 @@ from __future__ import absolute_import
 # Not installing aliases from python-future; it's unreliable and slow.
 from builtins import *  # noqa
 
-from ycmd.completers.completer import Completer
-from ycmd.utils import ExpandVariablesInPath, FindExecutable
 from ycmd import extra_conf_store, responses
+from ycmd.completers.completer import Completer
+from ycmd.utils import ExpandVariablesInPath, FindExecutable, LOGGER
 
 import os
 import jedi
-import logging
 import parso
 from threading import Lock
 
@@ -42,7 +41,6 @@ class PythonCompleter( Completer ):
   def __init__( self, user_options ):
     super( PythonCompleter, self ).__init__( user_options )
     self._jedi_lock = Lock()
-    self._logger = logging.getLogger( __name__ )
     self._settings_for_file = {}
     self._environment_for_file = {}
     self._environment_for_interpreter_path = {}
@@ -82,8 +80,7 @@ class PythonCompleter( Completer ):
                                     client_data = client_data )
         if settings is not None:
           return settings
-      self._logger.debug( 'No Settings function defined in %s',
-                          module.__file__ )
+      LOGGER.debug( 'No Settings function defined in %s', module.__file__ )
     return {
       # NOTE: this option is only kept for backward compatibility. Setting the
       # Python interpreter path through the extra conf file is preferred.
@@ -141,8 +138,7 @@ class PythonCompleter( Completer ):
     if module:
       if hasattr( module, 'PythonSysPath' ):
         return module.PythonSysPath( **settings )
-      self._logger.debug( 'No PythonSysPath function defined in %s',
-                          module.__file__ )
+      LOGGER.debug( 'No PythonSysPath function defined in %s', module.__file__ )
     return settings[ 'sys_path' ]
 
 
@@ -176,6 +172,7 @@ class PythonCompleter( Completer ):
                         environment = environment )
 
 
+  # This method must be called under Jedi's lock.
   def _GetExtraData( self, completion ):
     if completion.module_path and completion.line and completion.column:
       return {
@@ -185,18 +182,31 @@ class PythonCompleter( Completer ):
           'column_num': completion.column + 1
         }
       }
-    return None
+    return {}
 
 
   def ComputeCandidatesInner( self, request_data ):
     with self._jedi_lock:
       return [ responses.BuildCompletionData(
         insertion_text = completion.name,
-        extra_menu_info = completion.description,
-        detailed_info = completion.docstring(),
-        kind = completion.type,
-        extra_data = self._GetExtraData( completion )
+        # We store the Completion object returned by Jedi in the extra_data
+        # field to detail the candidates once the filtering is done.
+        extra_data = completion
       ) for completion in self._GetJediScript( request_data ).completions() ]
+
+
+  def DetailCandidates( self, request_data, candidates ):
+    with self._jedi_lock:
+      for candidate in candidates:
+        if isinstance( candidate[ 'extra_data' ], dict ):
+          # This candidate is already detailed.
+          continue
+        completion = candidate[ 'extra_data' ]
+        candidate[ 'extra_menu_info' ] = self._BuildTypeInfo( completion )
+        candidate[ 'detailed_info' ] = completion.docstring()
+        candidate[ 'kind' ] = completion.type
+        candidate[ 'extra_data' ] = self._GetExtraData( completion )
+    return candidates
 
 
   def GetSubcommandsMap( self ):
@@ -207,10 +217,12 @@ class PythonCompleter( Completer ):
                            self._GoToDeclaration( request_data ) ),
       'GoTo'           : ( lambda self, request_data, args:
                            self._GoTo( request_data ) ),
-      'GetDoc'         : ( lambda self, request_data, args:
-                           self._GetDoc( request_data ) ),
       'GoToReferences' : ( lambda self, request_data, args:
-                           self._GoToReferences( request_data ) )
+                           self._GoToReferences( request_data ) ),
+      'GetType'        : ( lambda self, request_data, args:
+                           self._GetType( request_data ) ),
+      'GetDoc'         : ( lambda self, request_data, args:
+                           self._GetDoc( request_data ) )
     }
 
 
@@ -234,22 +246,47 @@ class PythonCompleter( Completer ):
     try:
       return self._GoToDefinition( request_data )
     except Exception:
-      self._logger.exception( 'Can\'t jump to definition.' )
+      LOGGER.exception( 'Failed to jump to definition' )
 
     try:
       return self._GoToDeclaration( request_data )
     except Exception:
-      self._logger.exception( 'Can\'t jump to declaration.' )
+      LOGGER.exception( 'Failed to jump to declaration' )
       raise RuntimeError( 'Can\'t jump to definition or declaration.' )
+
+
+  # This method must be called under Jedi's lock.
+  def _BuildTypeInfo( self, definition ):
+    type_info = definition.description
+    # Jedi doesn't return the signature in the description. Build the signature
+    # from the params field.
+    try:
+      # Remove the "param " prefix from the description.
+      type_info += '(' + ', '.join(
+        [ param.description[ 6: ] for param in definition.params ] ) + ')'
+    except AttributeError:
+      pass
+    return type_info
+
+
+  def _GetType( self, request_data ):
+    with self._jedi_lock:
+      definitions = self._GetJediScript( request_data ).goto_definitions()
+      type_info = [ self._BuildTypeInfo( definition )
+                    for definition in definitions ]
+    type_info = ', '.join( type_info )
+    if type_info:
+      return responses.BuildDisplayMessageResponse( type_info )
+    raise RuntimeError( 'No type information available.' )
 
 
   def _GetDoc( self, request_data ):
     with self._jedi_lock:
       definitions = self._GetJediScript( request_data ).goto_definitions()
       documentation = [ definition.docstring() for definition in definitions ]
-      documentation = '\n---\n'.join( documentation )
-      if documentation:
-        return responses.BuildDetailedInfoResponse( documentation )
+    documentation = '\n---\n'.join( documentation )
+    if documentation:
+      return responses.BuildDetailedInfoResponse( documentation )
     raise RuntimeError( 'No documentation available.' )
 
 

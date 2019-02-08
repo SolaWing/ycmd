@@ -36,7 +36,14 @@ def GetStandardLibraryIndexInSysPath():
   raise RuntimeError( 'Could not find standard library path in Python path.' )
 
 
-sys.path.insert( 0, p.abspath( p.join( DIR_OF_THIRD_PARTY, 'requests' ) ) )
+sys.path[ 0:0 ] = [ p.join( DIR_OF_THIRD_PARTY, 'requests_deps', 'requests' ),
+                    p.join( DIR_OF_THIRD_PARTY,
+                            'requests_deps',
+                            'urllib3',
+                            'src' ),
+                    p.join( DIR_OF_THIRD_PARTY, 'requests_deps', 'chardet' ),
+                    p.join( DIR_OF_THIRD_PARTY, 'requests_deps', 'certifi' ),
+                    p.join( DIR_OF_THIRD_PARTY, 'requests_deps', 'idna' ) ]
 sys.path.insert( GetStandardLibraryIndexInSysPath() + 1,
                  p.abspath( p.join( DIR_OF_THIRD_PARTY, 'python-future',
                                     'src' ) ) )
@@ -400,7 +407,7 @@ def UpdateClangHeaders( args, temp_dir ):
 
   print( 'Updating Clang headers...' )
   includes_dir = os.path.join(
-    DIR_OF_THIS_SCRIPT, 'clang_includes', 'include' )
+    DIR_OF_THIRD_PARTY, 'clang', 'lib', 'clang', args.version, 'include' )
   Overwrite( os.path.join( src, 'lib', 'Headers' ), includes_dir )
   os.remove( os.path.join( includes_dir, 'CMakeLists.txt' ) )
 

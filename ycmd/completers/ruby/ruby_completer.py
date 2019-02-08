@@ -77,7 +77,6 @@ class RubyCompleter( language_server_completer.LanguageServerCompleter ):
     self._server_starting = threading.Event()
     self._server_handle = None
     self._server_logfile = None
-    self._server_started = False
     self._server_status = None
 
     self._bin = None
@@ -91,6 +90,8 @@ class RubyCompleter( language_server_completer.LanguageServerCompleter ):
   def SupportedFiletypes( self ):
     return [ 'ruby' ]
 
+  def Language( self ):
+      return "ruby"
 
   def GetSubcommandsMap( self ):
     return {
@@ -134,12 +135,6 @@ class RubyCompleter( language_server_completer.LanguageServerCompleter ):
   def GetConnection( self ):
     return self._connection
 
-
-  def OnFileReadyToParse( self, request_data ):
-    self._StartServer( request_data )
-
-    return super( RubyCompleter, self ).OnFileReadyToParse( request_data )
-
   def DebugInfo( self, request_data ):
     return responses.BuildDebugInfoResponse(
       name = 'Ruby',
@@ -180,32 +175,23 @@ class RubyCompleter( language_server_completer.LanguageServerCompleter ):
   def _RestartServer( self, request_data ):
     with self._server_state_mutex:
       self._StopServer()
-      self._StartServer( request_data )
+      self._StartAndInitializeServer( request_data )
 
 
-  def _StartServer( self, request_data ):
+  def StartServer( self, request_data ):
     with self._server_state_mutex:
       if self._server_starting.is_set():
         raise RuntimeError( 'Already starting server.' )
 
       self._server_starting.set()
 
-    thread = threading.Thread( target = self._StartServerInThread,
-                               args = ( request_data, ) )
-    thread.daemon = True
-    thread.start()
-
+    return self._StartServerInThread(request_data)
 
   def _StartServerInThread( self, request_data ):
     try:
-      if self._server_started:
-        return
-
-      self._server_started = True
-
       lang_server_bin = FindExecutable()
       if not lang_server_bin:
-        return
+        return False
       self._bin = lang_server_bin
       self._project_dir = _FindProjectDir(
         os.path.dirname( request_data[ 'filepath' ] ) )
@@ -233,7 +219,7 @@ class RubyCompleter( language_server_completer.LanguageServerCompleter ):
 
       if not self._ServerIsRunning():
         self._Notify( 'Ruby Language Server failed to start.' )
-        return
+        return False
 
       _logger.info( 'Ruby Language Server started.' )
 
@@ -252,9 +238,9 @@ class RubyCompleter( language_server_completer.LanguageServerCompleter ):
         self._Notify( 'Ruby Language Server failed to start, or did not '
                       'connect successfully.' )
         self._StopServer()
-        return
+        return False
 
-      self.SendInitialize( request_data )
+      return True
     finally:
       self._server_starting.clear()
 
@@ -311,7 +297,6 @@ class RubyCompleter( language_server_completer.LanguageServerCompleter ):
 
   def _CleanUp( self ):
     self._server_handle = None
-    self._server_started = False
     self._server_status = None
     self._connection = None
     self.ServerReset()
@@ -341,7 +326,7 @@ class RubyCompleter( language_server_completer.LanguageServerCompleter ):
       # super().ComputeCandidatesInner(request_data)
       return results
 
-  def _GetProjectDirectory(self, request_data):
+  def _GetProjectDirectory(self, request_data, *args):
     return self._project_dir
 
   # def HandleNotificationInPollThread( self, notification ):

@@ -34,6 +34,7 @@ from collections import deque
 
 
 _logger = logging.getLogger( __name__ )
+# _logger.setLevel(logging.DEBUG)
 
 LOGFILE_FORMAT = 'rls_'
 # TOOLCHAIN_CHANNEL = 'nightly'
@@ -41,7 +42,7 @@ LOGFILE_FORMAT = 'rls_'
 # TOOLCHAIN = '{channel}-{date}'.format( channel = TOOLCHAIN_CHANNEL,
 #                                        date = TOOLCHAIN_DATE )
 TOOLCHAIN = 'stable'
-TOOLCHAIN = 'nightly'
+# TOOLCHAIN = 'nightly'
 # TOOLCHAIN = 'nightly-x86_64'
 RUSTUP_TOOLCHAIN_REGEX = re.compile( r'^(?P<toolchain>[\w-]+)' )
 RUSTUP_VERSION = re.compile( r'^rustup (?P<version>.*)$' )
@@ -67,7 +68,6 @@ class RustCompleter( language_server_completer.LanguageServerCompleter ):
     self._server_starting = threading.Event()
     self._server_handle = None
     self._server_logfile = None
-    self._server_started = False
     self._server_status = None
 
     self._toolchain = None
@@ -291,39 +291,24 @@ class RustCompleter( language_server_completer.LanguageServerCompleter ):
   def _RestartServer( self, request_data ):
     with self._server_state_mutex:
       self._StopServer()
-      self._StartServer( request_data )
-
-  def StartServer( self, request_data, **kwargs ):
-      self._StartServer(request_data)
+      self._StartAndInitializeServer( request_data )
 
   def Language( self ):
       return "rust"
 
-  def _StartServer( self, request_data ):
+  def StartServer( self, request_data, **kwargs ):
     with self._server_state_mutex:
       if self._server_starting.is_set():
         raise RuntimeError( 'Already starting server.' )
 
-      if self._server_started:
-        return
       self._server_starting.set()
-
-    thread = threading.Thread( target = self._StartServerInThread,
-                               args = ( request_data, ) )
-    thread.daemon = True
-    thread.start()
-
+    return self._StartServerInThread(request_data)
 
   def _StartServerInThread( self, request_data ):
     try:
-      if self._server_started:
-        return
-
-      self._server_started = True
-
       rls = self._FindRls()
       if not rls:
-        return
+        return False
 
       _logger.info( 'Starting Rust Language Server...' )
 
@@ -348,7 +333,7 @@ class RustCompleter( language_server_completer.LanguageServerCompleter ):
 
       if not self._ServerIsRunning():
         self._Notify( 'Rust Language Server failed to start.' )
-        return
+        return False
 
       _logger.info( 'Rust Language Server started.' )
 
@@ -367,9 +352,9 @@ class RustCompleter( language_server_completer.LanguageServerCompleter ):
         self._Notify( 'Rust Language Server failed to start, or did not '
                       'connect successfully.' )
         self._StopServer()
-        return
+        return False
 
-      self.SendInitialize( request_data )
+      return True
     finally:
       self._server_starting.clear()
 
@@ -426,7 +411,6 @@ class RustCompleter( language_server_completer.LanguageServerCompleter ):
 
   def _CleanUp( self ):
     self._server_handle = None
-    self._server_started = False
     self._server_status = None
     self._connection = None
     self.ServerReset()

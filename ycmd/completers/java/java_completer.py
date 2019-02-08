@@ -24,7 +24,6 @@ from builtins import *  # noqa
 
 import glob
 import hashlib
-import logging
 import os
 import shutil
 import tempfile
@@ -34,10 +33,9 @@ from subprocess import PIPE
 from ycmd import responses, utils
 from ycmd.completers.language_server import language_server_completer
 from ycmd.completers.language_server import language_server_protocol as lsp
+from ycmd.utils import LOGGER
 
 NO_DOCUMENTATION_MESSAGE = 'No documentation available for current context'
-
-_logger = logging.getLogger( __name__ )
 
 LANGUAGE_SERVER_HOME = os.path.abspath( os.path.join(
   os.path.dirname( __file__ ),
@@ -89,17 +87,17 @@ CLEAN_WORKSPACE_OPTION = 'java_jdtls_use_clean_workspace'
 
 
 def ShouldEnableJavaCompleter():
-  _logger.info( 'Looking for jdt.ls' )
+  LOGGER.info( 'Looking for jdt.ls' )
   if not PATH_TO_JAVA:
-    _logger.warning( "Not enabling java completion: Couldn't find java" )
+    LOGGER.warning( "Not enabling java completion: Couldn't find java" )
     return False
 
   if not os.path.exists( LANGUAGE_SERVER_HOME ):
-    _logger.warning( 'Not using java completion: jdt.ls is not installed' )
+    LOGGER.warning( 'Not using java completion: jdt.ls is not installed' )
     return False
 
   if not _PathToLauncherJar():
-    _logger.warning( 'Not using java completion: jdt.ls is not built' )
+    LOGGER.warning( 'Not using java completion: jdt.ls is not built' )
     return False
 
   return True
@@ -115,7 +113,7 @@ def _PathToLauncherJar():
         'plugins',
         'org.eclipse.equinox.launcher_*.jar' ) ) )
 
-  _logger.debug( 'Found launchers: {0}'.format( launcher_jars ) )
+  LOGGER.debug( 'Found launchers: %s', launcher_jars )
 
   if not launcher_jars:
     return None
@@ -156,17 +154,17 @@ def _FindProjectDir( starting_dir ):
     # We've found a project marker file (like build.gradle). Search parent
     # directories for that same project type file and find the topmost one as
     # the project root.
-    _logger.debug( 'Found {0} style project in {1}. Searching for '
-                   'project root:'.format( project_type, project_path ) )
+    LOGGER.debug( 'Found %s style project in %s. Searching for '
+                  'project root:', project_type, project_path )
 
     for folder in utils.PathsToAllParentFolders( os.path.join( project_path,
                                                                '..' ) ):
       if os.path.isfile( os.path.join( folder, project_type ) ):
-        _logger.debug( '  {0} is a parent project dir'.format( folder ) )
+        LOGGER.debug( '  %s is a parent project dir', folder )
         project_path = folder
       else:
         break
-    _logger.debug( '  Project root is {0}'.format( project_path ) )
+    LOGGER.debug( '  Project root is %s', project_path )
 
   return project_path
 
@@ -268,13 +266,11 @@ class JavaCompleter( language_server_completer.LanguageServerCompleter ):
       responses.DebugInfoItem( 'Launcher Config.', self._launcher_config ),
     ]
 
-    if self._project_dir:
-      items.append( responses.DebugInfoItem( 'Project Directory',
-                                             self._project_dir ) )
-
     if self._workspace_path:
       items.append( responses.DebugInfoItem( 'Workspace Path',
                                              self._workspace_path ) )
+
+    items.extend( self.CommonDebugItems() )
 
     return responses.BuildDebugInfoResponse(
       name = "Java",
@@ -307,8 +303,8 @@ class JavaCompleter( language_server_completer.LanguageServerCompleter ):
              super( JavaCompleter, self ).ServerIsReady() )
 
 
-  def _GetProjectDirectory( self, request_data ):
-    return self._project_dir
+  def _GetProjectDirectory( self, *args, **kwargs ):
+    return self._java_project_dir
 
 
   def _ServerIsRunning( self ):
@@ -318,7 +314,7 @@ class JavaCompleter( language_server_completer.LanguageServerCompleter ):
   def _RestartServer( self, request_data ):
     with self._server_state_mutex:
       self._StopServer()
-      self.StartServer( request_data )
+      self._StartAndInitializeServer( request_data )
 
 
   def _OpenProject( self, request_data, args ):
@@ -339,7 +335,8 @@ class JavaCompleter( language_server_completer.LanguageServerCompleter ):
 
     with self._server_state_mutex:
       self._StopServer()
-      self.StartServer( request_data, project_directory = project_directory )
+      self._StartAndInitializeServer( request_data,
+                                      project_directory = project_directory )
 
 
   def _CleanUp( self ):
@@ -352,19 +349,19 @@ class JavaCompleter( language_server_completer.LanguageServerCompleter ):
       try:
         shutil.rmtree( self._workspace_path )
       except OSError:
-        _logger.exception( 'Failed to clean up workspace dir {0}'.format(
-          self._workspace_path ) )
+        LOGGER.exception( 'Failed to clean up workspace dir %s',
+                          self._workspace_path )
 
     self._launcher_path = _PathToLauncherJar()
     self._launcher_config = _LauncherConfiguration()
     self._workspace_path = None
-    self._project_dir = None
+    self._java_project_dir = None
     self._received_ready_message = threading.Event()
     self._server_init_status = 'Not started'
-    self._server_started = False
 
     self._server_handle = None
     self._connection = None
+    self._started_message_sent = False
 
     self.ServerReset()
 
@@ -375,21 +372,16 @@ class JavaCompleter( language_server_completer.LanguageServerCompleter ):
 
   def StartServer( self, request_data, project_directory = None ):
     with self._server_state_mutex:
-      if self._server_started:
-        return
-
-      self._server_started = True
-
-      _logger.info( 'Starting jdt.ls Language Server...' )
+      LOGGER.info( 'Starting jdt.ls Language Server...' )
 
       if project_directory:
-        self._project_dir = project_directory
+        self._java_project_dir = project_directory
       else:
-        self._project_dir = _FindProjectDir(
+        self._java_project_dir = _FindProjectDir(
           os.path.dirname( request_data[ 'filepath' ] ) )
 
       self._workspace_path = _WorkspaceDirForProject(
-        self._project_dir,
+        self._java_project_dir,
         self._use_clean_workspace )
 
       command = [
@@ -404,8 +396,8 @@ class JavaCompleter( language_server_completer.LanguageServerCompleter ):
         '-data', self._workspace_path,
       ]
 
-      _logger.debug( 'Starting java-server with the following command: '
-                     '{0}'.format( ' '.join( command ) ) )
+      LOGGER.debug( 'Starting java-server with the following command: %s',
+                    command )
 
       self._server_stderr = utils.CreateLogfile( 'jdt.ls_stderr_' )
       with utils.OpenForStdHandle( self._server_stderr ) as stderr:
@@ -426,31 +418,31 @@ class JavaCompleter( language_server_completer.LanguageServerCompleter ):
       try:
         self._connection.AwaitServerConnection()
       except language_server_completer.LanguageServerConnectionTimeout:
-        _logger.error( 'jdt.ls failed to start, or did not connect '
-                       'successfully' )
+        LOGGER.error( 'jdt.ls failed to start, or did not connect '
+                      'successfully' )
         self._StopServer()
-        return
+        return False
 
-    _logger.info( 'jdt.ls Language Server started' )
+    LOGGER.info( 'jdt.ls Language Server started' )
 
-    self.SendInitialize( request_data )
+    return True
 
 
   def _StopServer( self ):
     with self._server_state_mutex:
-      _logger.info( 'Shutting down jdt.ls...' )
+      LOGGER.info( 'Shutting down jdt.ls...' )
 
       # Tell the connection to expect the server to disconnect
       if self._connection:
         self._connection.Stop()
 
       if not self._ServerIsRunning():
-        _logger.info( 'jdt.ls Language server not running' )
+        LOGGER.info( 'jdt.ls Language server not running' )
         self._CleanUp()
         return
 
-      _logger.info( 'Stopping java server with PID {0}'.format(
-                        self._server_handle.pid ) )
+      LOGGER.info( 'Stopping java server with PID %s',
+                   self._server_handle.pid )
 
       try:
         self.ShutdownServer()
@@ -468,9 +460,9 @@ class JavaCompleter( language_server_completer.LanguageServerCompleter ):
         utils.WaitUntilProcessIsTerminated( self._server_handle,
                                             timeout = 15 )
 
-        _logger.info( 'jdt.ls Language server stopped' )
+        LOGGER.info( 'jdt.ls Language server stopped' )
       except Exception:
-        _logger.exception( 'Error while stopping jdt.ls server' )
+        LOGGER.exception( 'Error while stopping jdt.ls server' )
         # We leave the process running. Hopefully it will eventually die of its
         # own accord.
 
@@ -503,10 +495,11 @@ class JavaCompleter( language_server_completer.LanguageServerCompleter ):
       message_type = notification[ 'params' ][ 'type' ]
 
       if message_type == 'Started':
-        _logger.info( 'jdt.ls initialized successfully.' )
+        LOGGER.info( 'jdt.ls initialized successfully' )
+        self._server_init_status = notification[ 'params' ][ 'message' ]
         self._received_ready_message.set()
-
-      self._server_init_status = notification[ 'params' ][ 'message' ]
+      elif not self._received_ready_message.is_set():
+        self._server_init_status = notification[ 'params' ][ 'message' ]
 
     super( JavaCompleter, self ).HandleNotificationInPollThread( notification )
 
@@ -514,8 +507,14 @@ class JavaCompleter( language_server_completer.LanguageServerCompleter ):
   def ConvertNotificationToMessage( self, request_data, notification ):
     if notification[ 'method' ] == 'language/status':
       message = notification[ 'params' ][ 'message' ]
-      return responses.BuildDisplayMessageResponse(
-        'Initializing Java completer: {0}'.format( message ) )
+      if notification[ 'params' ][ 'type' ] == 'Started':
+        self._started_message_sent = True
+        return responses.BuildDisplayMessageResponse(
+          'Initializing Java completer: {}'.format( message ) )
+
+      if not self._started_message_sent:
+        return responses.BuildDisplayMessageResponse(
+          'Initializing Java completer: {}'.format( message ) )
 
     return super( JavaCompleter, self ).ConvertNotificationToMessage(
       request_data,

@@ -65,3 +65,4 @@ cache:
     - $TRAVIS_BUILD_DIR/clang_archives  # Clang downloads
       # jdt.ls download
     - $TRAVIS_BUILD_DIR/third_party/eclipse.jdt.ls/target/cache
+    - $TRAVIS_BUILD_DIR/third_party/clangd/cache
