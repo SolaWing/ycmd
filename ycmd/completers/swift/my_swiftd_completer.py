@@ -44,7 +44,7 @@ import threading
 import tempfile
 
 _logger = logging.getLogger( __name__ )
-# _logger.setLevel(logging.DEBUG)
+_logger.setLevel(logging.DEBUG)
 
 import re
 import time
@@ -212,7 +212,6 @@ class SwiftCompleter( Completer ):
 
     response = module.FlagsForSwift( filename )
     flags = response['flags']
-    if filename not in flags: flags = [filename] + flags
     if response.get('do_cache', True):
         self._flags_for_file[filename] = flags
     return flags
