@@ -56,3 +56,6 @@
 [submodule "third_party/idna"]
 	path = third_party/requests_deps/idna
 	url = https://github.com/kjd/idna
+[submodule "third_party/solargraph"]
+	path = third_party/solargraph
+	url = https://github.com/SolaWing/solargraph
