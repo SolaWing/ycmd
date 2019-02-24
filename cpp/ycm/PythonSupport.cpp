@@ -118,33 +118,36 @@ std::string GetUtf8String( const object &value ) {
 // 比对两个字符串，输出开始变化字节offset, 删除length, 和新加字符串. 相等时输出(0,0, "")
 std::tuple<size_t, size_t, std::string>
 DiffString( const std::string &o, const std::string &n ) {
+    // consider: "  a\n  insert\n  c", can return `\n  insert`, also can return `insert\n  `, prior is more sensible
     auto &shorter = o.size() < n.size() ? o : n;
     auto &longer = o.size() < n.size() ? n : o;
-    size_t common_prefix = shorter.size();
-    for (auto it = shorter.cbegin(), it2 = longer.cbegin(), e = shorter.cend(); it != e; ++it, ++it2) {
-        if ( *it != *it2 ) {
-            common_prefix = it - shorter.cbegin();
-            break;
-        }
-    }
-    if ( common_prefix == shorter.size() ) {
-        if (shorter.size() == longer.size()) { return {0, 0, ""}; }
-        // append
-        if (&shorter == &o) { return {common_prefix, 0, n.substr(common_prefix, n.size() - common_prefix)}; }
-        // delete
-        return { common_prefix, o.size() - common_prefix, "" };
-    }
-    size_t common_suffix = shorter.size() - common_prefix;
-    for (auto it = shorter.crbegin(), it2 = longer.crbegin(), e = shorter.crend() - common_prefix; it != e; ++it, ++it2) {
+    size_t common_suffix = shorter.size();
+    for (auto it = shorter.crbegin(), it2 = longer.crbegin(), e = shorter.crend(); it != e; ++it, ++it2) {
         if ( *it != *it2 ) {
             common_suffix = it - shorter.crbegin();
             break;
         }
     }
-    // fix u8 start
+    if ( common_suffix == shorter.size() ) {
+        if (shorter.size() == longer.size()) { return {0, 0, ""}; }
+        // append
+        if (&shorter == &o) { return {common_suffix, 0, n.substr(common_suffix, n.size() - common_suffix)}; }
+        // delete
+        return { 0, o.size() - common_suffix, "" };
+    }
+    size_t common_prefix = shorter.size() - common_suffix;
+    for (auto it = shorter.cbegin(), it2 = longer.cbegin(), e = shorter.cend() - common_suffix; it != e; ++it, ++it2) {
+        if ( *it != *it2 ) {
+            common_prefix = it - shorter.cbegin();
+            break;
+        }
+    }
+    // fix u8 start, should stop at u8 first byte
     while ( common_prefix > 0 && ((shorter[common_prefix] & 0xc0) == 0x80) ) {
         --common_prefix;
     }
+    // if common_suffix is 0, shorter[size] == NULL, will break
+    // fix u8 end, should stop on first byte
     while( common_suffix > 0 && ((shorter[shorter.size() - common_suffix] & 0xc0) == 0x80) ) {
         --common_suffix;
     }
