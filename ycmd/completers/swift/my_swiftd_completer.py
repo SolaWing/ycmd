@@ -28,7 +28,7 @@ from future.utils import native
 standard_library.install_aliases()
 
 from ycm_core import DiffString
-from ycmd.utils import ToBytes, ToUnicode, ProcessIsRunning
+from ycmd.utils import ToBytes, ToUnicode, LineColumnFromByteOffset, ProcessIsRunning
 from ycmd.completers.completer import Completer
 from ycmd.completers.completer_utils import GetFileContents
 from ycmd import responses, utils, hmac_utils
@@ -550,6 +550,7 @@ class SwiftCompleter( Completer ):
         return
 
 def LocationInRange(location, location_range):
+    """ return true if location in location_range """
     if location.filename_ != location_range.start_.filename_: return False
     after_start = (location.line_number_ > location_range.start_.line_number_ or
                    (location.line_number_ == location_range.start_.line_number_ and
@@ -560,23 +561,15 @@ def LocationInRange(location, location_range):
     return after_start and before_end
 
 def LocationLineInRange(location, location_range):
+    """return true is location's line no in location_range, column may not in location_range"""
     if location.filename_ != location_range.start_.filename_: return False
     after_start = location.line_number_ >= location_range.start_.line_number_
     before_end = location.line_number_ <= location_range.end_.line_number_
     return after_start and before_end
 
-def LineColumnFromOffset(bytes_contents, offset):
-    """
-    offset is 0 based, return 1-based line and byte column
-    note: no check column offset overflow
-    """
-    line = bytes_contents.count(b"\n", 0, offset) + 1
-    line_start = bytes_contents.rfind(b"\n", 0, offset) + 1 # return -1 when not found, so + 1 is the line_start offset
-    return (line, offset - line_start + 1)
-
 def BuildRangeFromOffset(name, bytes_contents, offset, length):
-    start = LineColumnFromOffset(bytes_contents, offset)
-    end = LineColumnFromOffset(bytes_contents[offset:], length) # don't recount lines
+    start = LineColumnFromByteOffset(bytes_contents, offset)
+    end = LineColumnFromByteOffset(bytes_contents[offset:], length) # don't recount lines
     if end[0] == 1:
         end = (start[0], start[1] + end[1] - 1)
     else:

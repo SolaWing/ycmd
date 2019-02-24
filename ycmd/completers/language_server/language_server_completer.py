@@ -1302,7 +1302,7 @@ class LanguageServerCompleter( Completer ):
         continue
 
       file_state = self._server_file_state[ file_name ]
-      action = file_state.GetDirtyFileAction( file_data[ 'contents' ] )
+      action, changes, ranges = file_state.ChangeContents( file_data[ 'contents' ] )
 
       LOGGER.debug( 'Refreshing file %s: State is %s/action %s',
                     file_name,
@@ -1316,12 +1316,10 @@ class LanguageServerCompleter( Completer ):
 
         self.GetConnection().SendNotification( msg )
       elif action == lsp.ServerFileState.CHANGE_FILE:
-        # FIXME: DidChangeTextDocument doesn't actually do anything
-        # different from DidOpenTextDocument other than send the right
-        # message, because we don't actually have a mechanism for generating
-        # the diffs. This isn't strictly necessary, but might lead to
-        # performance problems.
-        msg = lsp.DidChangeTextDocument( file_state, file_data[ 'contents' ] )
+        if self._sync_type == "Incremental":
+          msg = lsp.DidChangeTextDocument( file_state, changes, ranges )
+        else:
+          msg = lsp.DidChangeTextDocument( file_state, file_data[ 'contents' ] )
 
         self.GetConnection().SendNotification( msg )
 
@@ -1359,9 +1357,12 @@ class LanguageServerCompleter( Completer ):
         files_to_purge.append( file_name )
         continue
 
-      action = file_state.GetSavedFileAction( contents )
+      action, changes, ranges = file_state.SaveContents( contents )
       if action == lsp.ServerFileState.CHANGE_FILE:
-        msg = lsp.DidChangeTextDocument( file_state, contents )
+        if self._sync_type == "Incremental":
+          msg = lsp.DidChangeTextDocument( file_state, changes, ranges )
+        else:
+          msg = lsp.DidChangeTextDocument( file_state, contents )
         self.GetConnection().SendNotification( msg )
 
     return files_to_purge

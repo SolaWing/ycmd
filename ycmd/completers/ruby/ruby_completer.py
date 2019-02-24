@@ -97,29 +97,8 @@ class RubyCompleter( language_server_completer.LanguageServerCompleter ):
   def Language( self ):
       return "ruby"
 
-  def GetSubcommandsMap( self ):
+  def GetCustomSubcommands( self ):
     return {
-      # Handled by base class
-      'Format': (
-        lambda self, request_data, args: self.Format( request_data )
-       ),
-      'GoToDeclaration': (
-        lambda self, request_data, args: self.GoToDeclaration( request_data )
-      ),
-      'GoTo': (
-        lambda self, request_data, args: self.GoToDeclaration( request_data )
-      ),
-      'GoToDefinition': (
-        lambda self, request_data, args: self.GoToDeclaration( request_data )
-      ),
-      'GoToReferences': (
-        lambda self, request_data, args: self.GoToReferences( request_data )
-      ),
-      'RefactorRename': (
-        lambda self, request_data, args: self.RefactorRename( request_data,
-                                                              args )
-      ),
-
       # Handled by us
       'RestartServer': (
         lambda self, request_data, args: self._RestartServer( request_data )
@@ -352,6 +331,7 @@ class RubyCompleter( language_server_completer.LanguageServerCompleter ):
 
   def GetType( self, request_data ):
     hover_response = self.GetHoverResponse( request_data )
+    _logger.debug("%s", hover_response)
 
     # RLS returns a list that may contain the following elements:
     # - a documentation string;

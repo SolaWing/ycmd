@@ -26,10 +26,12 @@ import os
 import json
 import hashlib
 
+from ycm_core import DiffString
 from ycmd.utils import ( ByteOffsetToCodepointOffset,
                          pathname2url,
                          ToBytes,
                          ToUnicode,
+                         LineColumnFromByteOffset,
                          unquote,
                          url2pathname,
                          urlparse,
@@ -116,6 +118,55 @@ class ServerFileState( object ):
     self.checksum = None
     self.contents = ''
 
+  def ChangeContents( self, contents ):
+    """ return (Action, contents, Ranges) """
+    if self.state == ServerFileState.OPEN:
+      changes, change_range = self._DiffContents(contents)
+      if change_range is None: # no change
+        return (ServerFileState.NO_ACTION, contents, None)
+      action = ServerFileState.CHANGE_FILE
+    elif self.state == ServerFileState.CLOSED:
+      self.version = 0
+      action = ServerFileState.OPEN_FILE
+      changes = contents
+      change_range = None
+
+    self._SendNewVersion(None, action, contents)
+    return (action, changes, change_range)
+
+  def SaveContents( self, contents ):
+    # We only need to update if the server state is open
+    if self.state != ServerFileState.OPEN:
+      return (ServerFileState.NO_ACTION, contents, None)
+
+    return self.ChangeContents(contents)
+
+  def _DiffContents(self, contents):
+    """ return (contents, Ranges), if no change, return original ("", None) """
+    start, length, changes = DiffString(self.contents, contents)
+    if length == 0 and changes == "": # no change
+      return ("", None)
+
+    old_bytes = ToBytes(self.contents)
+    line, column = LineColumnFromByteOffset(old_bytes, start)
+    line_start = start - (column - 1)
+    line_prefix = old_bytes[line_start:start].decode('utf-8')
+    start_position = Position(line, line_prefix, len(line_prefix) + 1)
+    if length == 0: # add
+      end_position = start_position
+    else: # change or remove
+      end = start + length
+      replaced = old_bytes[start:end]
+      replace_line, replace_column = LineColumnFromByteOffset(replaced, length)
+      end_line = line + replace_line - 1
+      if replace_line == 1: end_column = column + replace_column - 1
+      else: end_column = replace_column
+      end_line_start = start + length - (end_column - 1)
+      end_line_prefix = old_bytes[end_line_start:end].decode('utf-8')
+
+      end_position = Position(end_line, end_line_prefix, len(end_line_prefix) + 1)
+
+    return (changes, {'start': start_position, 'end': end_position})
 
   def GetDirtyFileAction( self, contents ):
     """Progress the state for a file to be updated due to being supplied in the
@@ -244,14 +295,16 @@ def DidOpenTextDocument( file_state, file_types, file_contents ):
   } )
 
 
-def DidChangeTextDocument( file_state, file_contents ):
+def DidChangeTextDocument( file_state, file_contents, ranges = None ):
+  change = { 'text': file_contents }
+  if ranges is not None: change['range'] = ranges
   return BuildNotification( 'textDocument/didChange', {
     'textDocument': {
       'uri': FilePathToUri( file_state.filename ),
       'version': file_state.version,
     },
     'contentChanges': [
-      { 'text': file_contents },
+      change,
     ],
   } )
 

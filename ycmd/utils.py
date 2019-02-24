@@ -262,6 +262,14 @@ def CodepointOffsetToByteOffset( unicode_line_value, codepoint_offset ):
   unicode_line_value = ToUnicode( unicode_line_value )
   return len( ToBytes( unicode_line_value[ : codepoint_offset - 1 ] ) ) + 1
 
+def LineColumnFromByteOffset(bytes_contents, offset):
+    """
+    offset is 0 based, return 1-based line and byte column
+    note: no check column offset overflow
+    """
+    line = bytes_contents.count(b"\n", 0, offset)
+    line_start = bytes_contents.rfind(b"\n", 0, offset) + 1 # return -1 when not found, so + 1 is the line_start offset
+    return (line + 1, offset - line_start + 1) # +1 based (line, column)
 
 def GetUnusedLocalhostPort():
   sock = socket.socket()
