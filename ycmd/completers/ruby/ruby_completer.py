@@ -194,8 +194,7 @@ class RubyCompleter( language_server_completer.LanguageServerCompleter ):
   def _StartServerInThread( self, request_data ):
     try:
       lang_server_bin = FindExecutable()
-      if not lang_server_bin:
-        return False
+      if not lang_server_bin: return False
       self._bin = lang_server_bin
       self._project_dir = _FindProjectDir(
         os.path.dirname( request_data[ 'filepath' ] ) )
@@ -203,6 +202,7 @@ class RubyCompleter( language_server_completer.LanguageServerCompleter ):
       _logger.info( 'Starting Ruby Language Server...' )
 
       self._server_logfile = utils.CreateLogfile( LOGFILE_FORMAT )
+      self._settings['logLevel'] = self._ServerLoggingLevel
 
       env = os.environ.copy()
       # if _logger.isEnabledFor( logging.DEBUG ):
@@ -402,3 +402,11 @@ class RubyCompleter( language_server_completer.LanguageServerCompleter ):
 
   def HandleServerCommand( self, request_data, command ):
     return None
+
+  @property
+  def _ServerLoggingLevel( self ):
+      return {
+          logging.DEBUG: "debug",
+          logging.INFO: "info",
+          logging.WARN: "warn",
+      }.get(_logger.getEffectiveLevel(), "warn")
