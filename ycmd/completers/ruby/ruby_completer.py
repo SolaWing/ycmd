@@ -204,22 +204,11 @@ class RubyCompleter( language_server_completer.LanguageServerCompleter ):
       self._server_logfile = utils.CreateLogfile( LOGFILE_FORMAT )
       self._settings['logLevel'] = self._ServerLoggingLevel
 
-      env = os.environ.copy()
-      # if _logger.isEnabledFor( logging.DEBUG ):
-      #   utils.SetEnviron( env, 'RUST_LOG', 'rls::server=trace' )
-      #   utils.SetEnviron( env, 'RUST_BACKTRACE', '1' )
-
-      # RLS may use the wrong standard library if the active toolchain is not
-      # the same as the one the server is running on. Set the active toolchain
-      # through the RUSTUP_TOOLCHAIN environment variable.
-      # utils.SetEnviron( env, 'RUSTUP_TOOLCHAIN', self._toolchain )
-
       with utils.OpenForStdHandle( self._server_logfile ) as stderr:
         self._server_handle = utils.SafePopen( [lang_server_bin, "stdio"],
                                                stdin = PIPE,
                                                stdout = PIPE,
-                                               stderr = stderr,
-                                               env = env )
+                                               stderr = stderr)
 
       if not self._ServerIsRunning():
         self._Notify( 'Ruby Language Server failed to start.' )
