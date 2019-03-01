@@ -40,11 +40,14 @@ TEST( IdentifierUtilsTest, ExtractIdentifiersFromTagsFileWorks ) {
 
   EXPECT_THAT( ExtractIdentifiersFromTagsFile( testfile ),
       UnorderedElementsAre(
+        Pair( "ruby", UnorderedElementsAre(
+                  Pair( ( testfile_parent / "a.rb" ).string(),
+                      ElementsAre( "Array" ) ) ) ),
         Pair( "cpp", UnorderedElementsAre(
                          Pair( ( testfile_parent / "foo" ).string(),
-                               ElementsAre( "i1", "foosy" ) ),
+                               ElementsAre( "foosy" ) ),
                          Pair( ( testfile_parent / "bar" ).string(),
-                               ElementsAre( "i1", "fooaaa" ) ) ) ),
+                               ElementsAre( "fooaaa" ) ) ) ),
         Pair( "fakelang", UnorderedElementsAre(
                               Pair( ( root / "foo" ).string(),
                                     ElementsAre( "zoro" ) ) ) ),

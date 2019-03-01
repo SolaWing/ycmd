@@ -38,8 +38,8 @@ const char *const TAG_REGEX =
   // absolute or relative to the tags file.
   "([^\\t\\n\\r]+)"
   "\\t.*?"  // Non-greedy everything
-  "language:([^\\t\\n\\r]+)"  // We want to capture the language of the file
-  ".*?$";
+  "(?:language:([^\\t\\n\\r]+))?"  // We want to capture the language of the file
+  ;
 
 // Only used as the equality comparer for the below unordered_map which stores
 // const char* pointers and not std::string but needs to hash based on string
@@ -52,6 +52,16 @@ struct StringEqualityComparer :
     return a == b;
   }
 };
+
+const std::unordered_map < const char *, const char *,
+      std::hash< std::string >,
+      StringEqualityComparer > EXT_TO_FILETYPE = {
+          { ".rb", "ruby" },
+          { ".h", "c" },
+          { ".c", "c" },
+          { ".lua", "lua" },
+          { ".php", "php" },
+      };
 
 // List of languages Universal Ctags supports:
 //   ctags --list-languages
@@ -174,28 +184,47 @@ FiletypeIdentifierMap ExtractIdentifiersFromTagsFile(
     return filetype_identifier_map;
   }
 
-  std::string::const_iterator start = tags_file_contents.begin();
-  std::string::const_iterator end   = tags_file_contents.end();
+  std::istringstream istring {tags_file_contents};
+  std::string line;
+  std::string const languageMarker{"language:"};
+  auto appendLine = [&]{
+      std::istringstream iline {line};
+      std::string identifier, p;
+      if (!std::getline(iline, identifier, '\t')) { return; }
+      if (!std::getline(iline, p, '\t')) { return; }
+      std::string language;
+      std::string filetype;
+      while (std::getline(iline, language, '\t')) {
+          if (language.size() <= languageMarker.size()) { break; }
+          auto v = std::mismatch(languageMarker.begin(), languageMarker.end(), language.begin());
+          if (v.first == languageMarker.end()) {
+              language.erase(language.begin(), v.second);
+              filetype = FindWithDefault( LANG_TO_FILETYPE,
+                      language.c_str(),
+                      Lowercase( language ).c_str() );
+          }
+      }
+      if (filetype.empty()) {
+          language = boost::filesystem::extension(p);
+          auto it = EXT_TO_FILETYPE.find( language.c_str() );
+          if (it == EXT_TO_FILETYPE.end()) { return; } // skip unknown extension type
+          filetype = it->second;
+      }
+      fs::path path( p );
+      path = NormalizePath( path, path_to_tag_file.parent_path() );
 
-  boost::smatch matches;
-  const boost::regex expression( TAG_REGEX );
-  const boost::match_flag_type options = boost::match_not_dot_newline;
-
-  while ( boost::regex_search( start, end, matches, expression, options ) ) {
-    start = matches[ 0 ].second;
-
-    std::string language( matches[ 3 ] );
-    std::string filetype = FindWithDefault( LANG_TO_FILETYPE,
-                                            language.c_str(),
-                                            Lowercase( language ).c_str() );
-
-    std::string identifier( matches[ 1 ] );
-    fs::path path( matches[ 2 ].str() );
-    path = NormalizePath( path, path_to_tag_file.parent_path() );
-
-    filetype_identifier_map[ filetype ][ path.string() ].push_back( identifier );
+      filetype_identifier_map[ filetype ][ path.string() ].push_back( identifier );
+  };
+  // skip prefix headerr
+  while (std::getline(istring, line)) {
+      if (!(line.length() > 0 && line[0] == '!')) {
+          appendLine();
+          break;
+      }
   }
-
+  while (std::getline(istring, line)) {
+      appendLine();
+  }
   return filetype_identifier_map;
 }
 

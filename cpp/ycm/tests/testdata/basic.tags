@@ -4,6 +4,7 @@
 !_TAG_PROGRAM_NAME	Exuberant Ctags	//
 !_TAG_PROGRAM_URL	http://ctags.sourceforge.net	/official site/
 !_TAG_PROGRAM_VERSION	5.8	//
+Array	a.rb	/Arary/
 i1	foo	junky;'junklanguage:C++
 i1	bar	junky;'junklanguage:C++
 foosy	foo	junky;"'junk	language:C++	zanzibar
