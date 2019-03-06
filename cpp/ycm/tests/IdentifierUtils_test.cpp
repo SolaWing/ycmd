@@ -58,6 +58,8 @@ TEST( IdentifierUtilsTest, ExtractIdentifiersFromTagsFileWorks ) {
                             Pair( ( testfile_parent / "foo.bar" ).string(),
                                   ElementsAre( "API", "DELETE" ) ) ) ),
         Pair( "c", UnorderedElementsAre(
+                       Pair( ( testfile_parent / "a.h" ).string(),
+                             ElementsAre( "printf" ) ),
                        Pair( ( root / "foo" / "zoo" ).string(),
                              ElementsAre( "Floo::goo" ) ),
                        Pair( ( root / "foo" / "goo maa" ).string(),

@@ -139,6 +139,8 @@ class RustCompleter( language_server_completer.LanguageServerCompleter ):
                   "run the 'RestartServer' subcommand." )
     return None
 
+  def _GetActiveToolchain( self, rustup ):
+      return _GetCommandOutput([rustup, 'show', 'active-toolchain'])
 
   def _GetToolchainFullName( self, rustup ):
     toolchains = _GetCommandOutput( [ rustup, 'toolchain', 'list' ] )
@@ -160,10 +162,15 @@ class RustCompleter( language_server_completer.LanguageServerCompleter ):
     if not rustup:
       return None, None
 
+    toolchain = self._GetActiveToolchain(rustup)
+    if RUSTUP_TOOLCHAIN_REGEX.match( toolchain ):
+      return rustup, toolchain
+
     toolchain = self._GetToolchainFullName( rustup )
     if toolchain:
       return rustup, toolchain
 
+    _logger.debug("install toolchain %s", TOOLCHAIN)
     result = self._RunCommandAndNotify( [ rustup, 'toolchain', 'install',
                                           TOOLCHAIN ] )
     if not result:
