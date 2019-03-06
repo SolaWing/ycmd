@@ -130,8 +130,8 @@ DiffString( const std::string &o, const std::string &n ) {
     }
     if ( common_suffix == shorter.size() ) {
         if (shorter.size() == longer.size()) { return {0, 0, ""}; }
-        // append
-        if (&shorter == &o) { return {common_suffix, 0, n.substr(common_suffix, n.size() - common_suffix)}; }
+        // add
+        if (&shorter == &o) { return {0, 0, n.substr(0, n.size() - common_suffix)}; }
         // delete
         return { 0, o.size() - common_suffix, "" };
     }

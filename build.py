@@ -399,6 +399,10 @@ def ParseArguments():
                        action = 'store_true',
                        help   = 'For developers: build ycm_core library with '
                                 'debug symbols' )
+  parser.add_argument( '--enable-reldebug',
+                       action = 'store_true',
+                       help   = 'For developers: build ycm_core library with '
+                                'debug symbols and optimize' )
   parser.add_argument( '--build-dir',
                        help   = 'For developers: perform the build in the '
                                 'specified directory, and do not delete the '
@@ -482,6 +486,8 @@ def GetCmakeArgs( parsed_args ):
   if parsed_args.enable_debug:
     cmake_args.append( '-DCMAKE_BUILD_TYPE=Debug' )
     cmake_args.append( '-DUSE_DEV_FLAGS=ON' )
+  elif parsed_args.enable_reldebug:
+    cmake_args.append( '-DCMAKE_BUILD_TYPE=RelWithDebInfo' )
 
   # coverage is not supported for c++ on MSVC
   if not OnWindows() and parsed_args.enable_coverage:

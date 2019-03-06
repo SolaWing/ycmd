@@ -96,6 +96,14 @@ TEST_F( UtilsTest, DiffString ) {
         auto a = DiffString("abc", "abc");
         EXPECT_THAT( a,   Equals( decltype(a){0, 0, ""} ) );
     }
+    { // 全部添加
+        auto a = DiffString("", "abcde");
+        EXPECT_THAT( a,   Equals( decltype(a){0, 0, "abcde"} ) );
+    }
+    { // 全部删除
+        auto a = DiffString("abcde", "");
+        EXPECT_THAT( a,   Equals( decltype(a){0, 5, ""} ) );
+    }
     { // 加后缀
         auto a = DiffString("abc", "abcde");
         EXPECT_THAT( a,   Equals( decltype(a){3, 0, "de"} ) );
@@ -130,7 +138,11 @@ TEST_F( UtilsTest, DiffString ) {
     }
     { // 后缀子串
         auto a = DiffString("abcde", "ababcde");
-        EXPECT_THAT( a,   Equals( decltype(a){2, 0, "ab"} ) );
+        EXPECT_THAT( a,   Equals( decltype(a){0, 0, "ab"} ) );
+    }
+    { // 前缀子串
+        auto a = DiffString("abcde", "abcdede");
+        EXPECT_THAT( a,   Equals( decltype(a){3, 0, "de"} ) );
     }
     { // utf8前缀
         auto a = DiffString(u8"\u00a3", u8"\u00a4");
