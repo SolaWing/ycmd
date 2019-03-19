@@ -53,7 +53,8 @@ struct StringEqualityComparer :
   }
 };
 
-const std::unordered_map < const char *, const char *,
+const std::unordered_map < const char *,
+      const char *,
       std::hash< std::string >,
       StringEqualityComparer > EXT_TO_FILETYPE = {
           { ".rb", "ruby" },
@@ -204,15 +205,15 @@ FiletypeIdentifierMap ExtractIdentifiersFromTagsFile(
                       Lowercase( language ).c_str() );
           }
       }
+      fs::path path( p );
       if (filetype.empty()) {
-          language = boost::filesystem::extension(p);
+          language = boost::filesystem::extension(path);
           auto it = EXT_TO_FILETYPE.find( language.c_str() );
           if (it == EXT_TO_FILETYPE.end()) { return; } // skip unknown extension type
           filetype = it->second;
       }
-      fs::path path( p );
-      path = NormalizePath( path, path_to_tag_file.parent_path() );
 
+      path = NormalizePath( path, path_to_tag_file.parent_path() );
       filetype_identifier_map[ filetype ][ path.string() ].push_back( identifier );
   };
   // skip prefix headerr
