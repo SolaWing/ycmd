@@ -281,7 +281,8 @@ def BuildResponse( request, parameters ):
   message. |parameters| should contain either 'error' or 'result'"""
   message = {
     'id': request[ 'id' ],
-    'method': request[ 'method' ],
+    # response shouldn't send method
+    # 'method': request[ 'method' ],
   }
   message.update( parameters )
   return _BuildMessageData( message )

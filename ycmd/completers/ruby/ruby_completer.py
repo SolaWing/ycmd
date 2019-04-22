@@ -284,9 +284,9 @@ class RubyCompleter( language_server_completer.LanguageServerCompleter ):
     return False
 
 
-  def ComputeCandidatesInner( self, request_data ):
+  def ComputeCandidatesInner( self, request_data, *args ):
       # _logger.debug("request_data pos is %s.%s.%s", request_data[ 'line_num' ], request_data[ 'line_value' ], self.GetCodepointForCompletionRequest( request_data ))
-      results = super().ComputeCandidatesInner(request_data)
+      results = super().ComputeCandidatesInner(request_data, *args)
       if results == []: # solargraph first may return empty response. return None to avoid cache and no request
           return None
       #  TODO:  <09-10-18, yourname> #
