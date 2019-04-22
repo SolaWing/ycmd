@@ -35,7 +35,7 @@ from nose.tools import eq_
 from types import ModuleType
 
 from ycmd.completers.cpp import flags
-from ycmd.completers.cpp.flags import _ShouldAllowWinStyleFlags
+from ycmd.completers.cpp.flags import _ShouldAllowWinStyleFlags, INCLUDE_FLAGS
 from ycmd.tests.test_utils import ( MacOnly, TemporaryTestDir, WindowsOnly,
                                     TemporaryClangProject )
 from ycmd.utils import CLANG_RESOURCE_DIR
@@ -369,6 +369,32 @@ def FlagsForFile_AddMacIncludePaths_Toolchain_CommandLine_test():
       '-isystem',    '/usr/local/include',
       '-isystem',    os.path.join( CLANG_RESOURCE_DIR, 'include' ),
       '-isystem',    '/Library/Developer/CommandLineTools/usr/include',
+      '-isystem',    '/usr/include',
+      '-iframework', '/System/Library/Frameworks',
+      '-iframework', '/Library/Frameworks',
+      '-fspell-checking' ) )
+
+
+@MacOnly
+@patch( 'os.path.exists', lambda path: False )
+def FlagsForFile_AddMacIncludePaths_ObjCppLanguage_test():
+  flags_object = flags.Flags()
+
+  def Settings( **kwargs ):
+    return {
+      'flags': [ '-Wall', '-x', 'c', '-xobjective-c++' ]
+    }
+
+  with MockExtraConfModule( Settings ):
+    flags_list, _ = flags_object.FlagsForFile( '/foo' )
+    assert_that( flags_list, contains(
+      '-Wall',
+      '-x', 'c',
+      '-xobjective-c++',
+      '-resource-dir=' + CLANG_RESOURCE_DIR,
+      '-isystem',    '/usr/include/c++/v1',
+      '-isystem',    '/usr/local/include',
+      '-isystem',    os.path.join( CLANG_RESOURCE_DIR, 'include' ),
       '-isystem',    '/usr/include',
       '-iframework', '/System/Library/Frameworks',
       '-iframework', '/Library/Frameworks',
@@ -993,13 +1019,10 @@ def RemoveUnusedFlags_RemoveFilenameWithoutPrecedingInclude_test():
                                      expected + to_remove + expected[ 1: ]
                                    ) ) )
 
-  include_flags = [ '-isystem', '-I', '-iquote', '-isysroot', '--sysroot',
-                    '-gcc-toolchain', '-include', '-include-pch',
-                    '-iframework', '-F', '-imacros', '-idirafter' ]
   to_remove = [ '/moo/boo' ]
   filename = 'file'
 
-  for flag in include_flags:
+  for flag in INCLUDE_FLAGS:
     yield tester, flag
 
 
@@ -1137,41 +1160,38 @@ def CompilationDatabase_UseFlagsFromSameDir_test():
     with TemporaryClangProject( tmp_dir, compile_commands ):
       f = flags.Flags()
 
-      # If we now ask for a file _not_ in the DB, we get []
-      eq_(
+      # If we ask for a file that is not in the DB but is in the same directory
+      # of another file present in the DB, we get its flags.
+      assert_that(
         f.FlagsForFile(
           os.path.join( tmp_dir, 'test1.cc' ),
           add_extra_clang_flags = False ),
-        ( [], os.path.join( tmp_dir, 'test1.cc' ) ) )
+        contains(
+          contains( 'clang++',
+                    '-x',
+                    'c++',
+                    '-Wall' ),
+          os.path.join( tmp_dir, 'test1.cc' )
+        )
+      )
 
-      # Then, we ask for a file that _is_ in the db. It will cache these flags
-      # against the files' directory.
+      # If we ask for a file that is not in the DB but in a subdirectory
+      # of another file present in the DB, we get its flags.
       assert_that(
         f.FlagsForFile(
-          os.path.join( tmp_dir, 'test.cc' ),
-          add_extra_clang_flags = False )[ 0 ],
-        contains( 'clang++',
-                  '-x',
-                  'c++',
-                  '-x',
-                  'c++',
-                  '-Wall' ) )
-
-      # If we now ask for a file _not_ in the DB, but in the same dir, we should
-      # get the same flags
-      assert_that(
-        f.FlagsForFile(
-          os.path.join( tmp_dir, 'test2.cc' ),
-          add_extra_clang_flags = False )[ 0 ],
-        contains( 'clang++',
-                  '-x',
-                  'c++',
-                  '-x',
-                  'c++',
-                  '-Wall' ) )
+          os.path.join( tmp_dir, 'some_dir', 'test1.cc' ),
+          add_extra_clang_flags = False ),
+        contains(
+          contains( 'clang++',
+                    '-x',
+                    'c++',
+                    '-Wall' ),
+          os.path.join( tmp_dir, 'some_dir', 'test1.cc' )
+        )
+      )
 
 
-def CompilationDatabase_HeaderFileHeuristic_test():
+def CompilationDatabase_HeaderFile_SameNameAsSourceFile_test():
   with TemporaryTestDir() as tmp_dir:
     compile_commands = [
       {
@@ -1182,7 +1202,9 @@ def CompilationDatabase_HeaderFileHeuristic_test():
     ]
 
     with TemporaryClangProject( tmp_dir, compile_commands ):
-      # If we ask for a header file, it returns the equivalent cc file
+      # If we ask for a header file with the same name as a source file, it
+      # returns the flags of that cc file (and a special language flag for C++
+      # headers).
       assert_that(
         flags.Flags().FlagsForFile(
           os.path.join( tmp_dir, 'test.h' ),
@@ -1190,12 +1212,12 @@ def CompilationDatabase_HeaderFileHeuristic_test():
         contains( 'clang++',
                   '-x',
                   'c++',
+                  '-Wall',
                   '-x',
-                  'c++',
-                  '-Wall' ) )
+                  'c++-header' ) )
 
 
-def CompilationDatabase_HeaderFileHeuristicNotFound_test():
+def CompilationDatabase_HeaderFile_DifferentNameFromSourceFile_test():
   with TemporaryTestDir() as tmp_dir:
     compile_commands = [
       {
@@ -1206,13 +1228,19 @@ def CompilationDatabase_HeaderFileHeuristicNotFound_test():
     ]
 
     with TemporaryClangProject( tmp_dir, compile_commands ):
-      # If we ask for a header file, it returns the equivalent cc file (if and
-      # only if there are flags for that file)
-      eq_(
+      # Even if we ask for a header file with a different name than the source
+      # file, it still returns the flags from the cc file (and a special
+      # language flag for C++ headers).
+      assert_that(
         flags.Flags().FlagsForFile(
           os.path.join( tmp_dir, 'not_in_the_db.h' ),
           add_extra_clang_flags = False )[ 0 ],
-        [] )
+        contains( 'clang++',
+                  '-x',
+                  'c++',
+                  '-Wall',
+                  '-x',
+                  'c++-header' ) )
 
 
 def CompilationDatabase_ExplicitHeaderFileEntry_test():
@@ -1257,7 +1285,7 @@ def CompilationDatabase_CUDALanguageFlags_test():
       # If we ask for a header file, it returns the equivalent cu file
       assert_that(
         flags.Flags().FlagsForFile(
-          os.path.join( tmp_dir, 'test.h' ),
+          os.path.join( tmp_dir, 'test.cuh' ),
           add_extra_clang_flags = False )[ 0 ],
         contains( 'clang++',
                   '-x',
