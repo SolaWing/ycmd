@@ -30,15 +30,16 @@ namespace {
 // For details on the tag format supported, see here for details:
 // http://ctags.sourceforge.net/FORMAT
 // TL;DR: The only supported format is the one Exuberant Ctags emits.
-const char *const TAG_REGEX =
-  "^([^\\t\\n\\r]+)"  // The first field is the identifier
-  "\\t"  // A TAB char is the field separator
-  // The second field is the path to the file that has the identifier; either
-  // absolute or relative to the tags file.
-  "([^\\t\\n\\r]+)"
-  "\\t.*?"  // Non-greedy everything
-  "(?:language:([^\\t\\n\\r]+))?"  // We want to capture the language of the file
-  ;
+
+// const char *const TAG_REGEX =
+//   "^([^\\t\\n\\r]+)"  // The first field is the identifier
+//   "\\t"  // A TAB char is the field separator
+//   // The second field is the path to the file that has the identifier; either
+//   // absolute or relative to the tags file.
+//   "([^\\t\\n\\r]+)"
+//   "\\t.*?"  // Non-greedy everything
+//   "(?:language:([^\\t\\n\\r]+))?"  // We want to capture the language of the file
+//   ;
 
 // Only used as the equality comparer for the below unordered_map which stores
 // const char* pointers and not std::string but needs to hash based on string

@@ -129,8 +129,7 @@ private:
   void ExtractDataFromChunk( CXCompletionString completion_string,
                              size_t chunk_num,
                              bool &saw_left_paren,
-                             bool &saw_function_params,
-                             bool &saw_placeholder );
+                             bool &saw_function_params);
 
   void BuildCompletionFixIt( CXCodeCompleteResults *results, size_t index );
 };

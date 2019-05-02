@@ -185,31 +185,6 @@ std::string OptionalChunkToString( CXCompletionString completion_string,
   return final_string;
 }
 
-
-bool IdentifierEndsWith( const std::string &identifier,
-                         const std::string &end ) {
-  if ( identifier.size() >= end.size() ) {
-    return 0 == identifier.compare( identifier.length() - end.length(),
-                                    end.length(),
-                                    end );
-  }
-
-  return false;
-}
-
-
-// foo( -> foo
-// foo() -> foo
-std::string RemoveTrailingParens( std::string text ) {
-  if ( IdentifierEndsWith( text, "(" ) ) {
-    text.erase( text.length() - 1, 1 );
-  } else if ( IdentifierEndsWith( text, "()" ) ) {
-    text.erase( text.length() - 2, 2 );
-  }
-
-  return text;
-}
-
 } // unnamed namespace
 
 
@@ -220,17 +195,14 @@ CompletionData::CompletionData( CXCompletionString completion_string,
   size_t num_chunks = clang_getNumCompletionChunks( completion_string );
   bool saw_left_paren = false;
   bool saw_function_params = false;
-  bool saw_placeholder = false;
    DLog("before extract %d\n", beforeCount++);
   for ( size_t j = 0; j < num_chunks; ++j ) {
     ExtractDataFromChunk( completion_string,
                           j,
                           saw_left_paren,
-                          saw_function_params,
-                          saw_placeholder );
+                          saw_function_params);
   }
 
-  // original_string_ = RemoveTrailingParens( std::move( original_string_ ) );
   kind_ = CursorKindToCompletionKind( kind );
 
   detailed_info_.append( return_type_ )
@@ -248,8 +220,7 @@ CompletionData::CompletionData( CXCompletionString completion_string,
 void CompletionData::ExtractDataFromChunk( CXCompletionString completion_string,
                                            size_t chunk_num,
                                            bool &saw_left_paren,
-                                           bool &saw_function_params,
-                                           bool &saw_placeholder ) {
+                                           bool &saw_function_params) {
   CXCompletionChunkKind kind = clang_getCompletionChunkKind(
                                  completion_string, chunk_num );
    DLog("%d %s %s\n",kind, kindDesc(kind), ChunkToString(completion_string, chunk_num).c_str());
