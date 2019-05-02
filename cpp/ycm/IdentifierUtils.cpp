@@ -53,10 +53,11 @@ struct StringEqualityComparer :
   }
 };
 
-const std::unordered_map < const char *,
+typedef std::unordered_map < const char *,
       const char *,
       std::hash< std::string >,
-      StringEqualityComparer > EXT_TO_FILETYPE = {
+      StringEqualityComparer > StaticMap;
+const StaticMap *EXT_TO_FILETYPE = new StaticMap {
           { ".rb", "ruby" },
           { ".h", "c" },
           { ".c", "c" },
@@ -70,10 +71,7 @@ const std::unordered_map < const char *,
 //   :e $VIMRUNTIME/filetype.vim
 // This is a map of const char* and not std::string to prevent issues with
 // static initialization.
-const std::unordered_map < const char *,
-      const char *,
-      std::hash< std::string >,
-      StringEqualityComparer > LANG_TO_FILETYPE = {
+const StaticMap *LANG_TO_FILETYPE = new StaticMap {
         { "Ada"                 , "ada"                 },
         { "AnsiblePlaybook"     , "ansibleplaybook"     },
         { "Ant"                 , "ant"                 },
@@ -200,7 +198,7 @@ FiletypeIdentifierMap ExtractIdentifiersFromTagsFile(
           auto v = std::mismatch(languageMarker.begin(), languageMarker.end(), language.begin());
           if (v.first == languageMarker.end()) {
               language.erase(language.begin(), v.second);
-              filetype = FindWithDefault( LANG_TO_FILETYPE,
+              filetype = FindWithDefault( *LANG_TO_FILETYPE,
                       language.c_str(),
                       Lowercase( language ).c_str() );
           }
@@ -208,8 +206,8 @@ FiletypeIdentifierMap ExtractIdentifiersFromTagsFile(
       fs::path path( p );
       if (filetype.empty()) {
           language = boost::filesystem::extension(path);
-          auto it = EXT_TO_FILETYPE.find( language.c_str() );
-          if (it == EXT_TO_FILETYPE.end()) { return; } // skip unknown extension type
+          auto it = EXT_TO_FILETYPE->find( language.c_str() );
+          if (it == EXT_TO_FILETYPE->end()) { return; } // skip unknown extension type
           filetype = it->second;
       }
 
