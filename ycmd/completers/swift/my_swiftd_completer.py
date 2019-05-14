@@ -427,15 +427,12 @@ class SwiftCompleter( Completer ):
       v['Declaration'] = textInTag(XMLFrom('key.annotated_decl'), 'Declaration')
       doc = XMLFrom('key.doc.full_as_xml')
       if doc:
-          CommentParts = doc.find('CommentParts')
+          CommentParts = doc.find('CommentParts') or doc
           if CommentParts:
               v['Abstract'] = textInTag(CommentParts, 'Abstract')
               v['Discussion'] = textInTag(CommentParts, 'Discussion')
               v['Parameters'] = CommentParts.find('Parameters')
               v['ResultDiscussion'] = textInTag(CommentParts, 'ResultDiscussion')
-          else:
-              v['Abstract'] = textInTag(doc, 'Abstract')
-              v['Discussion'] = textInTag(doc, 'Discussion')
 
       lines = ['{filepath}:+{offset}'.format(
           filepath = cursorInfo.get("key.filepath", "module"),
