@@ -66,6 +66,13 @@ def _FindProjectDir( starting_dir ):
 
   return project_path
 
+def _UseBundler(project_dir):
+    lock = os.path.join(project_dir, 'Gemfile.lock')
+    if os.path.isfile(lock):
+        with open(lock) as f:
+            return any('solargraph ' in line for line in f)
+    return False
+
 def _MakeProjectFilesForPath( path ):
   for tail in PROJECT_FILE_TAILS:
     yield os.path.join( path, tail ), tail
@@ -85,6 +92,7 @@ class RubyCompleter( language_server_completer.LanguageServerCompleter ):
 
     self._bin = None
     self._project_dir = None
+    self._use_bundler = None
 
     self._notification_queue = deque()
 
@@ -132,6 +140,7 @@ class RubyCompleter( language_server_completer.LanguageServerCompleter ):
           extras = [
             responses.DebugInfoItem( 'status', self._server_status ),
             responses.DebugInfoItem( 'Project Directory', self._project_dir ),
+            responses.DebugInfoItem( 'bundler', self._use_bundler )
           ]
         )
       ],
@@ -177,6 +186,11 @@ class RubyCompleter( language_server_completer.LanguageServerCompleter ):
       self._bin = lang_server_bin
       self._project_dir = _FindProjectDir(
         os.path.dirname( request_data[ 'filepath' ] ) )
+      self._use_bundler = _UseBundler(self._project_dir)
+      if self._use_bundler:
+          cmd = ['bundle', 'exec', lang_server_bin, "stdio"]
+      else:
+          cmd = [lang_server_bin, "stdio"]
 
       _logger.info( 'Starting Ruby Language Server...' )
 
@@ -184,10 +198,11 @@ class RubyCompleter( language_server_completer.LanguageServerCompleter ):
       self._settings['logLevel'] = self._ServerLoggingLevel
 
       with utils.OpenForStdHandle( self._server_logfile ) as stderr:
-        self._server_handle = utils.SafePopen( [lang_server_bin, "stdio"],
+        self._server_handle = utils.SafePopen( cmd,
                                                stdin = PIPE,
                                                stdout = PIPE,
-                                               stderr = stderr)
+                                               stderr = stderr,
+                                               cwd=self._project_dir)
 
       if not self._ServerIsRunning():
         self._Notify( 'Ruby Language Server failed to start.' )
