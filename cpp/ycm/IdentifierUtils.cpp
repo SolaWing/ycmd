@@ -203,7 +203,7 @@ FiletypeIdentifierMap ExtractIdentifiersFromTagsFile(
                       Lowercase( language ).c_str() );
           }
       }
-      fs::path path( p );
+      fs::path path( std::move(p) );
       if (filetype.empty()) {
           language = boost::filesystem::extension(path);
           auto it = EXT_TO_FILETYPE->find( language.c_str() );
@@ -212,7 +212,7 @@ FiletypeIdentifierMap ExtractIdentifiersFromTagsFile(
       }
 
       path = NormalizePath( path, path_to_tag_file.parent_path() );
-      filetype_identifier_map[ filetype ][ path.string() ].push_back( identifier );
+      filetype_identifier_map[ std::move(filetype) ][ path.string() ].push_back( std::move(identifier) );
   };
   // skip prefix headerr
   while (std::getline(istring, line)) {

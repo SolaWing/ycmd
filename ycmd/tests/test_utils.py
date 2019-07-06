@@ -1,4 +1,4 @@
-# Copyright (C) 2013-2018 ycmd contributors
+# Copyright (C) 2013-2019 ycmd contributors
 #
 # This file is part of ycmd.
 #
@@ -68,6 +68,7 @@ ClangOnly = skipIf( not ycm_core.HasClangSupport(),
                     'Only when Clang support available' )
 MacOnly = skipIf( not OnMac(), 'Mac only' )
 UnixOnly = skipIf( OnWindows(), 'Unix only' )
+NoWinPy2 = skipIf( OnWindows() and PY2, 'Disabled on Windows with Python 2' )
 
 
 def BuildRequest( **kwargs ):
@@ -478,3 +479,58 @@ def TemporaryClangProject( tmp_dir, compile_commands ):
     yield
   finally:
     os.remove( path )
+
+
+def WaitForDiagnosticsToBeReady( app, filepath, contents, filetype, **kwargs ):
+  results = None
+  for tries in range( 0, 60 ):
+    event_data = BuildRequest( event_name = 'FileReadyToParse',
+                               contents = contents,
+                               filepath = filepath,
+                               filetype = filetype,
+                               **kwargs )
+
+    results = app.post_json( '/event_notification', event_data ).json
+
+    if results:
+      break
+
+    time.sleep( 0.5 )
+
+  return results
+
+
+class PollForMessagesTimeoutException( Exception ):
+  pass
+
+
+def PollForMessages( app, request_data, timeout = 60 ):
+  expiration = time.time() + timeout
+  while True:
+    if time.time() > expiration:
+      raise PollForMessagesTimeoutException(
+        'Waited for diagnostics to be ready for {0} seconds, aborting.'.format(
+          timeout ) )
+
+    default_args = {
+      'line_num'  : 1,
+      'column_num': 1,
+    }
+    args = dict( default_args )
+    args.update( request_data )
+
+    response = app.post_json( '/receive_messages', BuildRequest( **args ) ).json
+
+    print( 'poll response: {0}'.format( pformat( response ) ) )
+
+    if isinstance( response, bool ):
+      if not response:
+        raise RuntimeError( 'The message poll was aborted by the server' )
+    elif isinstance( response, list ):
+      for message in response:
+        yield message
+    else:
+      raise AssertionError( 'Message poll response was wrong type: {0}'.format(
+        type( response ).__name__ ) )
+
+    time.sleep( 0.25 )

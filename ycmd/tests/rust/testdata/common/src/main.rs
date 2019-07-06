@@ -2,11 +2,14 @@ mod test;
 
 use test::*;
 
-fn unformatted_function(  param : bool) ->   bool
-  { return param }
+struct Earth {}
+struct Mars {}
+trait Atmosphere {}
+impl Atmosphere for Earth {}
+impl Atmosphere for Mars {}
 
-fn main()
-{
-    create_universe( );
-    build_
+fn main() {
+    create_universe();
+    let builder = Builder {};
+    builder.build_
 }

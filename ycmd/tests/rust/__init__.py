@@ -1,4 +1,4 @@
-# Copyright (C) 2016-2018 ycmd contributors
+# Copyright (C) 2016-2019 ycmd contributors
 #
 # This file is part of ycmd.
 #
@@ -27,14 +27,13 @@ import os
 
 from ycmd.tests.test_utils import ( BuildRequest,
                                     ClearCompletionsCache,
+                                    IgnoreExtraConfOutsideTestsFolder,
                                     IsolatedApp,
                                     SetUpApp,
                                     StopCompleterServer,
                                     WaitUntilCompleterServerReady )
 
 shared_app = None
-# Startup may take a long time if the toolchain is not installed.
-SERVER_STARTUP_TIMEOUT = 240 # seconds
 
 
 def PathToTestFile( *args ):
@@ -50,8 +49,9 @@ def setUpPackage():
   global shared_app
 
   shared_app = SetUpApp()
-  StartRustCompleterServerInDirectory( shared_app,
-                                       PathToTestFile( 'common', 'src' ) )
+  with IgnoreExtraConfOutsideTestsFolder():
+    StartRustCompleterServerInDirectory( shared_app,
+                                         PathToTestFile( 'common', 'src' ) )
 
 
 def StartRustCompleterServerInDirectory( app, directory ):
@@ -60,7 +60,7 @@ def StartRustCompleterServerInDirectory( app, directory ):
                    filepath = os.path.join( directory, 'main.rs' ),
                    event_name = 'FileReadyToParse',
                    filetype = 'rust' ) )
-  WaitUntilCompleterServerReady( shared_app, 'rust', SERVER_STARTUP_TIMEOUT )
+  WaitUntilCompleterServerReady( app, 'rust' )
 
 
 def tearDownPackage():
@@ -81,7 +81,8 @@ def SharedYcmd( test ):
   @functools.wraps( test )
   def Wrapper( *args, **kwargs ):
     ClearCompletionsCache()
-    return test( shared_app, *args, **kwargs )
+    with IgnoreExtraConfOutsideTestsFolder():
+      return test( shared_app, *args, **kwargs )
   return Wrapper
 
 

@@ -72,6 +72,8 @@ def RunFlake8():
 #  - no aliases.
 SIMPLE_COMPLETERS = [
   'clangd',
+  'rust',
+  'go',
 ]
 
 # More complex or legacy cases can specify all of:
@@ -93,16 +95,6 @@ COMPLETERS = {
     'build': [ '--js-completer' ],
     'test': [ '--exclude-dir=ycmd/tests/tern' ],
     'aliases': [ 'js', 'tern' ]
-  },
-  'go': {
-    'build': [ '--go-completer' ],
-    'test': [ '--exclude-dir=ycmd/tests/go' ],
-    'aliases': [ 'gocode' ]
-  },
-  'rust': {
-    'build': [],
-    'test': [ '--exclude-dir=ycmd/tests/rust' ],
-    'aliases': []
   },
   'typescript': {
     'build': [ '--ts-completer' ],
@@ -160,8 +152,8 @@ def ParseArguments():
                         COMPLETERS.keys() ) )
   parser.add_argument( '--skip-build', action = 'store_true',
                        help = 'Do not build ycmd before testing.' )
-  parser.add_argument( '--msvc', type = int, choices = [ 14, 15 ],
-                       default = 15, help = 'Choose the Microsoft Visual '
+  parser.add_argument( '--msvc', type = int, choices = [ 14, 15, 16 ],
+                       default = 16, help = 'Choose the Microsoft Visual '
                        'Studio version (default: %(default)s).' )
   parser.add_argument( '--coverage', action = 'store_true',
                        help = 'Enable coverage report (requires coverage pkg)' )
@@ -172,6 +164,9 @@ def ParseArguments():
                               'manually, then exit.' )
   parser.add_argument( '--no-retry', action = 'store_true',
                        help = 'Disable retry of flaky tests' )
+  parser.add_argument( '--quiet', action = 'store_true',
+                       help = 'Quiet installation mode. Just print overall '
+                              'progress and errors' )
 
   parsed_args, nosetests_args = parser.parse_known_args()
 
@@ -213,8 +208,7 @@ def BuildYcmdLibs( args ):
     build_cmd = [
       sys.executable,
       p.join( DIR_OF_THIS_SCRIPT, 'build.py' ),
-      '--core-tests',
-      '--quiet',
+      '--core-tests'
     ]
 
     for key in COMPLETERS:
@@ -230,6 +224,9 @@ def BuildYcmdLibs( args ):
       # output in a known directory, which is then used by the CI infrastructure
       # to generate the c++ coverage information.
       build_cmd.extend( [ '--enable-coverage', '--build-dir', '.build' ] )
+
+    if args.quiet:
+      build_cmd.append( '--quiet' )
 
     subprocess.check_call( build_cmd )
 
@@ -278,7 +275,55 @@ def NoseTests( parsed_args, extra_nosetests_args ):
                          env=env )
 
 
+# On Windows, distutils.spawn.find_executable only works for .exe files
+# but .bat and .cmd files are also executables, so we use our own
+# implementation.
+def FindExecutable( executable ):
+  # Executable extensions used on Windows
+  WIN_EXECUTABLE_EXTS = [ '.exe', '.bat', '.cmd' ]
+
+  paths = os.environ[ 'PATH' ].split( os.pathsep )
+  base, extension = os.path.splitext( executable )
+
+  if OnWindows() and extension.lower() not in WIN_EXECUTABLE_EXTS:
+    extensions = WIN_EXECUTABLE_EXTS
+  else:
+    extensions = [ '' ]
+
+  for extension in extensions:
+    executable_name = executable + extension
+    if not os.path.isfile( executable_name ):
+      for path in paths:
+        executable_path = os.path.join( path, executable_name )
+        if os.path.isfile( executable_path ):
+          return executable_path
+    else:
+      return executable_name
+  return None
+
+
+def FindExecutableOrDie( executable, message ):
+  path = FindExecutable( executable )
+
+  if not path:
+    sys.exit( "ERROR: Unable to find executable '{0}'. {1}".format(
+      executable,
+      message ) )
+
+  return path
+
+
+def SetUpGenericLSPCompleter():
+  old_cwd = os.getcwd()
+  os.chdir( os.path.join( DIR_OF_THIRD_PARTY, 'generic_server' ) )
+  npm = FindExecutableOrDie( 'npm', 'npm is required to'
+                                    'run GenericLSPCompleter tests.' )
+  subprocess.check_call( [ npm, 'install' ] )
+  os.chdir( old_cwd )
+
+
 def Main():
+  SetUpGenericLSPCompleter()
   parsed_args, nosetests_args = ParseArguments()
   if parsed_args.dump_path:
     print( os.environ[ 'PYTHONPATH' ] )

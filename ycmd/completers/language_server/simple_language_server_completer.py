@@ -1,4 +1,4 @@
-# Copyright (C) 2018 ycmd contributors
+# Copyright (C) 2018-2019 ycmd contributors
 #
 # This file is part of ycmd.
 #
@@ -35,12 +35,16 @@ import subprocess
 class SimpleLSPCompleter( lsc.LanguageServerCompleter ):
   @abc.abstractmethod
   def GetServerName( self ):
-    pass
+    pass # pragma: no cover
+
+
+  def GetServerEnvironment( self ):
+    return None
 
 
   @abc.abstractmethod
   def GetCommandLine( self ):
-    pass
+    pass # pragma: no cover
 
 
   def GetCustomSubcommands( self ):
@@ -72,20 +76,21 @@ class SimpleLSPCompleter( lsc.LanguageServerCompleter ):
       return self._connection
 
 
+  def ExtraDebugItems( self, request_data ):
+    return []
+
+
   def DebugInfo( self, request_data ):
     with self._server_state_mutex:
+      extras = self.CommonDebugItems() + self.ExtraDebugItems( request_data )
       server = responses.DebugInfoServer( name = self.GetServerName(),
                                           handle = self._server_handle,
                                           executable = self.GetCommandLine(),
                                           logfiles = [ self._stderr_file ],
-                                          extras = self.CommonDebugItems() )
+                                          extras = extras )
 
-    return responses.BuildDebugInfoResponse( name = self.Language(),
+    return responses.BuildDebugInfoResponse( name = self.GetCompleterName(),
                                              servers = [ server ] )
-
-
-  def Language( self ):
-    return self.GetServerName()
 
 
   def ServerIsHealthy( self ):
@@ -103,10 +108,12 @@ class SimpleLSPCompleter( lsc.LanguageServerCompleter ):
         utils.MakeSafeFileNameString( self.GetServerName() ) ) )
 
       with utils.OpenForStdHandle( self._stderr_file ) as stderr:
-        self._server_handle = utils.SafePopen( self.GetCommandLine(),
-                                               stdin = subprocess.PIPE,
-                                               stdout = subprocess.PIPE,
-                                               stderr = stderr )
+        self._server_handle = utils.SafePopen(
+          self.GetCommandLine(),
+          stdin = subprocess.PIPE,
+          stdout = subprocess.PIPE,
+          stderr = stderr,
+          env = self.GetServerEnvironment() )
 
       self._connection = (
         lsc.StandardIOLanguageServerConnection(

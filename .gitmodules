@@ -1,7 +1,3 @@
-[submodule "third_party/OmniSharpServer"]
-	path = third_party/OmniSharpServer
-	url = https://github.com/nosami/OmniSharpServer
-	ignore = untracked
 [submodule "third_party/bottle"]
 	path = third_party/bottle
 	url = https://github.com/defnull/bottle
@@ -17,15 +13,6 @@
 [submodule "third_party/requests"]
 	path = third_party/requests_deps/requests
 	url = https://github.com/requests/requests
-	ignore = untracked
-[submodule "third_party/go/src/github.com/mdempsky/gocode"]
-	path = third_party/go/src/github.com/mdempsky/gocode
-	url = https://github.com/mdempsky/gocode
-	ignore = dirty
-[submodule "third_party/go/src/github.com/rogpeppe/godef"]
-	path = third_party/go/src/github.com/rogpeppe/godef
-	url = https://github.com/rogpeppe/godef
-	ignore = dirty
 [submodule "third_party/jedi"]
 	path = third_party/jedi_deps/jedi
 	url = https://github.com/davidhalter/jedi
@@ -62,3 +49,7 @@
 [submodule "third_party/solargraph"]
 	path = third_party/solargraph
 	url = https://github.com/SolaWing/solargraph
+[submodule "third_party/go/src/golang.org/x/tools"]
+	path = third_party/go/src/golang.org/x/tools
+	url = https://go.googlesource.com/tools
+	ignore = dirty
