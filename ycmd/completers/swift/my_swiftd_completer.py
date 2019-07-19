@@ -44,7 +44,7 @@ import threading
 import tempfile
 
 _logger = logging.getLogger( __name__ )
-_logger.setLevel(logging.DEBUG)
+# _logger.setLevel(logging.DEBUG)
 
 import re
 import time
@@ -74,13 +74,13 @@ class SwiftCompleter( Completer ):
   def __init__( self, user_options ):
     super().__init__( user_options )
     self.max_diagnostics_to_display = user_options[ 'max_diagnostics_to_display' ]
-    self._flags_for_file = {}
     self._big_cache = []
+
+    self._flags_for_file = {}
     self._source_repository = {}
     self._open_modules = {}
-
-    # Used to ensure that starting/stopping of the server is synchronized
     self._request_id = 0
+    # Used to ensure that starting/stopping of the server is synchronized
     self._server_state_mutex = threading.RLock()
     self._server_handle = None # type: subprocess.Popen
     self._sourcekitten_binary_path = PATH_TO_SOURCEKITTEN
@@ -94,6 +94,9 @@ class SwiftCompleter( Completer ):
       with self._server_state_mutex:
           if self._server_handle: return
           _logger.info( 'Starting SwiftLSP Language Server...' )
+          self._flags_for_file = {}
+          self._source_repository = {}
+          self._open_modules = {}
           self._server_stderr = utils.CreateLogfile( 'SwiftD_stderr_' )
           with utils.OpenForStdHandle( self._server_stderr ) as stderr:
               self._server_handle = utils.SafePopen(
@@ -205,10 +208,12 @@ class SwiftCompleter( Completer ):
   def FlagsForFile(self, filename):
     try:
       return self._flags_for_file[ filename ]
-    except KeyError: pass
+    except KeyError:
+        pass
 
     module = extra_conf_store.ModuleForSourceFile( filename )
-    if not module or not hasattr(module, 'FlagsForSwift'): return [filename]
+    if not module or not hasattr(module, 'FlagsForSwift'):
+        return [filename]
 
     response = module.FlagsForSwift( filename )
     flags = response['flags']
