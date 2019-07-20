@@ -77,7 +77,7 @@ class SwiftCompleter( Completer ):
     self._big_cache = []
 
     self._flags_for_file = {}
-    self._source_repository = {}
+    self._source_repository = {} # open files
     self._open_modules = {}
     self._request_id = 0
     # Used to ensure that starting/stopping of the server is synchronized
@@ -114,6 +114,13 @@ class SwiftCompleter( Completer ):
               self._server_handle.pid ) )
 
           try:
+              for filename, file_state in self._source_repository.iteritems():
+                file_state['parse_id'] += 1 # cancel waiting parsing
+                self.request("source.request.editor.close", {
+                    "key.sourcefile": filename,
+                    "key.name": filename,
+                })
+
               self._SendNotification("end")
               self._server_handle.communicate()
           except Exception as e:
@@ -273,6 +280,7 @@ class SwiftCompleter( Completer ):
             })
             if output is None: _logger.warn("editor open error!"); return
         parse_id = file_state['parse_id']
+    # lock end
 
     diag = output.get("key.diagnostics")
     c = 0
