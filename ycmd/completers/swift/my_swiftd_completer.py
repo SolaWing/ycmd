@@ -77,6 +77,7 @@ class SwiftCompleter( Completer ):
     self._big_cache = []
 
     self._flags_for_file = {}
+    self._extra_conf_storage = {}
     self._source_repository = {} # open files
     self._open_modules = {}
     self._request_id = 0
@@ -95,6 +96,7 @@ class SwiftCompleter( Completer ):
           if self._server_handle: return
           _logger.info( 'Starting SwiftLSP Language Server...' )
           self._flags_for_file = {}
+          self._extra_conf_storage = {}
           self._source_repository = {}
           self._open_modules = {}
           self._server_stderr = utils.CreateLogfile( 'SwiftD_stderr_' )
@@ -222,7 +224,8 @@ class SwiftCompleter( Completer ):
     if not module or not hasattr(module, 'FlagsForSwift'):
         return [filename]
 
-    response = module.FlagsForSwift( filename )
+    response = module.FlagsForSwift(filename,
+                                    store = self._extra_conf_storage )
     flags = response['flags']
     if response.get('do_cache', True):
         self._flags_for_file[filename] = flags
