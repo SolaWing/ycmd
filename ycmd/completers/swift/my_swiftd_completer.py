@@ -116,7 +116,7 @@ class SwiftCompleter( Completer ):
               self._server_handle.pid ) )
 
           try:
-              for filename, file_state in self._source_repository.iteritems():
+              for filename, file_state in self._source_repository.items():
                 file_state['parse_id'] += 1 # cancel waiting parsing
                 self.request("source.request.editor.close", {
                     "key.sourcefile": filename,
