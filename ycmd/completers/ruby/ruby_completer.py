@@ -25,25 +25,22 @@ from builtins import *  # noqa
 import logging
 import os
 import re
-import threading
-import time
-from subprocess import STDOUT, PIPE
 from ycmd import responses, utils
-from ycmd.completers.language_server import language_server_completer
-from collections import deque
-
-
-_logger = logging.getLogger( __name__ )
+from ycmd.utils import LOGGER
+from ycmd.completers.language_server.simple_language_server_completer import (
+    SimpleLSPCompleter )
 
 
 LOGFILE_FORMAT = 'rubyls_'
-PROJECT_FILE_TAILS = [
+PROJECT_ROOT_FILES = [
   'Gemfile',
   '.solargraph.yml',
 ]
 
+
 def ShouldEnableCompleter():
     return FindExecutable()
+
 
 def FindExecutable():
     for path in [os.path.join(os.path.dirname(__file__),
@@ -55,16 +52,6 @@ def FindExecutable():
         if solargraph:
             return solargraph
 
-def _FindProjectDir( starting_dir ):
-  project_path = starting_dir
-  project_type = None
-
-  for folder in utils.PathsToAllParentFolders( starting_dir ):
-    for project_file, tail in _MakeProjectFilesForPath( folder ):
-      if os.path.isfile( project_file ):
-        return folder
-
-  return project_path
 
 def _UseBundler(project_dir):
     lock = os.path.join(project_dir, 'Gemfile.lock')
@@ -73,30 +60,24 @@ def _UseBundler(project_dir):
             return any('solargraph ' in line for line in f)
     return False
 
-def _MakeProjectFilesForPath( path ):
-  for tail in PROJECT_FILE_TAILS:
-    yield os.path.join( path, tail ), tail
 
-class RubyCompleter( language_server_completer.LanguageServerCompleter ):
+class RubyCompleter( SimpleLSPCompleter ):
   def __init__( self, user_options ):
     super( RubyCompleter, self ).__init__( user_options )
 
-    self._server_keep_logfiles = user_options[ 'server_keep_logfiles' ]
-
-    # Used to ensure that starting/stopping of the server is synchronized
-    self._server_state_mutex = threading.RLock()
-    self._server_starting = threading.Event()
-    self._server_handle = None
-    self._server_logfile = None
-    self._server_status = None
-
-    self._bin = None
-    self._project_dir = None
+    self._command_line = None
     self._use_bundler = None
 
-    self._notification_queue = deque()
+  def GetProjectRootFiles( self ):
+    return PROJECT_ROOT_FILES
 
-    self._connection = None
+
+  def GetServerName( self ):
+    return 'RubyCompleter'
+
+
+  def GetCommandLine( self ):
+    return self._command_line
 
 
   def SupportedFiletypes( self ):
@@ -111,9 +92,6 @@ class RubyCompleter( language_server_completer.LanguageServerCompleter ):
       'RestartServer': (
         lambda self, request_data, args: self._RestartServer( request_data )
       ),
-      'StopServer': (
-        lambda self, request_data, args: self._StopServer()
-      ),
       'GetDoc': (
         lambda self, request_data, args: self.GetDoc( request_data )
       ),
@@ -122,176 +100,29 @@ class RubyCompleter( language_server_completer.LanguageServerCompleter ):
       )
     }
 
+  def ExtraDebugItems( self, request_data ):
+    return [
+      responses.DebugInfoItem( 'bundler', self._use_bundler )
+    ]
 
-  def GetConnection( self ):
-    return self._connection
-
-  def DebugInfo( self, request_data ):
-    return responses.BuildDebugInfoResponse(
-      name = 'Ruby',
-      servers = [
-        responses.DebugInfoServer(
-          name = 'Ruby Language Server',
-          handle = self._server_handle,
-          executable = self._bin,
-          logfiles = [
-            self._server_logfile
-          ],
-          extras = [
-            responses.DebugInfoItem( 'status', self._server_status ),
-            responses.DebugInfoItem( 'Project Directory', self._project_dir ),
-            responses.DebugInfoItem( 'bundler', self._use_bundler )
-          ]
-        )
-      ],
-    )
-
-
-  def Shutdown( self ):
-    self._StopServer()
-
-
-  def ServerIsHealthy( self ):
-    return self._ServerIsRunning()
-
-
-  def ServerIsReady( self ):
-    return ( self.ServerIsHealthy() and
-             super( RubyCompleter, self ).ServerIsReady() )
-
-
-  def _ServerIsRunning( self ):
-    return utils.ProcessIsRunning( self._server_handle )
-
-
-  def _RestartServer( self, request_data ):
-    with self._server_state_mutex:
-      self._StopServer()
-      self._StartAndInitializeServer( request_data )
-
+  def PopenKwargs( self ):
+    return { 'cwd': self._project_directory }
 
   def StartServer( self, request_data ):
     with self._server_state_mutex:
-      if self._server_starting.is_set():
-        raise RuntimeError( 'Already starting server.' )
-
-      self._server_starting.set()
-
-    return self._StartServerInThread(request_data)
-
-  def _StartServerInThread( self, request_data ):
-    try:
       lang_server_bin = FindExecutable()
-      if not lang_server_bin: return False
+      if not lang_server_bin:
+        return False
       self._bin = lang_server_bin
-      self._project_dir = _FindProjectDir(
-        os.path.dirname( request_data[ 'filepath' ] ) )
-      self._use_bundler = _UseBundler(self._project_dir)
+      self._project_directory = self.GetProjectDirectory( request_data, None)
+      self._use_bundler = _UseBundler(self._project_directory)
       if self._use_bundler:
-          cmd = ['bundle', 'exec', lang_server_bin, "stdio"]
+          self._command_line = ['bundle', 'exec', lang_server_bin, "stdio"]
       else:
-          cmd = [lang_server_bin, "stdio"]
-
-      _logger.info( 'Starting Ruby Language Server...' )
-
-      self._server_logfile = utils.CreateLogfile( LOGFILE_FORMAT )
+          self._command_line = [lang_server_bin, "stdio"]
       self._settings['logLevel'] = self._ServerLoggingLevel
 
-      with utils.OpenForStdHandle( self._server_logfile ) as stderr:
-        self._server_handle = utils.SafePopen( cmd,
-                                               stdin = PIPE,
-                                               stdout = PIPE,
-                                               stderr = stderr,
-                                               cwd=self._project_dir)
-
-      if not self._ServerIsRunning():
-        self._Notify( 'Ruby Language Server failed to start.' )
-        return False
-
-      _logger.info( 'Ruby Language Server started.' )
-
-      self._connection = (
-        language_server_completer.StandardIOLanguageServerConnection(
-          self._server_handle.stdin,
-          self._server_handle.stdout,
-          self.GetDefaultNotificationHandler() )
-      )
-
-      self._connection.start()
-
-      try:
-        self._connection.AwaitServerConnection()
-      except language_server_completer.LanguageServerConnectionTimeout:
-        self._Notify( 'Ruby Language Server failed to start, or did not '
-                      'connect successfully.' )
-        self._StopServer()
-        return False
-
-      return True
-    finally:
-      self._server_starting.clear()
-
-
-  def _StopServer( self ):
-    with self._server_state_mutex:
-      _logger.info( 'Shutting down Ruby Language Server...' )
-      # We don't use utils.CloseStandardStreams, because the stdin/out is
-      # connected to our server connector. Just close stderr.
-      #
-      # The other streams are closed by the LanguageServerConnection when we
-      # call Close.
-      if self._server_handle and self._server_handle.stderr:
-        self._server_handle.stderr.close()
-
-      # Tell the connection to expect the server to disconnect.
-      if self._connection:
-        self._connection.Stop()
-
-      if not self._ServerIsRunning():
-        _logger.info( 'Ruby Language Server not running' )
-        self._CleanUp()
-        return
-
-      _logger.info( 'Stopping Ruby Language Server with PID {0}'.format(
-         self._server_handle.pid ) )
-
-      try:
-        self.ShutdownServer()
-
-        # By this point, the server should have shut down and terminated. To
-        # ensure that isn't blocked, we close all of our connections and wait
-        # for the process to exit.
-        #
-        # If, after a small delay, the server has not shut down we do NOT kill
-        # it; we expect that it will shut itself down eventually. This is
-        # predominantly due to strange process behaviour on Windows.
-        if self._connection:
-          self._connection.Close()
-
-        utils.WaitUntilProcessIsTerminated( self._server_handle,
-                                            timeout = 15 )
-
-        _logger.info( 'Ruby Language server stopped' )
-      except Exception:
-        _logger.exception( 'Error while stopping Ruby Language Server' )
-        # We leave the process running. Hopefully it will eventually die of its
-        # own accord.
-
-      # Tidy up our internal state, even if the completer server didn't close
-      # down cleanly.
-      self._CleanUp()
-
-
-  def _CleanUp( self ):
-    self._server_handle = None
-    self._server_status = None
-    self._connection = None
-    self.ServerReset()
-    if not self._server_keep_logfiles:
-      if self._server_logfile:
-        utils.RemoveIfExists( self._server_logfile )
-        self._server_logfile = None
-
+      return super().StartServer(request_data)
 
   def _ShouldResolveCompletionItems( self ):
     # FIXME: solargraph only append documentation into completionItem
@@ -300,53 +131,22 @@ class RubyCompleter( language_server_completer.LanguageServerCompleter ):
 
 
   def ComputeCandidatesInner( self, request_data, *args ):
-      # _logger.debug("request_data pos is %s.%s.%s", request_data[ 'line_num' ], request_data[ 'line_value' ], self.GetCodepointForCompletionRequest( request_data ))
+      # LOGGER.debug("request_data pos is %s.%s.%s", request_data[ 'line_num' ], request_data[ 'line_value' ], self.GetCodepointForCompletionRequest( request_data ))
       results = super().ComputeCandidatesInner(request_data, *args)
       if results == []: # solargraph first may return empty response. return None to avoid cache and no request
           return None
       #  TODO:  <09-10-18, yourname> #
-      # _logger.debug("twice: request_data pos is %s.%s.%s", request_data[ 'line_num' ], request_data[ 'line_value' ], self.GetCodepointForCompletionRequest( request_data ))
+      # LOGGER.debug("twice: request_data pos is %s.%s.%s", request_data[ 'line_num' ], request_data[ 'line_value' ], self.GetCodepointForCompletionRequest( request_data ))
       # super().ComputeCandidatesInner(request_data)
 
       # request_data[ 'start_codepoint' ] = request_data[ 'start_codepoint' ] + 1
-      # _logger.debug("third: request_data pos is %s.%s.%s", request_data[ 'line_num' ], request_data[ 'line_value' ], self.GetCodepointForCompletionRequest( request_data ))
+      # LOGGER.debug("third: request_data pos is %s.%s.%s", request_data[ 'line_num' ], request_data[ 'line_value' ], self.GetCodepointForCompletionRequest( request_data ))
       # super().ComputeCandidatesInner(request_data)
       return results
 
-  def _GetProjectDirectory(self, request_data, *args):
-    return self._project_dir
-
-  # def HandleNotificationInPollThread( self, notification ):
-  #   _logger.debug("RX: Received Notification: %s", notification)
-  #   super( RubyCompleter, self ).HandleNotificationInPollThread( notification )
-
-
-  def _Notify( self, message, level = 'error' ):
-    getattr( _logger, level )( message )
-    self._notification_queue.append(
-      responses.BuildDisplayMessageResponse( message ) )
-
-
-  def PollForMessagesInner( self, request_data, timeout ):
-    expiration = time.time() + timeout
-    while True:
-      if time.time() > expiration:
-        return True
-
-      # If there are messages pending in the queue, return them immediately
-      messages = self._GetPendingMessages( request_data )
-      if messages:
-        return messages
-
-      try:
-        return [ self._notification_queue.popleft() ]
-      except IndexError:
-        time.sleep( 0.1 )
-
-
   def GetType( self, request_data ):
     hover_response = self.GetHoverResponse( request_data )
-    _logger.debug("%s", hover_response)
+    LOGGER.debug("%s", hover_response)
 
     # RLS returns a list that may contain the following elements:
     # - a documentation string;
@@ -383,14 +183,12 @@ class RubyCompleter( language_server_completer.LanguageServerCompleter ):
 
     return responses.BuildDetailedInfoResponse( documentation )
 
-
-  def HandleServerCommand( self, request_data, command ):
-    return None
-
   @property
   def _ServerLoggingLevel( self ):
       return {
           logging.DEBUG: "debug",
           logging.INFO: "info",
           logging.WARN: "warn",
-      }.get(_logger.getEffectiveLevel(), "warn")
+      }.get(LOGGER.getEffectiveLevel(), "warn")
+
+# ex: sw=2 sts=2

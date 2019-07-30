@@ -97,6 +97,8 @@ class SimpleLSPCompleter( lsc.LanguageServerCompleter ):
     with self._server_state_mutex:
       return utils.ProcessIsRunning( self._server_handle )
 
+  def PopenKwargs( self ):
+      return { 'env': self.GetServerEnvironment }
 
   def StartServer( self, request_data ):
     with self._server_state_mutex:
@@ -113,7 +115,7 @@ class SimpleLSPCompleter( lsc.LanguageServerCompleter ):
           stdin = subprocess.PIPE,
           stdout = subprocess.PIPE,
           stderr = stderr,
-          env = self.GetServerEnvironment() )
+          **self.PopenKwargs() )
 
       self._connection = (
         lsc.StandardIOLanguageServerConnection(
