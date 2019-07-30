@@ -121,13 +121,14 @@ class RubyCompleter( SimpleLSPCompleter ):
       else:
           self._command_line = [lang_server_bin, "stdio"]
       self._settings['logLevel'] = self._ServerLoggingLevel
+      # self._settings['logLevel'] = 'debug'
 
       return super().StartServer(request_data)
 
-  def _ShouldResolveCompletionItems( self ):
-    # FIXME: solargraph only append documentation into completionItem
-    # ignore it to avoid performance issue.
-    return False
+  # def _ShouldResolveCompletionItems( self ):
+  #   # FIXME: solargraph only append documentation into completionItem
+  #   # ignore it to avoid performance issue.
+  #   return False
 
 
   def ComputeCandidatesInner( self, request_data, *args ):
