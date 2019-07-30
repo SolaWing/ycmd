@@ -51,5 +51,5 @@
 	url = https://github.com/SolaWing/solargraph
 [submodule "third_party/go/src/golang.org/x/tools"]
 	path = third_party/go/src/golang.org/x/tools
-	url = https://go.googlesource.com/tools
+	url = https://github.com/golang/tools
 	ignore = dirty
