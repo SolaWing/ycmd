@@ -1941,7 +1941,7 @@ def _CompletionItemToCompletionData( insertion_text, item, fixits ):
   except IndexError:
     kind = lsp.ITEM_KIND[ 0 ] # Fallback to None for unsupported kinds.
 
-  documentation = item.get( 'documentation', '')
+  documentation = item.get( 'documentation') or ''
   if isinstance(documentation, dict):
       documentation = documentation.get('value', '')
   return responses.BuildCompletionData(
