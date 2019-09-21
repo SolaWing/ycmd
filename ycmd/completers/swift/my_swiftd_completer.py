@@ -42,9 +42,7 @@ import sys
 import os
 import threading
 import tempfile
-
-_logger = logging.getLogger( __name__ )
-# _logger.setLevel(logging.DEBUG)
+from ycmd.utils import LOGGER
 
 import re
 import time
@@ -94,7 +92,7 @@ class SwiftCompleter( Completer ):
   def _StartServer(self, request_data = None):
       with self._server_state_mutex:
           if self._server_handle: return
-          _logger.info( 'Starting SwiftLSP Language Server...' )
+          LOGGER.info( 'Starting SwiftLSP Language Server...' )
           self._flags_for_file = {}
           self._extra_conf_storage = {}
           self._source_repository = {}
@@ -103,16 +101,16 @@ class SwiftCompleter( Completer ):
           with utils.OpenForStdHandle( self._server_stderr ) as stderr:
               self._server_handle = utils.SafePopen(
                   [self._sourcekitten_binary_path, "daemon"],
-                  env = ({"SOURCEKIT_LOGGING": "3"} if _logger.level == logging.DEBUG else None),
+                  env = ({"SOURCEKIT_LOGGING": "3"} if LOGGER.isEnabledFor( logging.DEBUG ) else None),
                   stdin = PIPE, stdout = PIPE, stderr = stderr) # type: subprocess.Popen
 
   def _StopServer(self):
       with self._server_state_mutex:
-          _logger.info( 'Shutting down SwiftLSP...' )
+          LOGGER.info( 'Shutting down SwiftLSP...' )
           if not self._ServerIsRunning():
-              _logger.info( 'SwiftLSP Language server not running' )
+              LOGGER.info( 'SwiftLSP Language server not running' )
               return
-          _logger.info( 'Stopping Swift server with PID {0}'.format(
+          LOGGER.info( 'Stopping Swift server with PID {0}'.format(
               self._server_handle.pid ) )
 
           try:
@@ -126,7 +124,7 @@ class SwiftCompleter( Completer ):
               self._SendNotification("end")
               self._server_handle.communicate()
           except Exception as e:
-              _logger.exception( 'Error while stopping SwiftLSP server' )
+              LOGGER.exception( 'Error while stopping SwiftLSP server' )
           else:
               self._server_handle = None
 
@@ -144,7 +142,7 @@ class SwiftCompleter( Completer ):
           if params: r["params"] = params
 
           d = json.dumps(r).encode()
-          _logger.info(f"send notification len({len(d)}): {method}")
+          LOGGER.info(f"send notification len({len(d)}): {method}")
           self._writePackage(d)
 
   def _SendRequest(self, method, params=None):
@@ -154,7 +152,7 @@ class SwiftCompleter( Completer ):
           if params: r["params"] = params
 
           d = json.dumps(r).encode()
-          _logger.debug(f"send request len({len(d)}): {d}")
+          LOGGER.debug(f"send request len({len(d)}): {d}")
           self._writePackage(d)
           #  TODO: 先同步串行, 以后可能改成根据id串行, 且需要比对id
           return self.__GetResponse()
@@ -180,12 +178,12 @@ class SwiftCompleter( Completer ):
         error = None
         if isinstance(r, dict): error = r.get("error")
         if error:
-            _logger.error(f"response error: {error}")
+            LOGGER.error(f"response error: {error}")
         else:
-            _logger.debug(f"get response: {r}")
+            LOGGER.debug(f"get response: {r}")
         return r
     except (KeyError, ValueError) as e:
-        _logger.exception( 'Error while read package' )
+        LOGGER.exception( 'Error while read package' )
         return {}
 
   def DebugInfo( self, request_data ):
@@ -268,7 +266,7 @@ class SwiftCompleter( Completer ):
                 "key.enablesyntaxmap": 0,
                 "key.enablesubstructure": 0
             }) # type: dict
-            if output is None: _logger.warn("editor open error!"); return
+            if output is None: LOGGER.warn("editor open error!"); return
         else:
             diff = DiffString(file_state['last_contents'], contents)
             file_state['last_contents'] = contents
@@ -281,14 +279,14 @@ class SwiftCompleter( Completer ):
                 "key.length": diff[1],
                 "key.sourcetext": diff[2],
             })
-            if output is None: _logger.warn("editor open error!"); return
+            if output is None: LOGGER.warn("editor open error!"); return
         parse_id = file_state['parse_id']
     # lock end
 
     diag = output.get("key.diagnostics")
     c = 0
     while not diag and output.get("key.diagnostic_stage") == "source.diagnostic.stage.swift.parse":
-        if c > 5: _logger.warn("get diag timeout!"); return
+        if c > 5: LOGGER.warn("get diag timeout!"); return
         time.sleep(1)
         c += 1
         if file_state['parse_id'] != parse_id: # new request, ignore old loop query
@@ -301,13 +299,13 @@ class SwiftCompleter( Completer ):
             "key.length": 0,
             "key.sourcetext": "",
         })
-        if output is None: _logger.warn("get diag error!"); return
+        if output is None: LOGGER.warn("get diag error!"); return
         diag = output.get("key.diagnostics")
 
     if not diag: return
     bytes_contents = utils.ToBytes(contents)
     diag = list(filter(bool, map(lambda d: ConvertToYCMDDiag(d, bytes_contents), diag)))
-    _logger.debug("%d diags", len(diag))
+    LOGGER.debug("%d diags", len(diag))
     with self._server_state_mutex:
         if file_state['parse_id'] == parse_id: # no changes, save last diag
             file_state['last_diag'] = diag
@@ -353,7 +351,7 @@ class SwiftCompleter( Completer ):
       ) for completion in output["key.results"] ]
       # cache for QuickCandidates when big than 1M
       if len(output) > 1e6 :
-          _logger.debug("swift cache %d", len(output))
+          LOGGER.debug("swift cache %d", len(output))
           self._big_cache = completions
       return completions
 
@@ -612,7 +610,7 @@ def ConvertToYCMDDiag(sourcekit_diag, bytes_contents):
     try:
         length = sourcekit_diag["key.ranges"][0]["key.length"]
     except Exception as e:
-        _logger.debug("get ranges error: %s", e)
+        LOGGER.debug("get ranges error: %s", e)
         length = 1
     end = responses.Location(start.line_number_, start.column_number_+length, start.filename_)
     r = responses.Range(start, end)
