@@ -29,7 +29,7 @@
 	ignore = untracked
 [submodule "third_party/cregex"]
 	path = third_party/cregex
-	url = https://github.com/micbou/regex.git
+	url = https://github.com/ycm-core/regex.git
 	ignore = untracked
 [submodule "third_party/SourceKitten"]
 	path = third_party/SourceKitten

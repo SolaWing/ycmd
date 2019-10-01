@@ -613,11 +613,9 @@ def Subcommands_RefactorRename_Simple_test( app ):
       'data': has_entries( {
         'fixits': contains( has_entries( {
           'chunks': contains(
-              ChunkMatcher( 'renamed_l',
+              ChunkMatcher( 'renamed_l = new TestLauncher( 10 );'
+                            '\n    renamed_l',
                             LocationMatcher( filepath, 27, 18 ),
-                            LocationMatcher( filepath, 27, 19 ) ),
-              ChunkMatcher( 'renamed_l',
-                            LocationMatcher( filepath, 28, 5 ),
                             LocationMatcher( filepath, 28, 6 ) ),
           ),
           'location': LocationMatcher( filepath, 28, 5 )
@@ -740,13 +738,8 @@ def Subcommands_RefactorRename_Unicode_test( app ):
         'fixits': contains( has_entries( {
           'chunks': contains(
             ChunkMatcher(
-              'shorter',
+              'shorter = "Test";\n    return shorter',
               LocationMatcher( filepath, 7, 12 ),
-              LocationMatcher( filepath, 7, 25 )
-            ),
-            ChunkMatcher(
-              'shorter',
-              LocationMatcher( filepath, 8, 12 ),
               LocationMatcher( filepath, 8, 25 )
             ),
           ),
@@ -776,6 +769,13 @@ def RunFixItTest( app, description, filepath, line, col, fixits_for_line ):
 
 
 def Subcommands_FixIt_SingleDiag_MultipleOption_Insertion_test():
+  import os
+  wibble_path = PathToTestFile( 'simple_eclipse_project',
+                                'src',
+                                'com',
+                                'test',
+                                'Wibble.java' )
+  wibble_text = 'package com.test;{0}{0}public {1} Wibble {{{0}{0}}}{0}'
   filepath = PathToTestFile( 'simple_eclipse_project',
                              'src',
                              'com',
@@ -802,6 +802,30 @@ def Subcommands_FixIt_SingleDiag_MultipleOption_Insertion_test():
           ChunkMatcher( '\n\nprivate static final String Wibble = null;',
                         LocationMatcher( filepath, 16, 4 ),
                         LocationMatcher( filepath, 16, 4 ) ),
+        ),
+      } ),
+      has_entries( {
+        'text': "Create class 'Wibble'",
+        'chunks': contains(
+          ChunkMatcher( wibble_text.format( os.linesep, 'class' ),
+                        LocationMatcher( wibble_path, 1, 1 ),
+                        LocationMatcher( wibble_path, 1, 1 ) ),
+        ),
+      } ),
+      has_entries( {
+        'text': "Create interface 'Wibble'",
+        'chunks': contains(
+          ChunkMatcher( wibble_text.format( os.linesep, 'interface' ),
+                        LocationMatcher( wibble_path, 1, 1 ),
+                        LocationMatcher( wibble_path, 1, 1 ) ),
+        ),
+      } ),
+      has_entries( {
+        'text': "Create enum 'Wibble'",
+        'chunks': contains(
+          ChunkMatcher( wibble_text.format( os.linesep, 'enum' ),
+                        LocationMatcher( wibble_path, 1, 1 ),
+                        LocationMatcher( wibble_path, 1, 1 ) ),
         ),
       } ),
       has_entries( {
@@ -1004,6 +1028,99 @@ def Subcommands_FixIt_MultipleDiags_test():
           filepath, 30, 46, fixits )
   yield ( RunFixItTest, 'diags are merged in FixIt options - end of line',
           filepath, 30, 55, fixits )
+
+
+@SharedYcmd
+def Subcommands_FixIt_Range_test( app ):
+  filepath = PathToTestFile( 'simple_eclipse_project',
+                             'src',
+                             'com',
+                             'test',
+                             'TestLauncher.java' )
+  RunTest( app, {
+    'description': 'Formatting is applied on some part of the file '
+                   'with tabs composed of 4 spaces',
+    'request': {
+      'command': 'FixIt',
+      'filepath': filepath,
+      'range': {
+        'start': {
+          'line_num': 34,
+          'column_num': 28,
+        },
+        'end': {
+          'line_num': 34,
+          'column_num': 73
+        }
+      },
+    },
+    'expect': {
+      'response': requests.codes.ok,
+      'data': has_entries( {
+        'fixits': contains_inanyorder(
+          has_entries( {
+            'text': 'Extract to field',
+            'chunks': contains(
+              ChunkMatcher(
+                matches_regexp(
+                  'private String \\w+;\n'
+                  '\n'
+                  '\t@Override\n'
+                  '      public void launch\\(\\) {\n'
+                  '        AbstractTestWidget w = '
+                  'factory.getWidget\\( "Test" \\);\n'
+                  '        '
+                  'w.doSomethingVaguelyUseful\\(\\);\n'
+                  '\n'
+                  '        \\w+ = "Did something '
+                  'useful: " \\+ w.getWidgetInfo\\(\\);\n'
+                  '\t\tSystem.out.println\\( \\w+' ),
+                LocationMatcher( filepath, 29, 7 ),
+                LocationMatcher( filepath, 34, 73 ) ),
+            ),
+          } ),
+          has_entries( {
+            'text': 'Extract to method',
+            'chunks': contains(
+              # This one is a wall of text that rewrites 35 lines
+              ChunkMatcher( instance_of( str ),
+                            LocationMatcher( filepath, 1, 1 ),
+                            LocationMatcher( filepath, 35, 8 ) ),
+            ),
+          } ),
+          has_entries( {
+            'text': 'Extract to local variable (replace all occurrences)',
+            'chunks': contains(
+              ChunkMatcher(
+                matches_regexp(
+                  'String \\w+ = "Did something '
+                  'useful: " \\+ w.getWidgetInfo\\(\\);\n'
+                  '\t\tSystem.out.println\\( \\w+' ),
+                LocationMatcher( filepath, 34, 9 ),
+                LocationMatcher( filepath, 34, 73 ) ),
+            ),
+          } ),
+          has_entries( {
+            'text': 'Extract to local variable',
+            'chunks': contains(
+              ChunkMatcher(
+                matches_regexp(
+                  'String \\w+ = "Did something '
+                  'useful: " \\+ w.getWidgetInfo\\(\\);\n'
+                  '\t\tSystem.out.println\\( \\w+' ),
+                LocationMatcher( filepath, 34, 9 ),
+                LocationMatcher( filepath, 34, 73 ) ),
+            ),
+          } ),
+          has_entries( {
+            'text': 'Organize imports',
+            'chunks': instance_of( list ),
+          } ),
+        )
+      } )
+    }
+  } )
+
 
 
 def Subcommands_FixIt_NoDiagnostics_test():
