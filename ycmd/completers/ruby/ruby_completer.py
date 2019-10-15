@@ -43,9 +43,9 @@ def ShouldEnableCompleter():
 
 
 def FindExecutable():
-    for path in [os.path.join(os.path.dirname(__file__),
-                              '../../..',
-                              'third_party/solargraph/main.rb'),
+    for path in [# os.path.join(os.path.dirname(__file__),
+                 #              '../../..',
+                 #              'third_party/solargraph/main.rb'),
                  'solargraph',
                  os.path.expanduser( '~/.rbenv/shims/solargraph' ) ]:
         solargraph = utils.FindExecutable( path )
