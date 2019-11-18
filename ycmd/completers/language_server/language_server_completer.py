@@ -26,6 +26,7 @@ from functools import partial
 from future.utils import iteritems, iterkeys
 import abc
 import collections
+import contextlib
 import json
 import logging
 import os
@@ -51,6 +52,9 @@ CONNECTION_TIMEOUT         = 5
 MAX_QUEUED_MESSAGES = 250
 
 PROVIDERS_MAP = {
+  'codeActionProvider': (
+    lambda self, request_data, args: self.GetCodeActions( request_data, args )
+  ),
   'declarationProvider': (
     lambda self, request_data, args: self.GoTo( request_data,
                                                 [ 'Declaration' ] )
@@ -95,6 +99,7 @@ PROVIDERS_MAP = {
 # definition and vice versa.
 DEFAULT_SUBCOMMANDS_MAP = {
   'ExecuteCommand':     [ 'executeCommandProvider' ],
+  'FixIt':              [ 'codeActionProvider' ],
   'GoToDefinition':     [ 'definitionProvider' ],
   'GoToDeclaration':    [ 'declarationProvider', 'definitionProvider' ],
   'GoTo':               [ ( 'definitionProvider', 'declarationProvider' ),
@@ -304,6 +309,18 @@ class LanguageServerConnection( threading.Thread ):
     self._connection_event = threading.Event()
     self._stop_event = threading.Event()
     self._notification_handler = notification_handler
+
+    self._collector = RejectCollector()
+
+
+  @contextlib.contextmanager
+  def HandleServerToClientRequests( self, collector ):
+    old_collector = self._collector
+    self._collector = collector
+    try:
+      yield
+    finally:
+      self._collector = old_collector
 
 
   def run( self ):
@@ -538,9 +555,7 @@ class LanguageServerConnection( threading.Thread ):
     if 'id' in message:
       if 'method' in message:
         # This is a server->client request, which requires a response.
-        # We don't support any such messages right now.
-        message = lsp.Reject( message, lsp.Errors.MethodNotFound )
-        self.SendResponse( message )
+        self._collector.HandleServerToClientRequest( message, self )
       else:
         # This is a response to the message with id message[ 'id' ]
         with self._response_mutex:
@@ -656,7 +671,6 @@ class LanguageServerCompleter( Completer ):
       returning it in GetConnection
       - Set its notification handler to self.GetDefaultNotificationHandler()
       - See below for Startup/Shutdown instructions
-    - Implement any server-specific Commands in HandleServerCommand
     - Optionally handle server-specific command responses in
       HandleServerCommandResponse
     - Optionally override GetCustomSubcommands to return subcommand handlers
@@ -707,15 +721,16 @@ class LanguageServerCompleter( Completer ):
   - By default, the subcommands are detected from the server's capabilities.
     The logic for this is in DEFAULT_SUBCOMMANDS_MAP (and implemented by
     _DiscoverSubcommandSupport).
+  - By default FixIt should work, but for example, jdt.ls doesn't implement
+    CodeActions correctly and forces clients to handle it differently.
+    For these cases, completers can override any of:
+    - CodeActionLiteralToFixIt
+    - CodeActionCommandToFixIt
+    - CommandToFixIt
   - Other commands not covered by DEFAULT_SUBCOMMANDS_MAP are bespoke to the
     completer and should be returned by GetCustomSubcommands:
     - GetType/GetDoc are bespoke to the downstream server, though this class
       provides GetHoverResponse which is useful in this context.
-    - FixIt requests are handled by GetCodeActions, but the responses are passed
-      to HandleServerCommand, which must return a FixIt. See
-      WorkspaceEditToFixIt and TextEditToChunks for some helpers. If the server
-      returns other types of command that aren't FixIt, either throw an
-      exception or update the ycmd protocol to handle it :)
   """
   @abc.abstractmethod
   def GetConnection( sefl ):
@@ -725,12 +740,10 @@ class LanguageServerCompleter( Completer ):
     pass # pragma: no cover
 
 
-  @abc.abstractmethod
-  def HandleServerCommand( self, request_data, command ):
-    pass # pragma: no cover
-
-
-  def HandleServerCommandResponse( self, request_data, response ):
+  def HandleServerCommandResponse( self,
+                                   request_data,
+                                   edits,
+                                   command_response ):
     pass # pragma: no cover
 
 
@@ -773,6 +786,8 @@ class LanguageServerCompleter( Completer ):
         self._UpdateServerWithFileContents( request_data )
     )
 
+    self._signature_help_disabled = user_options[ 'disable_signature_help' ]
+
 
   def ServerReset( self ):
     """Clean up internal state related to the running server instance.
@@ -786,6 +801,7 @@ class LanguageServerCompleter( Completer ):
       self._initialize_event = threading.Event()
       self._on_initialize_complete_handlers = []
       self._server_capabilities = None
+      self._is_completion_provider = False
       self._resolve_completion_items = False
       self._project_directory = None
       self._settings = {}
@@ -886,7 +902,7 @@ class LanguageServerCompleter( Completer ):
 
 
   def ComputeCandidatesInner( self, request_data, codepoint ):
-    if not self._ServerIsInitialized():
+    if not self._is_completion_provider:
       return None, False
 
     self._UpdateServerWithFileContents( request_data )
@@ -897,7 +913,7 @@ class LanguageServerCompleter( Completer ):
     response = self.GetConnection().GetResponse( request_id,
                                                  msg,
                                                  REQUEST_TIMEOUT_COMPLETION )
-    result = response[ 'result' ]
+    result = response.get( 'result' ) or []
 
     if isinstance( result, list ):
       items = result
@@ -1066,6 +1082,89 @@ class LanguageServerCompleter( Completer ):
 
     request_data[ 'start_codepoint' ] = min_start_codepoint
     return completions
+
+
+  def SignatureHelpAvailable( self ):
+    if self._signature_help_disabled:
+      return responses.SignatureHelpAvailalability.NOT_AVAILABLE
+
+    if not self.ServerIsReady():
+      return responses.SignatureHelpAvailalability.PENDING
+
+    if bool( self._server_capabilities.get( 'signatureHelpProvider' ) ):
+      return responses.SignatureHelpAvailalability.AVAILABLE
+    else:
+      return responses.SignatureHelpAvailalability.NOT_AVAILABLE
+
+  def ComputeSignaturesInner( self, request_data ):
+    if not self.ServerIsReady():
+      return {}
+
+    if not self._server_capabilities.get( 'signatureHelpProvider' ):
+      return {}
+
+    self._UpdateServerWithFileContents( request_data )
+
+    request_id = self.GetConnection().NextRequestId()
+    msg = lsp.SignatureHelp( request_id, request_data )
+
+    response = self.GetConnection().GetResponse( request_id,
+                                                 msg,
+                                                 REQUEST_TIMEOUT_COMPLETION )
+
+    result = response[ 'result' ]
+    for sig in result[ 'signatures' ]:
+      sig_label = sig[ 'label' ]
+      end = 0
+      for arg in sig[ 'parameters' ]:
+        arg_label = arg[ 'label' ]
+        assert not isinstance( arg_label, list )
+        begin = sig[ 'label' ].find( arg_label, end )
+        end = begin + len( arg_label )
+        arg[ 'label' ] = [
+          utils.CodepointOffsetToByteOffset( sig_label, begin ),
+          utils.CodepointOffsetToByteOffset( sig_label, end ) ]
+    return result
+
+
+  def GetDetailedDiagnostic( self, request_data ):
+    self._UpdateServerWithFileContents( request_data )
+
+    current_line_lsp = request_data[ 'line_num' ] - 1
+    current_file = request_data[ 'filepath' ]
+
+    if not self._latest_diagnostics:
+      return responses.BuildDisplayMessageResponse(
+          'Diagnostics are not ready yet.' )
+
+    with self._server_info_mutex:
+      diagnostics = list( self._latest_diagnostics[
+          lsp.FilePathToUri( current_file ) ] )
+
+    if not diagnostics:
+      return responses.BuildDisplayMessageResponse(
+          'No diagnostics for current file.' )
+
+    current_column = lsp.CodepointsToUTF16CodeUnits(
+        GetFileLines( request_data, current_file )[ current_line_lsp ],
+        request_data[ 'column_codepoint' ] )
+    minimum_distance = None
+
+    message = 'No diagnostics for current line.'
+    for diagnostic in diagnostics:
+      start = diagnostic[ 'range' ][ 'start' ]
+      end = diagnostic[ 'range' ][ 'end' ]
+      if current_line_lsp < start[ 'line' ] or end[ 'line' ] < current_line_lsp:
+        continue
+      point = { 'line': current_line_lsp, 'character': current_column }
+      distance = _DistanceOfPointToRange( point, diagnostic[ 'range' ] )
+      if minimum_distance is None or distance < minimum_distance:
+        message = diagnostic[ 'message' ]
+        if distance == 0:
+          break
+        minimum_distance = distance
+
+    return responses.BuildDisplayMessageResponse( message )
 
 
   def GetCustomSubcommands( self ):
@@ -1602,12 +1701,20 @@ class LanguageServerCompleter( Completer ):
     return server_trigger_characters
 
 
+  def GetSignatureTriggerCharacters( self, server_trigger_characters ):
+    """Same as _GetTriggerCharacters but for signature help."""
+    return server_trigger_characters
+
+
   def _HandleInitializeInPollThread( self, response ):
     """Called within the context of the LanguageServerConnection's message pump
     when the initialize request receives a response."""
     with self._server_info_mutex:
       self._server_capabilities = response[ 'result' ][ 'capabilities' ]
       self._resolve_completion_items = self._ShouldResolveCompletionItems()
+
+      self._is_completion_provider = (
+          'completionProvider' in self._server_capabilities )
 
       if 'textDocumentSync' in self._server_capabilities:
         sync = self._server_capabilities[ 'textDocumentSync' ]
@@ -1648,6 +1755,26 @@ class LanguageServerCompleter( Completer ):
                        ','.join( trigger_characters ) )
 
           self.completion_triggers.SetServerSemanticTriggers(
+            trigger_characters )
+
+      if self.signature_triggers is not None:
+        server_trigger_characters = (
+          ( self._server_capabilities.get( 'signatureHelpProvider' ) or {} )
+                                     .get( 'triggerCharacters' ) or []
+        )
+        LOGGER.debug( '%s: Server declares signature trigger characters: %s',
+                      self.Language(),
+                      server_trigger_characters )
+
+        trigger_characters = self.GetSignatureTriggerCharacters(
+          server_trigger_characters )
+
+        if trigger_characters:
+          LOGGER.info( '%s: Using characters for signature triggers: %s',
+                       self.Language(),
+                       ','.join( trigger_characters ) )
+
+          self.signature_triggers.SetServerSemanticTriggers(
             trigger_characters )
 
       # We must notify the server that we received the initialize response (for
@@ -1760,8 +1887,6 @@ class LanguageServerCompleter( Completer ):
     line_num_ls = request_data[ 'line_num' ] - 1
     request_id = self.GetConnection().NextRequestId()
     if 'range' in request_data:
-      LOGGER.debug( 'Lines1 = %s', request_data[ 'lines' ] )
-      LOGGER.debug( 'CAR = %s', request_data[ 'range' ] )
       code_actions = self.GetConnection().GetResponse(
         request_id,
         lsp.CodeAction( request_id,
@@ -1821,15 +1946,68 @@ class LanguageServerCompleter( Completer ):
             [] ),
           REQUEST_TIMEOUT_COMMAND )
 
-    result = code_actions[ 'result' ]
-    if result is None:
-      result = []
+    return self.CodeActionResponseToFixIts( request_data,
+                                            code_actions[ 'result' ] )
 
-    response = [ self.HandleServerCommand( request_data, c ) for c in result ]
+
+  def CodeActionResponseToFixIts( self, request_data, code_actions ):
+    if code_actions is None:
+      return responses.BuildFixItResponse( [] )
+
+    fixits = []
+    for code_action in code_actions:
+      if 'edit' in code_action:
+        # TODO: Start supporting a mix of WorkspaceEdits and Commands
+        # once there's a need for such
+        assert 'command' not in code_action
+
+        # This is a WorkspaceEdit literal
+        fixits.append( self.CodeActionLiteralToFixIt( request_data,
+                                                      code_action ) )
+        continue
+
+      # Either a CodeAction or a Command
+      assert 'command' in code_action
+
+      action_command = code_action[ 'command' ]
+      if isinstance( action_command, dict ):
+        # CodeAction with a 'command' rather than 'edit'
+        fixits.append( self.CodeActionCommandToFixIt( request_data,
+                                                      code_action ) )
+        continue
+
+      # It is a Command
+      fixits.append( self.CommandToFixIt( request_data, code_action ) )
 
     # Show a list of actions to the user to select which one to apply.
     # This is (probably) a more common workflow for "code action".
-    return responses.BuildFixItResponse( [ r for r in response if r ] )
+    result = [ r for r in fixits if r ]
+    if len( result ) == 1:
+      fixit = result[ 0 ]
+      if hasattr( fixit, 'resolve' ):
+        # Be nice and resolve the fixit to save on roundtrips
+        unresolved_fixit = {
+          'command': fixit.command,
+          'text': fixit.text,
+          'resolve': fixit.resolve
+        }
+        return self._ResolveFixit( request_data, unresolved_fixit )
+    return responses.BuildFixItResponse( result )
+
+
+  def CodeActionLiteralToFixIt( self, request_data, code_action_literal ):
+    return WorkspaceEditToFixIt( request_data,
+                                 code_action_literal[ 'edit' ],
+                                 code_action_literal[ 'title' ] )
+
+
+  def CodeActionCommandToFixIt( self, request_data, code_action_command ):
+    command = code_action_command[ 'command' ]
+    return self.CommandToFixIt( request_data, command )
+
+
+  def CommandToFixIt( self, request_data, command ):
+    return responses.UnresolvedFixIt( command, command[ 'title' ] )
 
 
   def RefactorRename( self, request_data, args ):
@@ -1858,6 +2036,15 @@ class LanguageServerCompleter( Completer ):
     return responses.BuildFixItResponse( [ fixit ] )
 
 
+  def AdditionalFormattingOptions( self, request_data ):
+    module = extra_conf_store.ModuleForSourceFile( request_data[ 'filepath' ] )
+    try:
+      settings = self.GetSettings( module, request_data )
+      return settings.get( 'formatting_options', {} )
+    except AttributeError:
+      return {}
+
+
   def Format( self, request_data ):
     """Issues the formatting or rangeFormatting request (depending on the
     presence of a range) and returns the result as a FixIt response."""
@@ -1866,6 +2053,8 @@ class LanguageServerCompleter( Completer ):
 
     self._UpdateServerWithFileContents( request_data )
 
+    request_data[ 'options' ].update(
+      self.AdditionalFormattingOptions( request_data ) )
     request_id = self.GetConnection().NextRequestId()
     if 'range' in request_data:
       message = lsp.RangeFormatting( request_id, request_data )
@@ -1890,6 +2079,32 @@ class LanguageServerCompleter( Completer ):
       chunks ) ] )
 
 
+  def _ResolveFixit( self, request_data, fixit ):
+    if not fixit[ 'resolve' ]:
+      return { 'fixits': [ fixit ] }
+
+    unresolved_fixit = fixit[ 'command' ]
+    collector = EditCollector()
+    with self.GetConnection().HandleServerToClientRequests( collector ):
+      self.GetCommandResponse(
+        request_data,
+        unresolved_fixit[ 'command' ],
+        unresolved_fixit[ 'arguments' ] )
+
+    # Return a ycmd fixit
+    response = collector.requests
+    assert len( response ) == 1
+    fixit = WorkspaceEditToFixIt(
+      request_data,
+      response[ 0 ][ 'edit' ],
+      unresolved_fixit[ 'title' ] )
+    return responses.BuildFixItResponse( [ fixit ] )
+
+
+  def ResolveFixit( self, request_data ):
+    return self._ResolveFixit( request_data, request_data[ 'fixit' ] )
+
+
   def ExecuteCommand( self, request_data, args ):
     if not args:
       raise ValueError( 'Must specify a command to execute' )
@@ -1897,14 +2112,25 @@ class LanguageServerCompleter( Completer ):
     # We don't have any actual knowledge of the responses here. Unfortunately,
     # the LSP "comamnds" require client/server specific understanding of the
     # commands.
-    command_response = self.GetCommandResponse( request_data,
-                                                args[ 0 ],
-                                                args[ 1: ] )
+    collector = EditCollector()
+    with self.GetConnection().HandleServerToClientRequests( collector ):
+      command_response = self.GetCommandResponse( request_data,
+                                                  args[ 0 ],
+                                                  args[ 1: ] )
 
+    edits = collector.requests
     response = self.HandleServerCommandResponse( request_data,
+                                                 edits,
                                                  command_response )
     if response is not None:
       return response
+
+    if len( edits ):
+      fixits = [ WorkspaceEditToFixIt(
+        request_data,
+        e[ 'edit' ],
+        '' ) for e in edits ]
+      return responses.BuildFixItResponse( fixits )
 
     return responses.BuildDetailedInfoResponse( json.dumps( command_response,
                                                             indent = 2 ) )
@@ -1942,6 +2168,28 @@ class LanguageServerCompleter( Completer ):
                                       json.dumps( self._settings,
                                                   indent = 2,
                                                   sort_keys = True ) ) ]
+
+
+def _DistanceOfPointToRange( point, range ):
+  """Calculate the distance from a point to a range.
+
+  Assumes point is covered by lines in the range.
+  Returns 0 if point is already inside range. """
+  start = range[ 'start' ]
+  end = range[ 'end' ]
+
+  # Single-line range.
+  if start[ 'line' ] == end[ 'line' ]:
+    # 0 if point is within range, otherwise distance from start/end.
+    return max( 0, point[ 'character' ] - end[ 'character' ],
+                start[ 'character' ] - point[ 'character' ] )
+
+  if start[ 'line' ] == point[ 'line' ]:
+    return max( 0, start[ 'character' ] - point[ 'character' ] )
+  if end[ 'line' ] == point[ 'line' ]:
+    return max( 0, point[ 'character' ] - end[ 'character' ] )
+  # If not on the first or last line, then point is within range for sure.
+  return 0
 
 
 def _CompletionItemToCompletionData( insertion_text, item, fixits ):
@@ -2392,3 +2640,20 @@ class LanguageServerCompletionsCache( CompletionsCache ):
         return super( LanguageServerCompletionsCache,
                       self ).GetCompletionsIfCacheValid( request_data )
       return None
+
+
+class RejectCollector( object ):
+  def HandleServerToClientRequest( self, request, connection ):
+    message = lsp.Reject( request, lsp.Errors.MethodNotFound )
+    connection.SendResponse( message )
+
+
+class EditCollector( object ):
+  def __init__( self ):
+    self.requests = []
+
+
+  def HandleServerToClientRequest( self, request, connection ):
+    assert request[ 'method' ] == 'workspace/applyEdit'
+    self.requests.append( request[ 'params' ] )
+    connection.SendResponse( lsp.ApplyEditResponse( request ) )

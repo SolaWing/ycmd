@@ -38,6 +38,18 @@ NO_EXTRA_CONF_FILENAME_MESSAGE = ( 'No {0} file detected, so no compile flags '
 NO_DIAGNOSTIC_SUPPORT_MESSAGE = ( 'YCM has no diagnostics support for this '
   'filetype; refer to Syntastic docs if using Syntastic.' )
 
+EMPTY_SIGNATURE_INFO = {
+  'activeSignature': 0,
+  'activeParameter': 0,
+  'signatures': [],
+}
+
+
+class SignatureHelpAvailalability:
+  AVAILABLE = 'YES'
+  NOT_AVAILABLE = 'NO'
+  PENDING = 'PENDING'
+
 
 class ServerError( Exception ):
   def __init__( self, message ):
@@ -123,12 +135,20 @@ def BuildCompletionData( insertion_text,
 
 
 # start_column is a byte offset
-def BuildCompletionResponse( completion_datas,
+def BuildCompletionResponse( completions,
                              start_column,
                              errors=None ):
   return {
-    'completions': completion_datas,
+    'completions': completions,
     'completion_start_column': start_column,
+    'errors': errors if errors else [],
+  }
+
+
+def BuildSignatureHelpResponse( signature_info, errors = None ):
+  return {
+    'signature_help':
+      signature_info if signature_info else EMPTY_SIGNATURE_INFO,
     'errors': errors if errors else [],
   }
 
@@ -164,6 +184,13 @@ class Diagnostic( object ):
     self.text_ = text
     self.kind_ = kind
     self.fixits_ = fixits
+
+
+class UnresolvedFixIt( object ):
+  def __init__( self, command, text ):
+    self.command = command
+    self.text = text
+    self.resolve = True
 
 
 class FixIt( object ):
@@ -267,11 +294,19 @@ def BuildFixItResponse( fixits ):
     }
 
   def BuildFixItData( fixit ):
-    return {
-      'location': BuildLocationData( fixit.location ),
-      'chunks' : [ BuildFixitChunkData( x ) for x in fixit.chunks ],
-      'text': fixit.text,
-    }
+    if hasattr( fixit, 'resolve' ):
+      return {
+        'command': fixit.command,
+        'text': fixit.text,
+        'resolve': fixit.resolve
+      }
+    else:
+      return {
+        'location': BuildLocationData( fixit.location ),
+        'chunks' : [ BuildFixitChunkData( x ) for x in fixit.chunks ],
+        'text': fixit.text,
+        'resolve': False
+      }
 
   return {
     'fixits' : [ BuildFixItData( x ) for x in fixits ]
@@ -360,3 +395,7 @@ def BuildDebugInfoResponse( name, servers = [], items = [] ):
     'servers': [ BuildServerData( server ) for server in servers ],
     'items': [ BuildItemData( item ) for item in items ]
   }
+
+
+def BuildSignatureHelpAvailableResponse( value ):
+  return { 'available': value }

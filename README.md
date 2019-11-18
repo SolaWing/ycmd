@@ -288,7 +288,7 @@ wouldn't usually know about. The value is a list of dictionaries containing:
 When plugging in a completer in this way, the `kwargs[ 'language' ]` will be set
 to the value of the `name` key, i.e. `gopls` in the above example.
 
-LSP completers currecntly supported without `language_server`:
+LSP completers currently supported without `language_server`:
 
 - Java
 - Rust
@@ -332,6 +332,23 @@ A minimal example which simply returns a list of flags is:
 def Settings( **kwargs ):
   return {
     'flags': [ '-x', 'c++' ]
+  }
+```
+
+##### Java settings
+
+[The java subserver][jdtls] allows [formatter configuration][jdt-formatter],
+but it expects the configuration to be supplied in a different way than the rest.
+For this purpose the `Settings` function can return a `formatter` property.
+
+An example of the formatter configuration would be:
+
+```python
+def Settings( **kwargs ):
+  return {
+    'formatting_options': {
+       'org.eclipse.jdt.core.formatter.lineSplit': 30, 
+    }
   }
 ```
 
@@ -475,6 +492,7 @@ This software is licensed under the [GPL v3 license][gpl].
 [gycm]: https://github.com/jakeanq/gycm
 [nano-ycmd]: https://github.com/orsonteodoro/nano-ycmd
 [jdtls]: https://github.com/eclipse/eclipse.jdt.ls
+[jdt-formatter]: https://github.com/eclipse/eclipse.jdt.ls/blob/master/org.eclipse.jdt.ls.core/.settings/org.eclipse.jdt.core.prefs
 [api-docs]: https://ycm-core.github.io/ycmd/
 [ycmd-extra-conf]: https://github.com/ycm-core/ycmd/blob/master/.ycm_extra_conf.py
 [clangd]: https://clang.llvm.org/extra/clangd.html

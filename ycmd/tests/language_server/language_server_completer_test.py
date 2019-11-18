@@ -633,7 +633,7 @@ def LanguageServerCompleter_GetCompletions_List_test():
     { 'result': { 'label': 'test' } },
   ]
 
-  with patch.object( completer, '_ServerIsInitialized', return_value = True ):
+  with patch.object( completer, '_is_completion_provider', True ):
     with patch.object( completer.GetConnection(),
                        'GetResponse',
                        side_effect = [ completion_response ] +
@@ -658,7 +658,7 @@ def LanguageServerCompleter_GetCompletions_UnsupportedKinds_test():
     { 'result': { 'label': 'test' } },
   ]
 
-  with patch.object( completer, '_ServerIsInitialized', return_value = True ):
+  with patch.object( completer, '_is_completion_provider', True ):
     with patch.object( completer.GetConnection(),
                        'GetResponse',
                        side_effect = [ completion_response ] +
@@ -671,6 +671,28 @@ def LanguageServerCompleter_GetCompletions_UnsupportedKinds_test():
           False
         )
       )
+
+
+def LanguageServerCompleter_GetCompletions_NullNoError_test():
+  completer = MockCompleter()
+  request_data = RequestWrap( BuildRequest() )
+  complete_response = { 'result': None }
+  resolve_responses = []
+  with patch.object( completer, '_ServerIsInitialized', return_value = True ):
+    with patch.object( completer,
+                       '_is_completion_provider',
+                       return_value = True ):
+      with patch.object( completer.GetConnection(),
+                         'GetResponse',
+                         side_effect = [ complete_response ] +
+                                       resolve_responses ):
+        assert_that(
+          completer.ComputeCandidatesInner( request_data, 1 ),
+          contains(
+            empty(),
+            False
+          )
+        )
 
 
 def LanguageServerCompleter_GetCompletions_CompleteOnStartColumn_test():
@@ -687,7 +709,7 @@ def LanguageServerCompleter_GetCompletions_CompleteOnStartColumn_test():
     }
   }
 
-  with patch.object( completer, '_ServerIsInitialized', return_value = True ):
+  with patch.object( completer, '_is_completion_provider', True ):
     request_data = RequestWrap( BuildRequest(
       column_num = 2,
       contents = 'a',
@@ -772,7 +794,7 @@ def LanguageServerCompleter_GetCompletions_CompleteOnCurrentColumn_test():
     }
   }
 
-  with patch.object( completer, '_ServerIsInitialized', return_value = True ):
+  with patch.object( completer, '_is_completion_provider', True ):
     # User starts by typing the character "a".
     request_data = RequestWrap( BuildRequest(
       column_num = 2,
@@ -1346,3 +1368,34 @@ def LanguageServerCompleter_OnFileReadyToParse_InvalidURI_test():
                     uri_to_filepath:
       assert_that( completer.OnFileReadyToParse( request_data ), diagnostics )
       uri_to_filepath.assert_called()
+
+
+def _TupleToLSPRange( tuple ):
+  return { 'line': tuple[ 0 ], 'character': tuple[ 1 ] }
+
+
+def _Check_Distance( point, start, end, expected ):
+  point = _TupleToLSPRange( point )
+  start = _TupleToLSPRange( start )
+  end = _TupleToLSPRange( end )
+  range = { 'start': start, 'end': end }
+  result = lsc._DistanceOfPointToRange( point, range )
+  eq_( result, expected )
+
+
+def LanguageServerCompleter_DistanceOfPointToRange_SingleLineRange_test():
+  # Point to the left of range.
+  _Check_Distance( ( 0, 0 ), ( 0, 2 ), ( 0, 5 ) , 2 )
+  # Point inside range.
+  _Check_Distance( ( 0, 4 ), ( 0, 2 ), ( 0, 5 ) , 0 )
+  # Point to the right of range.
+  _Check_Distance( ( 0, 8 ), ( 0, 2 ), ( 0, 5 ) , 3 )
+
+
+def LanguageServerCompleter_DistanceOfPointToRange_MultiLineRange_test():
+  # Point to the left of range.
+  _Check_Distance( ( 0, 0 ), ( 0, 2 ), ( 3, 5 ) , 2 )
+  # Point inside range.
+  _Check_Distance( ( 1, 4 ), ( 0, 2 ), ( 3, 5 ) , 0 )
+  # Point to the right of range.
+  _Check_Distance( ( 3, 8 ), ( 0, 2 ), ( 3, 5 ) , 3 )

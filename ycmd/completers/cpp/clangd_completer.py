@@ -27,7 +27,6 @@ import os
 import subprocess
 
 from ycmd import extra_conf_store, responses
-from ycmd.completers.completer_utils import GetFileLines
 from ycmd.completers.cpp.flags import ( AddMacIncludePaths,
                                         RemoveUnusedFlags,
                                         ShouldAllowWinStyleFlags )
@@ -43,7 +42,7 @@ from ycmd.utils import ( CLANG_RESOURCE_DIR,
                          PathsToAllParentFolders,
                          re )
 
-MIN_SUPPORTED_VERSION = ( 7, 0, 0 )
+MIN_SUPPORTED_VERSION = ( 9, 0, 0 )
 INCLUDE_REGEX = re.compile(
   '(\\s*#\\s*(?:include|import)\\s*)(?:"[^"]*|<[^>]*)' )
 NOT_CACHED = 'NOT_CACHED'
@@ -58,28 +57,6 @@ PRE_BUILT_CLANGD_DIR = os.path.abspath( os.path.join(
   'output',
   'bin' ) )
 PRE_BUILT_CLANDG_PATH = os.path.join( PRE_BUILT_CLANGD_DIR, 'clangd' )
-
-
-def DistanceOfPointToRange( point, range ):
-  """Calculate the distance from a point to a range.
-
-  Assumes point is covered by lines in the range.
-  Returns 0 if point is already inside range. """
-  start = range[ 'start' ]
-  end = range[ 'end' ]
-
-  # Single-line range.
-  if start[ 'line' ] == end[ 'line' ]:
-    # 0 if point is within range, otherwise distance from start/end.
-    return max( 0, point[ 'character' ] - end[ 'character' ],
-                start[ 'character' ] - point[ 'character' ] )
-
-  if start[ 'line' ] == point[ 'line' ]:
-    return max( 0, start[ 'character' ] - point[ 'character' ] )
-  if end[ 'line' ] == point[ 'line' ]:
-    return max( 0, point[ 'character' ] - end[ 'character' ] )
-  # If not on the first or last line, then point is within range for sure.
-  return 0
 
 
 def ParseClangdVersion( version_str ):
@@ -280,8 +257,21 @@ class ClangdCompleter( simple_language_server_completer.SimpleLSPCompleter ):
 
 
   def GetType( self, request_data ):
-    hover_response = self.GetHoverResponse( request_data )
-    return responses.BuildDisplayMessageResponse( hover_response[ 'value' ] )
+    # Clangd's hover response looks like this:
+    #     Declared in namespace <namespace name>
+    #
+    #     <declaration line>
+    #
+    #     <docstring>
+    # GetType gets the first two lines.
+    value = self.GetHoverResponse( request_data )[ 'value' ].split( '\n\n', 2 )
+    return responses.BuildDisplayMessageResponse( '\n\n'.join( value[ : 2 ] ) )
+
+
+  def GetDoc( self, request_data ):
+    # Just pull `value` out of the textDocument/hover response
+    return responses.BuildDisplayMessageResponse(
+        self.GetHoverResponse( request_data )[ 'value' ] )
 
 
   def GetTriggerCharacters( self, server_trigger_characters ):
@@ -293,10 +283,6 @@ class ClangdCompleter( simple_language_server_completer.SimpleLSPCompleter ):
 
   def GetCustomSubcommands( self ):
     return {
-      'FixIt': (
-        lambda self, request_data, args: self.GetCodeActions( request_data,
-                                                              args )
-      ),
       'GetType': (
         # In addition to type information we show declaration.
         lambda self, request_data, args: self.GetType( request_data )
@@ -317,25 +303,18 @@ class ClangdCompleter( simple_language_server_completer.SimpleLSPCompleter ):
       'RestartServer': (
         lambda self, request_data, args: self._RestartServer( request_data )
       ),
+      'GetDoc': (
+        lambda self, request_data, args: self.GetDoc( request_data )
+      ),
+      'GetDocImprecise': (
+        lambda self, request_data, args: self.GetDoc( request_data )
+      ),
       # To handle the commands below we need extensions to LSP. One way to
       # provide those could be to use workspace/executeCommand requset.
-      # 'GetDoc': (
-      #   lambda self, request_data, args: self.GetType( request_data )
-      # ),
       # 'GetParent': (
       #   lambda self, request_data, args: self.GetType( request_data )
       # )
     }
-
-
-  def HandleServerCommand( self, request_data, command ):
-    if command[ 'command' ] == 'clangd.applyFix':
-      return language_server_completer.WorkspaceEditToFixIt(
-        request_data,
-        command[ 'arguments' ][ 0 ],
-        text = command[ 'title' ] )
-
-    return None
 
 
   def ShouldCompleteIncludeStatement( self, request_data ):
@@ -372,46 +351,6 @@ class ClangdCompleter( simple_language_server_completer.SimpleLSPCompleter ):
                            self ).ComputeCandidatesInner( request_data,
                                                           codepoint )
     return candidates
-
-
-  def GetDetailedDiagnostic( self, request_data ):
-    self._UpdateServerWithFileContents( request_data )
-
-    current_line_lsp = request_data[ 'line_num' ] - 1
-    current_file = request_data[ 'filepath' ]
-
-    if not self._latest_diagnostics:
-      return responses.BuildDisplayMessageResponse(
-          'Diagnostics are not ready yet.' )
-
-    with self._server_info_mutex:
-      diagnostics = list( self._latest_diagnostics[
-          lsp.FilePathToUri( current_file ) ] )
-
-    if not diagnostics:
-      return responses.BuildDisplayMessageResponse(
-          'No diagnostics for current file.' )
-
-    current_column = lsp.CodepointsToUTF16CodeUnits(
-        GetFileLines( request_data, current_file )[ current_line_lsp ],
-        request_data[ 'column_codepoint' ] )
-    minimum_distance = None
-
-    message = 'No diagnostics for current line.'
-    for diagnostic in diagnostics:
-      start = diagnostic[ 'range' ][ 'start' ]
-      end = diagnostic[ 'range' ][ 'end' ]
-      if current_line_lsp < start[ 'line' ] or end[ 'line' ] < current_line_lsp:
-        continue
-      point = { 'line': current_line_lsp, 'character': current_column }
-      distance = DistanceOfPointToRange( point, diagnostic[ 'range' ] )
-      if minimum_distance is None or distance < minimum_distance:
-        message = diagnostic[ 'message' ]
-        if distance == 0:
-          break
-        minimum_distance = distance
-
-    return responses.BuildDisplayMessageResponse( message )
 
 
   def _SendFlagsFromExtraConf( self, request_data ):
@@ -469,6 +408,15 @@ class ClangdCompleter( simple_language_server_completer.SimpleLSPCompleter ):
         'Compilation Command',
         self._compilation_commands.get( request_data[ 'filepath' ], False ) )
     ]
+
+
+  def OnBufferVisit( self, request_data ):
+    # In case a header has been changed, we need to make clangd reparse the TU.
+    file_state = self._server_file_state[ request_data[ 'filepath' ] ]
+    if file_state.state == lsp.ServerFileState.OPEN:
+      msg = lsp.DidChangeTextDocument( file_state, None )
+      self.GetConnection().SendNotification( msg )
+
 
 
 def CompilationDatabaseExists( file_dir ):

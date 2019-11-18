@@ -26,7 +26,7 @@ import abc
 import threading
 from ycmd import utils
 from ycmd.completers import completer_utils
-from ycmd.responses import NoDiagnosticSupport
+from ycmd.responses import NoDiagnosticSupport, SignatureHelpAvailalability
 from future.utils import with_metaclass
 
 NO_USER_COMMANDS = 'This completer does not define any commands.'
@@ -169,7 +169,17 @@ class Completer( with_metaclass( abc.ABCMeta, object ) ):
 
   If your server is based on the Language Server Protocol (LSP), take a look at
   language_server/language_server_completer, which provides most of the work
-  necessary to get a LSP-based completion engine up and running."""
+  necessary to get a LSP-based completion engine up and running.
+
+  If your completer supports signature help, then you need to implemment:
+    - SignatureHelpAvailable
+    - something which calls self._signature_triggers.SetServerTriggerCharacters
+    - ComputeSignaturesInner
+  See the language_server_completer or Python completers for examples.
+
+  If your server returns lists of "code actions" that need to be resolved,
+  instead of returning FixIts right away, you should override ResolveFixit.
+  """
 
   def __init__( self, user_options ):
     self.user_options = user_options
@@ -181,6 +191,14 @@ class Completer( with_metaclass( abc.ABCMeta, object ) ):
             user_trigger_map = user_options[ 'semantic_triggers' ],
             filetype_set = set( self.SupportedFiletypes() ) )
         if user_options[ 'auto_trigger' ] else None )
+
+    self.signature_triggers = (
+      completer_utils.PreparedTriggers(
+        user_trigger_map = {}, # user triggers not supported for signature help
+        filetype_set = set( self.SupportedFiletypes() ),
+        default_triggers = {} )
+      if not user_options[ 'disable_signature_help' ] else None )
+
     self._completions_cache = CompletionsCache()
     self._max_candidates = user_options[ 'max_num_candidates' ]
 
@@ -209,13 +227,41 @@ class Completer( with_metaclass( abc.ABCMeta, object ) ):
   def ShouldUseNowInner( self, request_data ):
     if not self.completion_triggers:
       return False
+
     current_line = request_data[ 'line_value' ]
     start_codepoint = request_data[ 'start_codepoint' ] - 1
     column_codepoint = request_data[ 'column_codepoint' ] - 1
     filetype = self._CurrentFiletype( request_data[ 'filetypes' ] )
 
-    return self.completion_triggers.MatchesForFiletype(
-        current_line, start_codepoint, column_codepoint, filetype )
+    return self.completion_triggers.MatchesForFiletype( current_line,
+                                                        start_codepoint,
+                                                        column_codepoint,
+                                                        filetype )
+
+
+  def ShouldUseSignatureHelpNow( self, request_data ):
+    if self.user_options[ 'disable_signature_help' ]:
+      return False
+
+    state = request_data.get( 'signature_help_state', 'INACTIVE' )
+
+    current_line = request_data[ 'line_value' ]
+    # Note: We use the cursor column for all triggering of signature help, not
+    # the calculated "start" codepoint. This is because start_codepoint is based
+    # on the completion triggers, not the signature_triggers.
+    column_codepoint = request_data[ 'column_codepoint' ] - 1
+    filetype = self._CurrentFiletype( request_data[ 'filetypes' ] )
+
+    if state == 'ACTIVE':
+      # Signature help is already active (the menu is displayed), always
+      # re-trigger until we return no signatures (and the client thus closes
+      # the menu and returns state 'INACTIVE').
+      return True
+
+    return self.signature_triggers.MatchesForFiletype( current_line,
+                                                       column_codepoint,
+                                                       column_codepoint,
+                                                       filetype )
 
 
   def QueryLengthAboveMinThreshold( self, request_data ):
@@ -278,7 +324,18 @@ class Completer( with_metaclass( abc.ABCMeta, object ) ):
 
 
   def ComputeCandidatesInner( self, request_data ):
-    pass # pragma: no cover
+    return [] # pragma: no cover
+
+
+  def ComputeSignatures( self, request_data ):
+    if not self.ShouldUseSignatureHelpNow( request_data ):
+      return {}
+
+    return self.ComputeSignaturesInner( request_data )
+
+
+  def ComputeSignaturesInner( self, request_data ):
+    return {}
 
 
   def DefinedSubcommands( self ):
@@ -307,6 +364,10 @@ class Completer( with_metaclass( abc.ABCMeta, object ) ):
              empty.
     """
     return {}
+
+
+  def ResolveFixit( self, request_data ):
+    return { 'fixits': [ request_data[ 'fixit' ] ] }
 
 
   def UserCommandsHelpMessage( self ):
@@ -410,6 +471,10 @@ class Completer( with_metaclass( abc.ABCMeta, object ) ):
 
   def ServerIsReady( self ):
     return self.ServerIsHealthy()
+
+
+  def SignatureHelpAvailable( self ):
+    return SignatureHelpAvailalability.NOT_AVAILABLE
 
 
   def ServerIsHealthy( self ):

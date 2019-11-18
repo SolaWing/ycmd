@@ -87,13 +87,13 @@ DYNAMIC_PYTHON_LIBRARY_REGEX = """
   )$
 """
 
-JDTLS_MILESTONE = '0.42.0'
-JDTLS_BUILD_STAMP = '201909021828'
+JDTLS_MILESTONE = '0.45.0'
+JDTLS_BUILD_STAMP = '201910031256'
 JDTLS_SHA256 = (
-  '4a1a9880a3e414e8100de8417b87c5e6fd1fa0e6c978b94d11ce1b581ac05e7a'
+  '06c499bf151d78027c2480bcbcca313f70ae0e8e07fc07cea6319359aea848f4'
 )
 
-TSSERVER_VERSION = '3.6.3'
+TSSERVER_VERSION = '3.7.2'
 
 RUST_TOOLCHAIN = 'nightly-2019-09-05'
 RLS_DIR = p.join( DIR_OF_THIRD_PARTY, 'rls' )
@@ -107,7 +107,7 @@ BUILD_ERROR_MESSAGE = (
   'issue tracker, including the entire output of this script\n'
   'and the invocation line used to run it.' )
 
-CLANGD_VERSION = '8.0.0'
+CLANGD_VERSION = '9.0.0'
 CLANGD_BINARIES_ERROR_MESSAGE = (
   'No prebuilt Clang {version} binaries for {platform}. '
   'You\'ll have to compile Clangd {version} from source '
@@ -444,7 +444,7 @@ def ParseArguments():
                        help = "Don't build the regex module" )
   parser.add_argument( '--clang-tidy',
                        action = 'store_true',
-                       help = 'For developers: Run clang-tidy static analysis'
+                       help = 'For developers: Run clang-tidy static analysis '
                               'on the ycm_core code itself.' )
   parser.add_argument( '--core-tests', nargs = '?', const = '*',
                        help = 'Run core tests and optionally filter them.' )
@@ -782,24 +782,24 @@ def GetCsCompleterDataForPlatform():
       'version': 'v1.34.2',
       'download_url': ( 'https://github.com/OmniSharp/omnisharp-roslyn/relea'
                         'ses/download/v1.34.2/omnisharp.http-win-x86.zip' ),
-      'check_sum': ( '502fc39472137c86aaa0010abc91c46d0c35e685d56ebdc1b90bb67'
-                     '3172c86ec' ),
+      'check_sum': ( 'd66ee6ce347bba58de06a585bff63e8f42178c8b212883be0700919'
+                     '61c3c63d6' ),
     },
     'win64': {
       'file_name': 'omnisharp.http-win-x64.zip',
       'version': 'v1.34.2',
       'download_url': ( 'https://github.com/OmniSharp/omnisharp-roslyn/relea'
                         'ses/download/v1.34.2/omnisharp.http-win-x64.zip' ),
-      'check_sum': ( '86806a3ac552da12c843eb29e92f9ec4bdf4606b80794edb88ef483'
-                     'd3387dfae' ),
+      'check_sum': ( 'ab6bdac04b7225a69de11a0bdf0777facbe7d9895e9b6b4c8ebe8b5'
+                     '4b51412e5' ),
     },
     'macos': {
       'file_name': 'omnisharp.http-osx.tar.gz',
       'version': 'v1.34.2',
       'download_url': ( 'https://github.com/OmniSharp/omnisharp-roslyn/relea'
                         'ses/download/v1.34.2/omnisharp.http-osx.tar.gz' ),
-      'check_sum': ( 'c5eff2f196df794e8f4f4ab2894f5e6e550bd7635b9569b1e1a2581'
-                     '382aa2cbe' ),
+      'check_sum': ( 'bea5e6e35a45bcece293ad2a32b717be16242d5ee6ca0004ca1c7af'
+                     'c9cacdbf7' ),
     },
     'linux64': {
       'file_name': 'omnisharp.http-linux-x64.tar.gz',
@@ -807,8 +807,8 @@ def GetCsCompleterDataForPlatform():
       'download_url': ( 'https://github.com/OmniSharp/omnisharp-roslyn/relea'
                         'ses/download/v1.34.2/omnisharp.http-linux-x64.tar.g'
                         'z' ),
-      'check_sum': ( 'c78b5830b8d6e3c06d9f1a9aae929311907f3de4c4267823730b565'
-                     '2e2947588' ),
+      'check_sum': ( '16aa6f3d97c11829b3fc177cea5c221ddb952a5d372fe84e735f695'
+                     '50d661722' ),
     },
     'linux32': {
       'file_name': 'omnisharp.http-linux-x86.tar.gz',
@@ -816,8 +816,8 @@ def GetCsCompleterDataForPlatform():
       'download_url': ( 'https://github.com/OmniSharp/omnisharp-roslyn/relea'
                         'ses/download/v1.34.2/omnisharp.http-linux-x86.tar.g'
                         'z' ),
-      'check_sum': ( 'd893d5bdf8621c7a3070fbeda20162b7bcf390b2c1add73c58d3851'
-                     'b3ec605b4' ),
+      'check_sum': ( '6f89480ce95286640f670943f5d8e0d1f1c28db6bab07461be3f452'
+                     'e8b43c70b' ),
     },
   }
   if OnWindows():
@@ -967,8 +967,8 @@ def EnableJavaCompleter( switches ):
   REPOSITORY = p.join( TARGET, 'repository' )
   CACHE = p.join( TARGET, 'cache' )
 
-  JDTLS_SERVER_URL_FORMAT = ( 'http://download.eclipse.org/jdtls/milestones/'
-                              '{jdtls_milestone}/{jdtls_package_name}' )
+  JDTLS_SERVER_URL_FORMAT = ( 'http://download.eclipse.org/jdtls/snapshots/'
+                              '{jdtls_package_name}' )
   JDTLS_PACKAGE_NAME_FORMAT = ( 'jdt-language-server-{jdtls_milestone}-'
                                 '{jdtls_build_stamp}.tar.gz' )
 
@@ -1020,31 +1020,31 @@ def GetClangdTarget():
   if OnWindows():
     return [
       ( 'clangd-{version}-win64',
-        'fddbef35131212feda9bf2aa4a779c635abbace09763ab709dca236ea177611d' ),
+        'e9dce7ae8984cdb719747780323c2cdd2152f41b3aa773510b37ad8de6788edf' ),
       ( 'clangd-{version}-win32',
-        '1ae8ad2e40ef2bc7798f8201ff5b071adab27a708f869568b9aabf5f9e5f02ad' ) ]
+        '48b33eeab7e20c5388bd29503be6486260449cc0fbf631999e14c4d98b97b7c6' ) ]
   if OnMac():
     return [
       ( 'clangd-{version}-x86_64-apple-darwin',
-        'c0e8017b445db2fbd2d0b42c47ea2f711a8774320894585bc0fa2d2e0c04059f' ) ]
+        'c89609cd7dcdf60df62e0d28841266ebe7514b2b68739bd6f0399bf74928a165' ) ]
   if OnFreeBSD():
     return [
       ( 'clangd-{version}-amd64-unknown-freebsd11',
-        'b31c93c280a7f543536715a4706ba3dda2583cd96cf2c34a6b84648773cabbf5' ),
+        'e1169eb2b432af0c31d812fa5d0f68e670c1a5efa3e51d00400d847800e6b257' ),
       ( 'clangd-{version}-i386-unknown-freebsd11',
-        'f48c9a5d2997d387a6473115e131d45a9ee764e6f149bed89d4f3ded336a7f00' ) ]
+        '34ded7733cd2bd23b6587d29d78dbf8192ef3134cf692f09263dd1b5e5a58f6f' ) ]
   if OnAArch64():
     return [
       ( 'clangd-{version}-aarch64-linux-gnu',
-        '32de29f3dc735a7e2557f936d8d81438be367e1e4771088c44c8824b07963d04' ) ]
+        'e593f7d036434db023c1c323756d6630bb4a2f868c45d682ba967846061f5fa9' ) ]
   if OnArm():
     return [
       ( 'clangd-{version}-armv7a-linux-gnueabihf',
-        '711b80610d477fd4c830a43725b644901c58e9c825f09233b9f9d7382b2c2882' ) ]
+        'ff1d8f20eddd7c9d659fb1e692fe961526ff1b858c0798781fad62f2f9e0522b' ) ]
   if OnX86_64():
     return [
       ( 'clangd-{version}-x86_64-unknown-linux-gnu',
-        '29b2af2775ec3b7e70a64197bf49fd876903732ff038bb5de2486d1194af7817' ) ]
+        '742ee805373b89e6b30711847af1fc391fe7f8ecb89cf8f8b9515f412571c0cb' ) ]
   sys.exit( CLANGD_BINARIES_ERROR_MESSAGE.format( version = CLANGD_VERSION,
                                                   platform = 'this system' ) )
 
@@ -1058,7 +1058,7 @@ def DownloadClangd( printer ):
   target_name, check_sum = target[ not IS_64BIT ]
   target_name = target_name.format( version = CLANGD_VERSION )
   file_name = '{}.tar.bz2'.format( target_name )
-  download_url = 'https://dl.bintray.com/micbou/clangd/{}'.format( file_name )
+  download_url = 'https://dl.bintray.com/ycm-core/clangd/{}'.format( file_name )
 
   file_name = p.join( CLANGD_CACHE_DIR, file_name )
 
@@ -1099,6 +1099,11 @@ def EnableClangdCompleter( Args ):
   if Args.quiet:
     print( 'OK' )
 
+  if not Args.quiet:
+    print( 'Clangd completer enabled. If you are using .ycm_extra_conf.py '
+           'files, make sure they use Settings() instead of the old and '
+           'deprecated FlagsForFile().' )
+
 
 def WritePythonUsedDuringBuild():
   path = p.join( DIR_OF_THIS_SCRIPT, 'PYTHON_USED_DURING_BUILDING' )
@@ -1136,7 +1141,7 @@ def Main():
     EnableJavaCompleter( args )
   if args.ts_completer or args.all_completers:
     EnableTypeScriptCompleter( args )
-  if args.clangd_completer:
+  if args.clangd_completer or args.all_completers:
     EnableClangdCompleter( args )
 
 

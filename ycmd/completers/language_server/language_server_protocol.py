@@ -293,7 +293,22 @@ def Initialize( request_id, project_directory, settings ):
     'rootUri': FilePathToUri( project_directory ),
     'initializationOptions': settings,
     'capabilities': {
+      'workspace': { 'applyEdit': True },
       'textDocument': {
+        'codeAction': {
+          'codeActionLiteralSupport': {
+            'codeActionKind': {
+              'valueSet': [ '',
+                            'quickfix',
+                            'refactor',
+                            'refactor.extract',
+                            'refactor.inline',
+                            'refactor.rewrite',
+                            'source',
+                            'source.organizeImports' ]
+            }
+          }
+        },
         'completion': {
           'completionItemKind': {
             # ITEM_KIND list is 1-based.
@@ -311,8 +326,19 @@ def Initialize( request_id, project_directory, settings ):
             'plaintext',
             'markdown'
           ]
-        }
-      }
+        },
+        'signatureHelp': {
+          'signatureInformation': {
+            'parameterInformation': {
+              'labelOffsetSupport': False, # For now.
+            },
+            'documentationFormat': [
+              'plaintext',
+              'markdown'
+            ],
+          },
+        },
+      },
     },
   } )
 
@@ -342,6 +368,18 @@ def Reject( request, request_error, data = None ):
   return BuildResponse( request, msg )
 
 
+def Accept( request, result ):
+  msg = {
+    'result': result
+  }
+  return BuildResponse( request, msg )
+
+
+def ApplyEditResponse( request ):
+  msg = { 'applied': True }
+  return Accept( request, msg )
+
+
 def DidChangeConfiguration( config ):
   return BuildNotification( 'workspace/didChangeConfiguration', {
     'settings': config,
@@ -360,8 +398,14 @@ def DidOpenTextDocument( file_state, file_types, file_contents ):
 
 
 def DidChangeTextDocument( file_state, file_contents, ranges = None ):
+  # NOTE: Passing `None` for the second argument will send an empty
+  # textDocument/didChange notification. It is useful when a LSP server
+  # needs to be forced to reparse a file without sending all the changes.
+  # More specifically, clangd completer relies on this.
   change = { 'text': file_contents }
-  if ranges is not None: change['range'] = ranges
+  if ranges is not None:
+      change['range'] = ranges
+
   return BuildNotification( 'textDocument/didChange', {
     'textDocument': {
       'uri': FilePathToUri( file_state.filename ),
@@ -369,7 +413,7 @@ def DidChangeTextDocument( file_state, file_contents, ranges = None ):
     },
     'contentChanges': [
       change,
-    ],
+    ] if file_contents is not None else [],
   } )
 
 
@@ -395,6 +439,12 @@ def Completion( request_id, request_data, codepoint ):
 
 def ResolveCompletion( request_id, completion ):
   return BuildRequest( request_id, 'completionItem/resolve', completion )
+
+
+def SignatureHelp( request_id, request_data ):
+  return BuildRequest( request_id,
+                       'textDocument/signatureHelp',
+                       BuildTextDocumentPositionParams( request_data ) )
 
 
 def Hover( request_id, request_data ):
@@ -498,10 +548,12 @@ def RangeFormatting( request_id, request_data ):
 
 def FormattingOptions( request_data ):
   options = request_data[ 'options' ]
-  return {
-    'tabSize': options[ 'tab_size' ],
-    'insertSpaces': options[ 'insert_spaces' ]
+  format_options = {
+    'tabSize': options.pop( 'tab_size' ),
+    'insertSpaces': options.pop( 'insert_spaces' )
   }
+  format_options.update( options )
+  return format_options
 
 
 def Range( request_data ):
