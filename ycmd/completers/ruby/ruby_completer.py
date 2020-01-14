@@ -153,22 +153,39 @@ class RubyCompleter( SimpleLSPCompleter ):
   # def _ShouldResolveCompletionItems( self ):
   #   # FIXME: solargraph only append documentation into completionItem
   #   # ignore it to avoid performance issue.
-  #   return False
+  #   return not self._use_sorbet
+  def ShouldUseNowInner(self, request_data):
+    # sorbet only completions when have query
+    if (self._use_sorbet and
+        request_data[ 'column_codepoint' ] <= request_data['start_codepoint']):
+      return False
 
+    return super().ShouldUseNowInner(request_data)
+
+  def GetCodepointForCompletionRequest( self, request_data ):
+    if self._use_sorbet:
+      return request_data['column_codepoint']
+    return super().GetCodepointForCompletionRequest(request_data)
 
   def ComputeCandidatesInner( self, request_data, *args ):
-      # LOGGER.debug("request_data pos is %s.%s.%s", request_data[ 'line_num' ], request_data[ 'line_value' ], self.GetCodepointForCompletionRequest( request_data ))
       results = super().ComputeCandidatesInner(request_data, *args)
-      if results == []: # solargraph first may return empty response. return None to avoid cache and no request
-          return None
-      #  TODO:  <09-10-18, yourname> #
-      # LOGGER.debug("twice: request_data pos is %s.%s.%s", request_data[ 'line_num' ], request_data[ 'line_value' ], self.GetCodepointForCompletionRequest( request_data ))
-      # super().ComputeCandidatesInner(request_data)
-
-      # request_data[ 'start_codepoint' ] = request_data[ 'start_codepoint' ] + 1
-      # LOGGER.debug("third: request_data pos is %s.%s.%s", request_data[ 'line_num' ], request_data[ 'line_value' ], self.GetCodepointForCompletionRequest( request_data ))
-      # super().ComputeCandidatesInner(request_data)
+      if self._use_sorbet:
+        # sorbet use current word as filter, no matter which point pass.
+        # so back should retrigger a filter
+        return (results[0], True)
       return results
+
+  def _CandidatesFromCompletionItems( self, items, resolve, *args):
+    # sorbet的text edit的修正点计算错误，需要过滤。换成insert_text
+    if self._use_sorbet:
+      def fix(item):
+        edit = item.pop("textEdit", None)
+        if edit:
+          item['insertText'] = edit['newText']
+        return item
+
+      items = [fix(i) for i in items]
+    return super()._CandidatesFromCompletionItems(items, resolve, *args)
 
   def GetType( self, request_data ):
     hover_response = self.GetHoverResponse( request_data )
