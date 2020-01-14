@@ -49,12 +49,12 @@ from ycmd.utils import ReadFile
 
 def RunTest( app, test ):
   contents = ReadFile( test[ 'request' ][ 'filepath' ] )
-
+  filetype = test[ 'request' ].get( 'filetype', 'typescript' )
   app.post_json(
     '/event_notification',
     CombineRequest( test[ 'request' ], {
       'contents': contents,
-      'filetype': 'typescript',
+      'filetype': filetype,
       'event_name': 'BufferVisit'
     } )
   )
@@ -139,6 +139,53 @@ def GetCompletions_Basic_test( app ):
               'kind': 'method',
               'detailed_info': '(method) Foo.methodA(): void\n\n'
                                'Unicode string: 说话'
+            }
+          )
+        )
+      } )
+    }
+  } )
+
+
+@IsolatedYcmd( { 'disable_signature_help': True } )
+def GetCompletions_Basic_NoSigHelp_test( app ):
+  RunTest( app, {
+    'description': 'Extra and detailed info when completions are methods',
+    'request': {
+      'line_num': 17,
+      'column_num': 6,
+      'filepath': PathToTestFile( 'test.ts' )
+    },
+    'expect': {
+      'response': requests.codes.ok,
+      'data': has_entries( {
+        'completions': contains_inanyorder(
+          CompletionEntryMatcher(
+            'methodA',
+            '(method) Foo.methodA(): void',
+            extra_params = {
+              'kind': 'method',
+              'detailed_info': '(method) Foo.methodA(): void\n\n'
+                               'Unicode string: 说话'
+            }
+          ),
+          CompletionEntryMatcher(
+            'methodB',
+            '(method) Foo.methodB(): void',
+            extra_params = {
+              'kind': 'method',
+              'detailed_info': '(method) Foo.methodB(): void'
+            }
+          ),
+          CompletionEntryMatcher(
+            'methodC',
+            '(method) Foo.methodC(a: { foo: string; bar: number; }): void',
+            extra_params = {
+              'kind': 'method',
+              'detailed_info': '(method) Foo.methodC(a: {\n'
+                               '    foo: string;\n'
+                               '    bar: number;\n'
+                               '}): void'
             }
           )
         )
@@ -285,6 +332,31 @@ def GetCompletions_AutoImport_test( app ):
               } )
             )
           } )
+        } ) )
+      } )
+    }
+  } )
+
+
+@SharedYcmd
+def GetCompletions_TypeScriptReact_DefaultTriggers_test( app ):
+  filepath = PathToTestFile( 'test.tsx' )
+  RunTest( app, {
+    'description': 'No need to force after a semantic trigger',
+    'request': {
+      'line_num': 17,
+      'column_num': 3,
+      'filepath': filepath,
+      'filetype': 'typescriptreact'
+    },
+    'expect': {
+      'response': requests.codes.ok,
+      'data': has_entries( {
+        'completions': has_item( has_entries( {
+          'insertion_text':  'foo',
+          'extra_menu_info': "(property) 'foo': number",
+          'detailed_info':   "(property) 'foo': number",
+          'kind':            'property',
         } ) )
       } )
     }

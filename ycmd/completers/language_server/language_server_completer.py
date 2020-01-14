@@ -112,6 +112,12 @@ DEFAULT_SUBCOMMANDS_MAP = {
 }
 
 
+class NoHoverInfoException( Exception ):
+  """ Raised instead of RuntimeError for empty hover responses, to allow
+      completers to easily distinguish empty hover from other errors."""
+  pass # pragma: no cover
+
+
 class ResponseTimeoutException( Exception ):
   """Raised by LanguageServerConnection if a request exceeds the supplied
   time-to-live."""
@@ -681,6 +687,7 @@ class LanguageServerCompleter( Completer ):
       - Shutdown
       - ServerIsHealthy : Return True if the server is _running_
       - StartServer : Return True if the server was started.
+      - _RestartServer
     - Optionally override methods to customise behavior:
       - ConvertNotificationToMessage
       - GetCompleterName
@@ -731,6 +738,8 @@ class LanguageServerCompleter( Completer ):
     completer and should be returned by GetCustomSubcommands:
     - GetType/GetDoc are bespoke to the downstream server, though this class
       provides GetHoverResponse which is useful in this context.
+      GetCustomSubcommands needs not contain GetType/GetDoc if the member
+      functions implementing GetType/GetDoc are named GetType/GetDoc.
   """
   @abc.abstractmethod
   def GetConnection( sefl ):
@@ -859,6 +868,11 @@ class LanguageServerCompleter( Completer ):
       with self._server_info_mutex:
         self._initialize_response = None
         self._initialize_event.set()
+
+
+  @abc.abstractmethod
+  def _RestartServer( self, request_data ):
+    pass # pragma: no cover
 
 
   def _ServerIsInitialized( self ):
@@ -1113,9 +1127,14 @@ class LanguageServerCompleter( Completer ):
                                                  REQUEST_TIMEOUT_COMPLETION )
 
     result = response[ 'result' ]
+    if result is None:
+      return {}
+
     for sig in result[ 'signatures' ]:
       sig_label = sig[ 'label' ]
       end = 0
+      if sig.get( 'parameters' ) is None:
+        sig[ 'parameters' ] = []
       for arg in sig[ 'parameters' ]:
         arg_label = arg[ 'label' ]
         assert not isinstance( arg_label, list )
@@ -1185,7 +1204,18 @@ class LanguageServerCompleter( Completer ):
       'StopServer': (
         lambda self, request_data, args: self.Shutdown()
       ),
+      'RestartServer': (
+        lambda self, request_data, args: self._RestartServer( request_data )
+      ),
     } )
+    if hasattr( self, 'GetDoc' ):
+      commands[ 'GetDoc' ] = (
+        lambda self, request_data, args: self.GetDoc( request_data )
+      )
+    if hasattr( self, 'GetType' ):
+      commands[ 'GetType' ] = (
+        lambda self, request_data, args: self.GetType( request_data )
+      )
     commands.update( self.GetCustomSubcommands() )
 
     return self._DiscoverSubcommandSupport( commands )
@@ -1757,7 +1787,7 @@ class LanguageServerCompleter( Completer ):
           self.completion_triggers.SetServerSemanticTriggers(
             trigger_characters )
 
-      if self.signature_triggers is not None:
+      if self._signature_triggers is not None:
         server_trigger_characters = (
           ( self._server_capabilities.get( 'signatureHelpProvider' ) or {} )
                                      .get( 'triggerCharacters' ) or []
@@ -1773,9 +1803,7 @@ class LanguageServerCompleter( Completer ):
           LOGGER.info( '%s: Using characters for signature triggers: %s',
                        self.Language(),
                        ','.join( trigger_characters ) )
-
-          self.signature_triggers.SetServerSemanticTriggers(
-            trigger_characters )
+          self.SetSignatureHelpTriggers( trigger_characters )
 
       # We must notify the server that we received the initialize response (for
       # no apparent reason, other than that's what the protocol says).
@@ -1838,7 +1866,7 @@ class LanguageServerCompleter( Completer ):
     result = response[ 'result' ]
     if result:
       return result[ 'contents' ]
-    raise RuntimeError( NO_HOVER_INFORMATION )
+    raise NoHoverInfoException( NO_HOVER_INFORMATION )
 
 
   def _GoToRequest( self, request_data, handler ):
@@ -2582,18 +2610,24 @@ def WorkspaceEditToFixIt( request_data, workspace_edit, text='' ):
   """Converts a LSP workspace edit to a ycmd FixIt suitable for passing to
   responses.BuildFixItResponse."""
 
-  if 'changes' not in workspace_edit:
+  if not workspace_edit:
     return None
 
-  chunks = []
-  # We sort the filenames to make the response stable. Edits are applied in
-  # strict sequence within a file, but apply to files in arbitrary order.
-  # However, it's important for the response to be stable for the tests.
-  for uri in sorted( iterkeys( workspace_edit[ 'changes' ] ) ):
-    chunks.extend( TextEditToChunks( request_data,
-                                     uri,
-                                     workspace_edit[ 'changes' ][ uri ] ) )
-
+  if 'changes' in workspace_edit:
+    chunks = []
+    # We sort the filenames to make the response stable. Edits are applied in
+    # strict sequence within a file, but apply to files in arbitrary order.
+    # However, it's important for the response to be stable for the tests.
+    for uri in sorted( iterkeys( workspace_edit[ 'changes' ] ) ):
+      chunks.extend( TextEditToChunks( request_data,
+                                       uri,
+                                       workspace_edit[ 'changes' ][ uri ] ) )
+  else:
+    chunks = []
+    for text_document_edit in workspace_edit[ 'documentChanges' ]:
+      uri = text_document_edit[ 'textDocument' ][ 'uri' ]
+      edits = text_document_edit[ 'edits' ]
+      chunks.extend( TextEditToChunks( request_data, uri, edits ) )
   return responses.FixIt(
     responses.Location( request_data[ 'line_num' ],
                         request_data[ 'column_num' ],

@@ -40,6 +40,7 @@ from hamcrest import ( all_of,
 
 from ycmd.completers.language_server import language_server_completer as lsc
 from ycmd.completers.language_server.language_server_completer import (
+    NoHoverInfoException,
     NO_HOVER_INFORMATION )
 from ycmd.completers.language_server import language_server_protocol as lsp
 from ycmd.tests.language_server import MockConnection
@@ -83,6 +84,10 @@ class MockCompleter( lsc.LanguageServerCompleter, DummyCompleter ):
 
   def ServerIsHealthy( self ):
     return self._started
+
+
+  def _RestartServer( self, request_data ):
+    pass
 
 
 @IsolatedYcmd( { 'global_ycm_extra_conf':
@@ -546,10 +551,47 @@ def WorkspaceEditToFixIt_test():
   ) )
 
 
-  # We don't support versioned documentChanges
-  assert_that( lsc.WorkspaceEditToFixIt( request_data,
-                                         { 'documentChanges': [] } ),
+  # Null response to textDocument/codeActions is valid
+  assert_that( lsc.WorkspaceEditToFixIt( request_data, None ),
                equal_to( None ) )
+  # Empty WorkspaceEdit is not explicitly forbidden
+  assert_that( lsc.WorkspaceEditToFixIt( request_data, {} ), equal_to( None ) )
+  # We don't support versioned documentChanges
+  workspace_edit = {
+    'documentChanges': [
+      {
+        'textDocument': {
+          'version': 1,
+          'uri': uri
+        },
+        'edits': [
+          {
+            'newText': 'blah',
+            'range': {
+              'start': { 'line': 0, 'character': 5 },
+              'end': { 'line': 0, 'character': 5 },
+            }
+          }
+        ]
+      }
+    ]
+  }
+  response = responses.BuildFixItResponse( [
+    lsc.WorkspaceEditToFixIt( request_data, workspace_edit, 'test' )
+  ] )
+
+  print( 'Response: {0}'.format( response ) )
+  assert_that(
+    response,
+    has_entries( {
+      'fixits': contains( has_entries( {
+        'text': 'test',
+        'chunks': contains( ChunkMatcher( 'blah',
+                                          LocationMatcher( filepath, 1, 6 ),
+                                          LocationMatcher( filepath, 1, 6 ) ) )
+      } ) )
+    } )
+  )
 
   workspace_edit = {
     'changes': {
@@ -1153,7 +1195,7 @@ def LanguageServerCompleter_GetHoverResponse_test():
                        side_effect = [ { 'result': None } ] ):
       assert_that(
         calling( completer.GetHoverResponse ).with_args( request_data ),
-        raises( RuntimeError, NO_HOVER_INFORMATION )
+        raises( NoHoverInfoException, NO_HOVER_INFORMATION )
       )
     with patch.object( completer.GetConnection(),
                        'GetResponse',

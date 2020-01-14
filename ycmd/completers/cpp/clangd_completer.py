@@ -257,21 +257,28 @@ class ClangdCompleter( simple_language_server_completer.SimpleLSPCompleter ):
 
 
   def GetType( self, request_data ):
-    # Clangd's hover response looks like this:
-    #     Declared in namespace <namespace name>
-    #
-    #     <declaration line>
-    #
-    #     <docstring>
-    # GetType gets the first two lines.
-    value = self.GetHoverResponse( request_data )[ 'value' ].split( '\n\n', 2 )
-    return responses.BuildDisplayMessageResponse( '\n\n'.join( value[ : 2 ] ) )
+    try:
+      # Clangd's hover response looks like this:
+      #     Declared in namespace <namespace name>
+      #
+      #     <declaration line>
+      #
+      #     <docstring>
+      # GetType gets the first two lines.
+      hover_value = self.GetHoverResponse( request_data )[ 'value' ]
+      type_info = '\n\n'.join( hover_value.split( '\n\n', 2 )[ : 2 ] )
+      return responses.BuildDisplayMessageResponse( type_info )
+    except language_server_completer.NoHoverInfoException:
+      raise RuntimeError( 'Unknown type.' )
 
 
   def GetDoc( self, request_data ):
-    # Just pull `value` out of the textDocument/hover response
-    return responses.BuildDisplayMessageResponse(
-        self.GetHoverResponse( request_data )[ 'value' ] )
+    try:
+      # Just pull `value` out of the textDocument/hover response
+      return responses.BuildDetailedInfoResponse(
+          self.GetHoverResponse( request_data )[ 'value' ] )
+    except language_server_completer.NoHoverInfoException:
+      raise RuntimeError( 'No documentation available.' )
 
 
   def GetTriggerCharacters( self, server_trigger_characters ):
@@ -283,10 +290,6 @@ class ClangdCompleter( simple_language_server_completer.SimpleLSPCompleter ):
 
   def GetCustomSubcommands( self ):
     return {
-      'GetType': (
-        # In addition to type information we show declaration.
-        lambda self, request_data, args: self.GetType( request_data )
-      ),
       'GetTypeImprecise': (
         lambda self, request_data, args: self.GetType( request_data )
       ),
@@ -299,12 +302,6 @@ class ClangdCompleter( simple_language_server_completer.SimpleLSPCompleter ):
       'GoToInclude': (
         lambda self, request_data, args: self.GoTo( request_data,
                                                     [ 'Definition' ] )
-      ),
-      'RestartServer': (
-        lambda self, request_data, args: self._RestartServer( request_data )
-      ),
-      'GetDoc': (
-        lambda self, request_data, args: self.GetDoc( request_data )
       ),
       'GetDocImprecise': (
         lambda self, request_data, args: self.GetDoc( request_data )

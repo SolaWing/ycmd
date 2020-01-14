@@ -33,7 +33,10 @@ import threading
 from ycmd.completers.completer import Completer
 from ycmd.completers.completer_utils import GetFileLines
 from ycmd.completers.cs import solutiondetection
-from ycmd.utils import CodepointOffsetToByteOffset, LOGGER, urljoin
+from ycmd.utils import ( ByteOffsetToCodepointOffset,
+                         CodepointOffsetToByteOffset,
+                         LOGGER,
+                         urljoin )
 from ycmd import responses
 from ycmd import utils
 
@@ -66,7 +69,7 @@ class CsharpCompleter( Completer ):
     self._completer_per_solution = {}
     self._diagnostic_store = None
     self._solution_state_lock = threading.Lock()
-    self.signature_triggers.SetServerSemanticTriggers( [ '(', ',' ] )
+    self.SetSignatureHelpTriggers( [ '(', ',' ] )
 
     if not os.path.isfile( PATH_TO_ROSLYN_OMNISHARP_BINARY ):
       raise RuntimeError(
@@ -194,6 +197,9 @@ class CsharpCompleter( Completer ):
       'GetType'                          : ( lambda self, request_data, args:
          self._SolutionSubcommand( request_data,
                                    method = '_GetType' ) ),
+      'Format'                           : ( lambda self, request_data, args:
+         self._SolutionSubcommand( request_data,
+                                   method = '_Format' ) ),
       'FixIt'                            : ( lambda self, request_data, args:
          self._SolutionSubcommand( request_data,
                                    method = '_FixIt' ) ),
@@ -596,7 +602,49 @@ class CsharpSolutionCompleter( object ):
     result = self._GetResponse( '/typelookup', request )
     message = result[ "Type" ]
 
+    if not message:
+      raise RuntimeError( 'No type info available.' )
     return responses.BuildDisplayMessageResponse( message )
+
+
+  def _Format( self, request_data ):
+    request = self._DefaultParameters( request_data )
+    request[ 'WantsTextChanges' ] = True
+    if 'range' in request_data:
+      lines = request_data[ 'lines' ]
+      start = request_data[ 'range' ][ 'start' ]
+      start_line_num = start[ 'line_num' ]
+      start_line_value = lines[ start_line_num ]
+
+      start_codepoint = ByteOffsetToCodepointOffset( start_line_value,
+                                                     start[ 'column_num' ] )
+
+      end = request_data[ 'range' ][ 'end' ]
+      end_line_num = end[ 'line_num' ]
+      end_line_value = lines[ end_line_num ]
+      end_codepoint = ByteOffsetToCodepointOffset( end_line_value,
+                                                   end[ 'column_num' ] )
+      request.update( {
+        'line': start_line_num,
+        'column': start_codepoint,
+        'EndLine': end_line_num,
+        'EndColumn': end_codepoint
+      } )
+      result = self._GetResponse( '/formatRange', request )
+    else:
+      result = self._GetResponse( '/codeformat', request )
+
+    fixit = responses.FixIt(
+      _BuildLocation(
+        request_data,
+        request_data[ 'filepath' ],
+        request_data[ 'line_num' ],
+        request_data[ 'column_codepoint' ] ),
+      _LinePositionSpanTextChangeToFixItChunks(
+        result[ 'Changes' ],
+        request_data[ 'filepath' ],
+        request_data ) )
+    return responses.BuildFixItResponse( [ fixit ] )
 
 
   def _FixIt( self, request_data ):
@@ -652,11 +700,14 @@ class CsharpSolutionCompleter( object ):
     request[ "IncludeDocumentation" ] = True
 
     result = self._GetResponse( '/typelookup', request )
-    message = result[ "Type" ]
+    message = result.get( 'Type' ) or ''
+
     if ( result[ "Documentation" ] ):
       message += "\n" + result[ "Documentation" ]
 
-    return responses.BuildDetailedInfoResponse( message )
+    if not message:
+      raise RuntimeError( 'No documentation available.' )
+    return responses.BuildDetailedInfoResponse( message.strip() )
 
 
   def _DefaultParameters( self, request_data ):

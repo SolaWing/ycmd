@@ -31,6 +31,7 @@ from ycmd import user_options_store
 from ycmd.tests.cs import ( IsolatedYcmd, PathToTestFile, SharedYcmd,
                             WrapOmniSharpServer )
 from ycmd.tests.test_utils import ( BuildRequest,
+                                    ChunkMatcher,
                                     ErrorMatcher,
                                     LocationMatcher,
                                     MockProcessTerminationTimingOut,
@@ -539,8 +540,11 @@ def Subcommands_GetType_EmptyMessage_test( app ):
                                  filetype = 'cs',
                                  filepath = filepath )
 
-    response = app.post_json( '/run_completer_command', gettype_data ).json
-    assert_that( response, has_entry( 'message', None ) )
+    response = app.post_json( '/run_completer_command',
+                              gettype_data,
+                              expect_errors = True ).json
+    assert_that( response, ErrorMatcher( RuntimeError,
+                                         'No type info available.' ) )
 
 
 @SharedYcmd
@@ -596,6 +600,27 @@ def Subcommands_GetType_DocsIgnored_test( app ):
     response = app.post_json( '/run_completer_command', gettype_data ).json
     assert_that( response, has_entry(
       'message', 'int GetTypeTestCase.an_int_with_docs' ) )
+
+
+@SharedYcmd
+def Subcommands_GetDoc_Invalid_test( app ):
+  filepath = PathToTestFile( 'testy', 'GetDocTestCase.cs' )
+  with WrapOmniSharpServer( app, filepath ):
+    contents = ReadFile( filepath )
+
+    getdoc_data = BuildRequest( completer_target = 'filetype_default',
+                                command_arguments = [ 'GetDoc' ],
+                                line_num = 1,
+                                column_num = 1,
+                                contents = contents,
+                                filetype = 'cs',
+                                filepath = filepath )
+
+    response = app.post_json( '/run_completer_command',
+                              getdoc_data,
+                              expect_errors = True ).json
+    assert_that( response, ErrorMatcher( RuntimeError,
+                                         'No documentation available.' ) )
 
 
 @SharedYcmd
@@ -791,3 +816,90 @@ def Subcommands_StopServer_Timeout_test( app ):
                    has_entry( 'is_running', False )
                  ) )
                ) )
+
+
+@SharedYcmd
+def Subcommands_Format_Works_test( app ):
+  filepath = PathToTestFile( 'testy', 'Program.cs' )
+  with WrapOmniSharpServer( app, filepath ):
+    contents = ReadFile( filepath )
+
+    request = BuildRequest( command_arguments = [ 'Format' ],
+                            line_num = 1,
+                            column_num = 1,
+                            contents = contents,
+                            filetype = 'cs',
+                            filepath = filepath )
+
+    response = app.post_json( '/run_completer_command', request ).json
+    print( 'completer response = ', response )
+    assert_that( response, has_entries( { 'fixits': contains( has_entries( {
+      'location': LocationMatcher( filepath, 1, 1 ),
+      'chunks': contains(
+        ChunkMatcher(
+          '\n        }\n    ',
+          LocationMatcher( filepath, 11, 1 ),
+          LocationMatcher( filepath, 12, 2 )
+        ),
+        ChunkMatcher(
+          '            ',
+          LocationMatcher( filepath, 10, 1 ),
+          LocationMatcher( filepath, 10, 4 )
+        ),
+        ChunkMatcher(
+          '        {\n            ',
+          LocationMatcher( filepath, 8, 1 ),
+          LocationMatcher( filepath, 9, 4 )
+        ),
+        ChunkMatcher(
+          '',
+          LocationMatcher( filepath, 7, 26 ),
+          LocationMatcher( filepath, 7, 27 )
+        ),
+        ChunkMatcher(
+          '    class MainClass\n    {\n        ',
+          LocationMatcher( filepath, 5, 1 ),
+          LocationMatcher( filepath, 7, 3 )
+        ),
+      )
+    } ) ) } ) )
+
+
+@SharedYcmd
+def Subcommands_RangeFormat_Works_test( app ):
+  filepath = PathToTestFile( 'testy', 'Program.cs' )
+  with WrapOmniSharpServer( app, filepath ):
+    contents = ReadFile( filepath )
+
+    request = BuildRequest( command_arguments = [ 'Format' ],
+                            line_num = 11,
+                            column_num = 2,
+                            contents = contents,
+                            filetype = 'cs',
+                            filepath = filepath )
+    request[ 'range' ] = {
+      'start': { 'line_num':  8, 'column_num': 1 },
+      'end':   { 'line_num': 11, 'column_num': 4 }
+    }
+    response = app.post_json( '/run_completer_command', request ).json
+    print( 'completer response = ', response )
+    assert_that( response, has_entries( { 'fixits': contains( has_entries( {
+      'location': LocationMatcher( filepath, 11, 2 ),
+      'chunks': contains(
+        ChunkMatcher(
+          '\n        ',
+          LocationMatcher( filepath, 11, 1 ),
+          LocationMatcher( filepath, 11, 3 )
+        ),
+        ChunkMatcher(
+          '            ',
+          LocationMatcher( filepath, 10, 1 ),
+          LocationMatcher( filepath, 10, 4 )
+        ),
+        ChunkMatcher(
+          '        {\n            ',
+          LocationMatcher( filepath, 8, 1 ),
+          LocationMatcher( filepath, 9, 4 )
+        ),
+      )
+    } ) ) } ) )

@@ -29,6 +29,7 @@ import os
 from ycmd import responses
 from ycmd import utils
 from ycmd.completers.language_server import simple_language_server_completer
+from ycmd.completers.language_server import language_server_completer
 
 
 PATH_TO_GOPLS = os.path.abspath( os.path.join( os.path.dirname( __file__ ),
@@ -87,11 +88,9 @@ class GoCompleter( simple_language_server_completer.SimpleLSPCompleter ):
     try:
       result = json.loads( self.GetHoverResponse( request_data )[ 'value' ] )
       docs = result[ 'signature' ] + '\n' + result[ 'fullDocumentation' ]
-      return responses.BuildDisplayMessageResponse( docs.strip() )
-    except RuntimeError as e:
-      if e.args[ 0 ] == 'No hover information.':
-        raise RuntimeError( 'No documentation available.' )
-      raise
+      return responses.BuildDetailedInfoResponse( docs.strip() )
+    except language_server_completer.NoHoverInfoException:
+      raise RuntimeError( 'No documentation available.' )
 
 
   def GetType( self, request_data ):
@@ -99,26 +98,10 @@ class GoCompleter( simple_language_server_completer.SimpleLSPCompleter ):
       result = json.loads(
           self.GetHoverResponse( request_data )[ 'value' ] )[ 'signature' ]
       return responses.BuildDisplayMessageResponse( result )
-    except RuntimeError as e:
-      if e.args[ 0 ] == 'No hover information.':
-        raise RuntimeError( 'Unknown type.' )
-      raise
+    except language_server_completer.NoHoverInfoException:
+      raise RuntimeError( 'Unknown type.' )
 
 
   def DefaultSettings( self, request_data ):
     return { 'hoverKind': 'Structured',
              'fuzzyMatching': False }
-
-
-  def GetCustomSubcommands( self ):
-    return {
-      'RestartServer': (
-        lambda self, request_data, args: self._RestartServer( request_data )
-      ),
-      'GetDoc': (
-        lambda self, request_data, args: self.GetDoc( request_data )
-      ),
-      'GetType': (
-        lambda self, request_data, args: self.GetType( request_data )
-      ),
-    }
