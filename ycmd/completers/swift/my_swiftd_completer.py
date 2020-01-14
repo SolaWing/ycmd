@@ -610,9 +610,9 @@ def ConvertToYCMDDiag(sourcekit_diag, bytes_contents):
     try:
         length = sourcekit_diag["key.ranges"][0]["key.length"]
     except Exception as e:
-        LOGGER.debug("get ranges error: %s", e)
+        LOGGER.debug("get ranges error: %s", e) # 只有位置没有长度时，有可能进入这个异常分支
         length = 1
-    end = responses.Location(start.line_number_, start.column_number_+length, start.filename_)
+    end = responses.Location(start.line_number_, start.column_number_ + length, start.filename_)
     r = responses.Range(start, end)
 
     fixits = []

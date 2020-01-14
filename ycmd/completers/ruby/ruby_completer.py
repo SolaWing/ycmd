@@ -54,11 +54,25 @@ def FindExecutable():
 
 
 def _UseBundler(project_dir):
+    return False
     lock = os.path.join(project_dir, 'Gemfile.lock')
     if os.path.isfile(lock):
         with open(lock) as f:
             return any('solargraph ' in line for line in f)
     return False
+
+
+def _UseSorbet(project_dir):
+    lock = os.path.join(project_dir, 'Gemfile.lock')
+    if os.path.isfile(lock):
+        with open(lock) as f:
+          if any('sorbet-static ' in line for line in f):
+            for path in ['srb', os.path.expanduser('~/.rbenv/shims/srb')]:
+              srb = utils.FindExecutable(path)
+              if srb:
+                return srb
+    return None
+
 
 
 class RubyCompleter( SimpleLSPCompleter ):
@@ -67,6 +81,7 @@ class RubyCompleter( SimpleLSPCompleter ):
 
     self._command_line = None
     self._use_bundler = None
+    self._use_sorbet = None
 
   def GetProjectRootFiles( self ):
     return PROJECT_ROOT_FILES
@@ -102,7 +117,8 @@ class RubyCompleter( SimpleLSPCompleter ):
 
   def ExtraDebugItems( self, request_data ):
     return [
-      responses.DebugInfoItem( 'bundler', self._use_bundler )
+      responses.DebugInfoItem( 'bundler', self._use_bundler ),
+      responses.DebugInfoItem( 'sorbet', self._use_sorbet )
     ]
 
   def PopenKwargs( self ):
@@ -110,16 +126,25 @@ class RubyCompleter( SimpleLSPCompleter ):
 
   def StartServer( self, request_data ):
     with self._server_state_mutex:
-      lang_server_bin = FindExecutable()
-      if not lang_server_bin:
-        return False
-      self._bin = lang_server_bin
       self._project_directory = self.GetProjectDirectory( request_data, None)
-      self._use_bundler = _UseBundler(self._project_directory)
-      if self._use_bundler:
-          self._command_line = ['bundle', 'exec', lang_server_bin, "stdio"]
+      sorbet = _UseSorbet(self._project_directory)
+      if sorbet:
+        self._bin = sorbet
+        self._use_sorbet = True
+        self._command_line = [sorbet, 't', '--lsp',
+                              "--enable-all-beta-lsp-features",
+                              "--enable-experimental-lsp-autocomplete",
+                              "--disable-watchman"]
       else:
-          self._command_line = [lang_server_bin, "stdio"]
+        lang_server_bin = FindExecutable()
+        if not lang_server_bin:
+          return False
+        self._bin = lang_server_bin
+        self._use_bundler = _UseBundler(self._project_directory)
+        if self._use_bundler:
+            self._command_line = ['bundle', 'exec', lang_server_bin, "stdio"]
+        else:
+            self._command_line = [lang_server_bin, "stdio"]
       self._settings['logLevel'] = self._ServerLoggingLevel
       # self._settings['logLevel'] = 'debug'
 
