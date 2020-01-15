@@ -80,8 +80,8 @@ class RubyCompleter( SimpleLSPCompleter ):
     super( RubyCompleter, self ).__init__( user_options )
 
     self._command_line = None
+    self._current_server_type = None
     self._use_bundler = None
-    self._use_sorbet = None
 
   def GetProjectRootFiles( self ):
     return PROJECT_ROOT_FILES
@@ -112,35 +112,45 @@ class RubyCompleter( SimpleLSPCompleter ):
       ),
       'GetType': (
         lambda self, request_data, args: self.GetType( request_data )
-      )
+      ),
+      'SwitchServerType': RubyCompleter.SwitchServerType,
     }
 
   def ExtraDebugItems( self, request_data ):
     return [
       responses.DebugInfoItem( 'bundler', self._use_bundler ),
-      responses.DebugInfoItem( 'sorbet', self._use_sorbet )
+      responses.DebugInfoItem( 'server type', self._current_server_type )
     ]
 
   def PopenKwargs( self ):
     return { 'cwd': self._project_directory }
 
+  def SwitchServerType(self, request_data, args):
+    if self._current_server_type == "sorbet":
+      self._current_server_type = "solargraph"
+    else:
+      self._current_server_type = "sorbet"
+    self._RestartServer(request_data)
+
   def StartServer( self, request_data ):
     with self._server_state_mutex:
       self._project_directory = self.GetProjectDirectory( request_data, None)
       sorbet = _UseSorbet(self._project_directory)
-      if sorbet:
+      if sorbet and self._current_server_type != "solargraph":
         self._bin = sorbet
-        self._use_sorbet = True
+        self._current_server_type = "sorbet"
         self._command_line = [sorbet, 't', '--lsp',
                               "--enable-all-beta-lsp-features",
-                              "--enable-experimental-lsp-autocomplete",
                               "--enable-experimental-lsp-quick-fix"]
+        if self._ServerLoggingLevel == 'debug':
+          self._command_line.append('--verbose')
       else:
         lang_server_bin = FindExecutable()
         if not lang_server_bin:
           return False
         self._bin = lang_server_bin
         self._use_bundler = _UseBundler(self._project_directory)
+        self._current_server_type = "solargraph"
         if self._use_bundler:
             self._command_line = ['bundle', 'exec', lang_server_bin, "stdio"]
         else:
@@ -153,23 +163,24 @@ class RubyCompleter( SimpleLSPCompleter ):
   # def _ShouldResolveCompletionItems( self ):
   #   # FIXME: solargraph only append documentation into completionItem
   #   # ignore it to avoid performance issue.
-  #   return not self._use_sorbet
+
+
   def ShouldUseNowInner(self, request_data):
     # sorbet only completions when have query
-    if (self._use_sorbet and
+    if (self._current_server_type == "sorbet" and
         request_data[ 'column_codepoint' ] <= request_data['start_codepoint']):
       return False
 
     return super().ShouldUseNowInner(request_data)
 
   def GetCodepointForCompletionRequest( self, request_data ):
-    if self._use_sorbet:
+    if self._current_server_type == "sorbet":
       return request_data['column_codepoint']
     return super().GetCodepointForCompletionRequest(request_data)
 
   def ComputeCandidatesInner( self, request_data, *args ):
       results = super().ComputeCandidatesInner(request_data, *args)
-      if self._use_sorbet:
+      if self._current_server_type == "sorbet":
         # sorbet use current word as filter, no matter which point pass.
         # so back should retrigger a filter
         return (results[0], True)
@@ -177,7 +188,7 @@ class RubyCompleter( SimpleLSPCompleter ):
 
   def _CandidatesFromCompletionItems( self, items, resolve, *args):
     # sorbet的text edit的修正点计算错误，需要过滤。换成insert_text
-    if self._use_sorbet:
+    if self._current_server_type == "sorbet":
       def fix(item):
         edit = item.pop("textEdit", None)
         if edit:
