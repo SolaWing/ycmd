@@ -133,7 +133,8 @@ class RubyCompleter( SimpleLSPCompleter ):
         self._use_sorbet = True
         self._command_line = [sorbet, 't', '--lsp',
                               "--enable-all-beta-lsp-features",
-                              "--enable-experimental-lsp-autocomplete"]
+                              "--enable-experimental-lsp-autocomplete",
+                              "--enable-experimental-lsp-quick-fix"]
       else:
         lang_server_bin = FindExecutable()
         if not lang_server_bin:
