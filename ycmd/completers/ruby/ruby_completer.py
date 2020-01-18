@@ -155,6 +155,7 @@ class RubyCompleter( SimpleLSPCompleter ):
             self._command_line = ['bundle', 'exec', lang_server_bin, "stdio"]
         else:
             self._command_line = [lang_server_bin, "stdio"]
+            self._settings['diagnostics'] = True
       self._settings['logLevel'] = self._ServerLoggingLevel
       # self._settings['logLevel'] = 'debug'
 
