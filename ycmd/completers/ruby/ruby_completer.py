@@ -43,9 +43,9 @@ def ShouldEnableCompleter():
 
 
 def FindExecutable():
-    for path in [# os.path.join(os.path.dirname(__file__),
-                 #              '../../..',
-                 #              'third_party/solargraph/main.rb'),
+    for path in [os.path.join(os.path.dirname(__file__),
+                              '../../..',
+                              'third_party/solargraph/main.rb'),
                  'solargraph',
                  os.path.expanduser( '~/.rbenv/shims/solargraph' ) ]:
         solargraph = utils.FindExecutable( path )
@@ -80,7 +80,7 @@ class RubyCompleter( SimpleLSPCompleter ):
     super( RubyCompleter, self ).__init__( user_options )
 
     self._command_line = None
-    self._current_server_type = None
+    self._current_server_type = "solargraph"
     self._use_bundler = None
 
   def GetProjectRootFiles( self ):
@@ -135,8 +135,10 @@ class RubyCompleter( SimpleLSPCompleter ):
   def StartServer( self, request_data ):
     with self._server_state_mutex:
       self._project_directory = self.GetProjectDirectory( request_data, None)
-      sorbet = _UseSorbet(self._project_directory)
-      if sorbet and self._current_server_type != "solargraph":
+      sorbet = None
+      if self._current_server_type != 'solargraph':
+        sorbet = _UseSorbet(self._project_directory)
+      if sorbet:
         self._bin = sorbet
         self._current_server_type = "sorbet"
         self._command_line = [sorbet, 't', '--lsp',
