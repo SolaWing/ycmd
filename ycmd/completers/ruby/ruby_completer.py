@@ -139,6 +139,7 @@ class RubyCompleter( SimpleLSPCompleter ):
         return
       m = re.search(r'^(?:\((.*)\))?\s*=(?:[>~^]|&gt;)\s*(.*)$',
                     documentation, re.M)
+      first_word = re.compile(r'\w+')
       if not m:
         return
 
@@ -152,8 +153,8 @@ class RubyCompleter( SimpleLSPCompleter ):
       params = m.group(1)
       if params:
         params = params.split(', ')
-        text.extend(" @param %s []" % (i) for i in params
-                    if not i.startswith('*'))
+        text.extend(" @param %s []" % (first_word.search(i).group(0))
+                    for i in params if not i.startswith('*'))
       text.append(" @return [%s]" % ( m.group(2) or "nil" ))
       text = "".join("".join((prefix, i, os.linesep)) for i in text)
 
@@ -256,6 +257,9 @@ class RubyCompleter( SimpleLSPCompleter ):
         documentation = hover_response
     if isinstance( hover_response, dict):
         documentation = hover_response.get("value")
+
+    if documentation:
+      documentation = re.sub(r'\\(?=[:])', '', documentation)
 
     return documentation
 
