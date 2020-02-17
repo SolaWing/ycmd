@@ -114,6 +114,7 @@ class RubyCompleter( SimpleLSPCompleter ):
         lambda self, request_data, args: self.GetType( request_data )
       ),
       'SwitchServerType': RubyCompleter.SwitchServerType,
+      'DocComment': RubyCompleter.DocComment,
     }
 
   def ExtraDebugItems( self, request_data ):
@@ -131,6 +132,38 @@ class RubyCompleter( SimpleLSPCompleter ):
     else:
       self._current_server_type = "sorbet"
     self._RestartServer(request_data)
+
+  def DocComment(self, request_data, args):
+      documentation = self.GetHover(request_data)
+      if not documentation:
+        return
+      m = re.search(r'^(?:\((.*)\))?\s*=(?:[>~^]|&gt;)\s*(.*)$',
+                    documentation, re.M)
+      if not m:
+        return
+
+      line = request_data[ 'line_num' ]
+      filename = request_data[ 'filepath' ]
+      line_value = request_data['line_value'] # type: str
+      indent = len(line_value) - len(line_value.lstrip())
+      prefix = indent * " " + "#"
+
+      text = []
+      params = m.group(1)
+      if params:
+        params = params.split(', ')
+        text.extend(" @param %s []" % (i) for i in params
+                    if not i.startswith('*'))
+      text.append(" @return [%s]" % ( m.group(2) or "nil" ))
+      text = "".join("".join((prefix, i, os.linesep)) for i in text)
+
+      start = responses.Location(line, 1, filename)
+      return responses.BuildFixItResponse(
+          [responses.FixIt(
+              start,
+              [responses.FixItChunk(text, responses.Range(start, start))]
+          )]
+      )
 
   def StartServer( self, request_data ):
     with self._server_state_mutex:
@@ -207,7 +240,7 @@ class RubyCompleter( SimpleLSPCompleter ):
     ty = self.GetHover(request_data)
 
     if ty:
-      m = re.search(r'=(?:>|&gt;|~)\s*.*$', ty, re.M)
+      m = re.search(r'=(?:[>~^]|&gt;)\s*.*$', ty, re.M)
       if m:
         ty = m.group(0)
 
