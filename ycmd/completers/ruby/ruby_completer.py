@@ -204,31 +204,18 @@ class RubyCompleter( SimpleLSPCompleter ):
     return super()._CandidatesFromCompletionItems(items, resolve, *args)
 
   def GetType( self, request_data ):
-    hover_response = self.GetHoverResponse( request_data )
-    LOGGER.debug("%s", hover_response)
-
-    # RLS returns a list that may contain the following elements:
-    # - a documentation string;
-    # - a documentation url;
-    # - [{language:rust, value:<type info>}].
-
-    ty = None
-    if isinstance( hover_response, str ):
-        ty = hover_response
-    if isinstance( hover_response, dict):
-        ty = hover_response.get("value")
-        if ty:
-            m = re.search(r'=(?:>|&gt;)\s*(.*)$', ty, re.M)
-            if m:
-                ty = m.group(1)
+    ty = self.GetHover(request_data)
 
     if ty:
-        return responses.BuildDisplayMessageResponse( ty )
+      m = re.search(r'=(?:>|&gt;|~)\s*.*$', ty, re.M)
+      if m:
+        ty = m.group(0)
+
+      return responses.BuildDisplayMessageResponse( ty )
 
     raise RuntimeError( 'Unknown type.' )
 
-
-  def GetDoc( self, request_data ):
+  def GetHover(self, request_data):
     hover_response = self.GetHoverResponse( request_data )
 
     documentation = None
@@ -237,6 +224,10 @@ class RubyCompleter( SimpleLSPCompleter ):
     if isinstance( hover_response, dict):
         documentation = hover_response.get("value")
 
+    return documentation
+
+  def GetDoc( self, request_data ):
+    documentation = self.GetHover(request_data)
     if not documentation:
       raise RuntimeError( 'No documentation available for current context.' )
 
