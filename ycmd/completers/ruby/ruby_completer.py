@@ -259,7 +259,7 @@ class RubyCompleter( SimpleLSPCompleter ):
         documentation = hover_response.get("value")
 
     if documentation:
-      documentation = re.sub(r'\\(?=[:])', '', documentation)
+      documentation = re.sub(r'\\(?=[:<>])', '', documentation)
 
     return documentation
 
