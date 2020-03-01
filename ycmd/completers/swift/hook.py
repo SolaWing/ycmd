@@ -24,7 +24,7 @@ standard_library.install_aliases()
 from builtins import *  # noqa
 
 from ycmd.completers.swift.my_swiftd_completer import SwiftCompleter as SwiftD, ShouldEnableSwiftCompleter
-from ycmd.completers.swift.my_swift_completer import SwiftCompleter
+# from ycmd.completers.swift.my_swift_completer import SwiftCompleter
 # from ycmd.completers.swift.swiftls_completer import SwiftCompleter as LSP, ShouldEnableSwiftCompleter
 
 
@@ -32,4 +32,3 @@ def GetCompleter( user_options ):
     # only support PM, only kinda work. may I should write mine in future
     if ShouldEnableSwiftCompleter():
         return SwiftD( user_options )
-    return SwiftCompleter( user_options )
