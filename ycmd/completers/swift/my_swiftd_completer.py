@@ -18,27 +18,16 @@
 # You should have received a copy of the GNU General Public License
 # along with ycmd.  If not, see <http://www.gnu.org/licenses/>.
 
-from __future__ import unicode_literals
-from __future__ import print_function
-from __future__ import division
-from __future__ import absolute_import
-from builtins import *  # noqa
-from future import standard_library
-from future.utils import native
-standard_library.install_aliases()
-
 from ycm_core import DiffString
-from ycmd.utils import ToBytes, ToUnicode, LineColumnFromByteOffset, ProcessIsRunning
+from ycmd.utils import ToUnicode, LineColumnFromByteOffset
 from ycmd.completers.completer import Completer
 from ycmd.completers.completer_utils import GetFileContents
-from ycmd import responses, utils, hmac_utils
+from ycmd import responses, utils
 from ycmd import extra_conf_store
-from io import BytesIO
 
 import json
 import logging
 from subprocess import PIPE
-import sys
 import os
 import threading
 import tempfile

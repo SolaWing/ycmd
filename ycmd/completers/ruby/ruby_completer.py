@@ -15,13 +15,6 @@
 # You should have received a copy of the GNU General Public License
 # along with ycmd.  If not, see <http://www.gnu.org/licenses/>.
 
-from __future__ import unicode_literals
-from __future__ import print_function
-from __future__ import division
-from __future__ import absolute_import
-# Not installing aliases from python-future; it's unreliable and slow.
-from builtins import *  # noqa
-
 import logging
 import os
 import re
@@ -117,6 +110,9 @@ class RubyCompleter( SimpleLSPCompleter ):
       'DocComment': RubyCompleter.DocComment,
     }
 
+  # def DefaultSettings( self, request_data ):
+  #   return {}
+
   def ExtraDebugItems( self, request_data ):
     return [
       responses.DebugInfoItem( 'bundler', self._use_bundler ),
@@ -168,7 +164,8 @@ class RubyCompleter( SimpleLSPCompleter ):
 
   def StartServer( self, request_data ):
     with self._server_state_mutex:
-      self._project_directory = self.GetProjectDirectory( request_data, None)
+      settings = self._settings['ls']
+      self._project_directory = self.GetProjectDirectory(request_data)
       sorbet = None
       if self._current_server_type != 'solargraph':
         sorbet = _UseSorbet(self._project_directory)
@@ -192,10 +189,10 @@ class RubyCompleter( SimpleLSPCompleter ):
         else:
             self._command_line = [lang_server_bin, "stdio"]
             # self._command_line = ["nc", "127.0.0.1", "7658"]
-            self._settings['diagnostics'] = True
-            self._settings['formatting'] = True
-      self._settings['logLevel'] = self._ServerLoggingLevel
-      # self._settings['logLevel'] = 'debug'
+            settings['diagnostics'] = True
+            settings['formatting'] = True
+      settings['logLevel'] = self._ServerLoggingLevel
+      # settings['logLevel'] = 'debug'
 
       return super().StartServer(request_data)
 

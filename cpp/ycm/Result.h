@@ -26,14 +26,8 @@ namespace YouCompleteMe {
 
 class Result {
 public:
-  Result()
-  : is_subsequence_( false ),
-    first_char_same_in_query_and_text_( false ),
-    query_is_candidate_prefix_( false ),
-    char_match_index_sum_( 0 ),
-    num_wb_matches_( 0 ),
-    candidate_( nullptr ),
-    query_( nullptr ) {}
+  Result();
+  ~Result() = default;
 
   Result( const Candidate *candidate,
           int64_t score
