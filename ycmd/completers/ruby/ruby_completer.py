@@ -120,7 +120,12 @@ class RubyCompleter( SimpleLSPCompleter ):
     ]
 
   def PopenKwargs( self ):
-    return { 'cwd': self._project_directory }
+    env = os.environ.copy()
+    env['RUBYOPT'] = '--jit'
+    return {
+      'cwd': self._project_directory,
+      'env': env
+    }
 
   def SwitchServerType(self, request_data, args):
     if self._current_server_type == "sorbet":
