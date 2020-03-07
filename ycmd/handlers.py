@@ -1,4 +1,4 @@
-# Copyright (C) 2013-2018 ycmd contributors
+# Copyright (C) 2013-2020 ycmd contributors
 #
 # This file is part of ycmd.
 #
@@ -15,13 +15,6 @@
 # You should have received a copy of the GNU General Public License
 # along with ycmd.  If not, see <http://www.gnu.org/licenses/>.
 
-from __future__ import absolute_import
-from __future__ import unicode_literals
-from __future__ import print_function
-from __future__ import division
-# Not installing aliases from python-future; it's unreliable and slow.
-from builtins import *  # noqa
-
 import bottle
 import json
 import platform
@@ -30,7 +23,7 @@ import time
 import traceback
 from bottle import request
 
-import ycm_core
+
 from ycmd import extra_conf_store, hmac_plugin, server_state, user_options_store
 from ycmd.responses import ( BuildExceptionResponse,
                              BuildCompletionResponse,
@@ -39,9 +32,9 @@ from ycmd.responses import ( BuildExceptionResponse,
                              SignatureHelpAvailalability,
                              UnknownExtraConf )
 from ycmd.request_wrap import RequestWrap
-from ycmd.bottle_utils import SetResponseHeader
 from ycmd.completers.completer_utils import FilterAndSortCandidatesWrap
-from ycmd.utils import LOGGER, StartThread
+from ycmd.utils import LOGGER, StartThread, ImportCore
+ycm_core = ImportCore()
 
 
 # num bytes for the request body buffer; request.json only works if the request
@@ -330,7 +323,7 @@ app.default_error_handler = ErrorHandler
 
 
 def _JsonResponse( data ):
-  SetResponseHeader( 'Content-Type', 'application/json' )
+  bottle.response.set_header( 'Content-Type', 'application/json' )
   return json.dumps( data,
                      separators = ( ',', ':' ),
                      default = _UniversalSerialize )

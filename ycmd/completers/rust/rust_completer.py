@@ -1,4 +1,4 @@
-# Copyright (C) 2015-2019 ycmd contributors
+# Copyright (C) 2015-2020 ycmd contributors
 #
 # This file is part of ycmd.
 #
@@ -15,16 +15,8 @@
 # You should have received a copy of the GNU General Public License
 # along with ycmd.  If not, see <http://www.gnu.org/licenses/>.
 
-from __future__ import unicode_literals
-from __future__ import print_function
-from __future__ import division
-from __future__ import absolute_import
-# Not installing aliases from python-future; it's unreliable and slow.
-from builtins import *  # noqa
-
 import logging
 import os
-from future.utils import itervalues
 from subprocess import PIPE
 
 from ycmd import responses, utils
@@ -49,8 +41,8 @@ def _GetCommandOutput( command ):
                      stderr = PIPE ).communicate()[ 0 ].rstrip() )
 
 
-def _GetRlsVersion():
-  rls_version = _GetCommandOutput( [ RLS_EXECUTABLE, '--version' ] )
+def _GetRlsVersion( rls_path ):
+  rls_version = _GetCommandOutput( [ rls_path, '--version' ] )
   match = RLS_VERSION_REGEX.match( rls_version )
   if not match:
     LOGGER.error( 'Cannot parse Rust Language Server version: %s', rls_version )
@@ -58,20 +50,35 @@ def _GetRlsVersion():
   return match.group( 'version' )
 
 
-def ShouldEnableRustCompleter():
-  if not RLS_EXECUTABLE:
+def ShouldEnableRustCompleter( user_options ):
+  if ( user_options[ 'rls_binary_path' ] and
+       not user_options[ 'rustc_binary_path' ] ):
+    LOGGER.error( 'Not using Rust completer: RUSTC not specified' )
+    return False
+
+  rls = utils.FindExecutableWithFallback( user_options[ 'rls_binary_path' ],
+                                          RLS_EXECUTABLE )
+  if not rls:
     LOGGER.error( 'Not using Rust completer: no RLS executable found at %s',
-                  RLS_EXECUTABLE )
+                  rls )
     return False
   LOGGER.info( 'Using Rust completer' )
   return True
 
 
 class RustCompleter( simple_language_server_completer.SimpleLSPCompleter ):
+  def __init__( self, user_options ):
+    super().__init__( user_options )
+    self._rls_path = utils.FindExecutableWithFallback(
+        user_options[ 'rls_binary_path' ],
+        RLS_EXECUTABLE )
+    self._rustc_path = utils.FindExecutableWithFallback(
+        user_options[ 'rustc_binary_path' ],
+        RUSTC_EXECUTABLE )
 
   def _Reset( self ):
     with self._server_state_mutex:
-      super( RustCompleter, self )._Reset()
+      super()._Reset()
       self._server_progress = {}
 
 
@@ -80,17 +87,15 @@ class RustCompleter( simple_language_server_completer.SimpleLSPCompleter ):
 
 
   def GetCommandLine( self ):
-    return RLS_EXECUTABLE
+    return [ self._rls_path ]
 
 
   def GetServerEnvironment( self ):
     env = os.environ.copy()
-    # Force RLS to use the rustc from the toolchain in third_party/rls.
-    # TODO: allow users to pick a custom toolchain.
-    utils.SetEnviron( env, 'RUSTC', RUSTC_EXECUTABLE )
+    env[ 'RUSTC' ] = self._rustc_path
     if LOGGER.isEnabledFor( logging.DEBUG ):
-      utils.SetEnviron( env, 'RUST_LOG', 'rls=trace' )
-      utils.SetEnviron( env, 'RUST_BACKTRACE', '1' )
+      env[ 'RUST_LOG' ] = 'rls=trace'
+      env[ 'RUST_BACKTRACE' ] = '1'
     return env
 
 
@@ -108,10 +113,10 @@ class RustCompleter( simple_language_server_completer.SimpleLSPCompleter ):
     # See
     # https://github.com/rust-lang/rls/blob/master/contributing.md#rls-to-lsp-client
     # for detail on the progress steps.
-    return ( super( RustCompleter, self ).ServerIsReady() and
+    return ( super().ServerIsReady() and
              self._server_progress and
-             set( itervalues( self._server_progress ) ) == { 'building done',
-                                                             'indexing done' } )
+             set( self._server_progress.values() ) == { 'building done',
+                                                        'indexing done' } )
 
 
   def SupportedFiletypes( self ):
@@ -126,10 +131,11 @@ class RustCompleter( simple_language_server_completer.SimpleLSPCompleter ):
 
   def ExtraDebugItems( self, request_data ):
     project_state = ', '.join(
-      set( itervalues( self._server_progress ) ) ).capitalize()
+      set( self._server_progress.values() ) ).capitalize()
     return [
       responses.DebugInfoItem( 'Project State', project_state ),
-      responses.DebugInfoItem( 'Version', _GetRlsVersion() )
+      responses.DebugInfoItem( 'Version', _GetRlsVersion( self._rls_path ) ),
+      responses.DebugInfoItem( 'RUSTC', self._rustc_path )
     ]
 
 
@@ -158,7 +164,7 @@ class RustCompleter( simple_language_server_completer.SimpleLSPCompleter ):
       with self._server_info_mutex:
         self._server_progress[ progress_id ] = message
 
-    super( RustCompleter, self ).HandleNotificationInPollThread( notification )
+    super().HandleNotificationInPollThread( notification )
 
 
   def GetType( self, request_data ):

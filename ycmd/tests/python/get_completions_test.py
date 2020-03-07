@@ -1,6 +1,4 @@
-# coding: utf-8
-#
-# Copyright (C) 2015-2019 ycmd contributors
+# Copyright (C) 2015-2020 ycmd contributors
 #
 # This file is part of ycmd.
 #
@@ -17,19 +15,12 @@
 # You should have received a copy of the GNU General Public License
 # along with ycmd.  If not, see <http://www.gnu.org/licenses/>.
 
-from __future__ import absolute_import
-from __future__ import unicode_literals
-from __future__ import print_function
-from __future__ import division
-# Not installing aliases from python-future; it's unreliable and slow.
-from builtins import *  # noqa
-
-from nose.tools import eq_
 from hamcrest import ( all_of,
                        assert_that,
-                       contains,
+                       contains_exactly,
                        contains_string,
                        empty,
+                       equal_to,
                        has_item,
                        has_items,
                        has_entry,
@@ -73,7 +64,8 @@ def RunTest( app, test ):
                             } ),
                             expect_errors = True )
 
-  eq_( response.status_code, test[ 'expect' ][ 'response' ] )
+  assert_that( response.status_code,
+               equal_to( test[ 'expect' ][ 'response' ] ) )
 
   assert_that( response.json, test[ 'expect' ][ 'data' ] )
 
@@ -94,24 +86,14 @@ def GetCompletions_Basic_test( app ):
                  CompletionEntryMatcher( 'a',
                                          'self.a = 1',
                                          {
-                                           'extra_data': has_entry(
-                                             'location', has_entries( {
-                                               'line_num': 3,
-                                               'column_num': 10,
-                                               'filepath': filepath
-                                             } )
-                                           )
+                                           'detailed_info': '',
+                                           'kind': 'statement'
                                          } ),
                  CompletionEntryMatcher( 'b',
                                          'self.b = 2',
                                          {
-                                           'extra_data': has_entry(
-                                             'location', has_entries( {
-                                               'line_num': 4,
-                                               'column_num': 10,
-                                               'filepath': filepath
-                                             } )
-                                           )
+                                           'detailed_info': '',
+                                           'kind': 'statement'
                                          } )
                ) )
 
@@ -129,13 +111,8 @@ def GetCompletions_Basic_test( app ):
                    CompletionEntryMatcher( 'a',
                                            'self.a = 1',
                                            {
-                                             'extra_data': has_entry(
-                                               'location', has_entries( {
-                                                 'line_num': 3,
-                                                 'column_num': 10,
-                                                 'filepath': filepath
-                                               } )
-                                             )
+                                             'detailed_info': '',
+                                             'kind': 'statement'
                                            } ) ),
                  is_not( has_item( CompletionEntryMatcher( 'b' ) ) )
                ) )
@@ -176,7 +153,7 @@ def GetCompletions_NoSuggestions_Fallback_test( app ):
     'expect': {
       'response': requests.codes.ok,
       'data': has_entries( {
-        'completions': contains(
+        'completions': contains_exactly(
           CompletionEntryMatcher( 'a_parameter', '[ID]' ),
           CompletionEntryMatcher( 'another_parameter', '[ID]' ),
         ),
@@ -199,7 +176,7 @@ def GetCompletions_Unicode_InLine_test( app ):
     'expect': {
       'response': requests.codes.ok,
       'data': has_entries( {
-        'completions': contains(
+        'completions': contains_exactly(
           CompletionEntryMatcher(
             'center', 'def center(width: int, fillchar: str=...)' )
         ),
@@ -364,7 +341,7 @@ def GetCompletions_PythonInterpreter_InvalidPythonInExtraConf_test( app ):
       'response': requests.codes.ok,
       'data': has_entries( {
         'completions': empty(),
-        'errors': contains(
+        'errors': contains_exactly(
           ErrorMatcher( RuntimeError,
                         'Cannot find Python interpreter path '
                         '/non/existing/python.' )
@@ -431,7 +408,7 @@ def GetCompletions_NumpyDoc_test( app ):
     'expect': {
       'response': requests.codes.ok,
       'data': has_entries( {
-        'completions': contains(
+        'completions': contains_exactly(
           CompletionEntryMatcher( 'SomeMethod', 'def SomeMethod()' ),
         ),
         'errors': empty()

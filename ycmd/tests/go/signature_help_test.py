@@ -1,6 +1,4 @@
-# coding: utf-8
-#
-# Copyright (C) 2019 ycmd contributors
+# Copyright (C) 2020 ycmd contributors
 #
 # This file is part of ycmd.
 #
@@ -17,18 +15,7 @@
 # You should have received a copy of the GNU General Public License
 # along with ycmd.  If not, see <http://www.gnu.org/licenses/>.
 
-from __future__ import absolute_import
-from __future__ import unicode_literals
-from __future__ import print_function
-from __future__ import division
-# Not installing aliases from python-future; it's unreliable and slow.
-from builtins import *  # noqa
-
-from nose.tools import eq_
-from hamcrest import ( assert_that,
-                       contains,
-                       empty,
-                       has_entries )
+from hamcrest import assert_that, contains_exactly, empty, equal_to, has_entries
 import requests
 
 from ycmd.utils import ReadFile
@@ -75,7 +62,8 @@ def RunTest( app, test ):
                             } ),
                             expect_errors = True )
 
-  eq_( response.status_code, test[ 'expect' ][ 'response' ] )
+  assert_that( response.status_code,
+               equal_to( test[ 'expect' ][ 'response' ] ) )
 
   assert_that( response.json, test[ 'expect' ][ 'data' ] )
 
@@ -97,7 +85,7 @@ def SignatureHelp_NoParams_test( app ):
         'signature_help': has_entries( {
           'activeSignature': 0,
           'activeParameter': 0,
-          'signatures': contains(
+          'signatures': contains_exactly(
             SignatureMatcher( 'dummy()', [] )
           ),
         } ),
@@ -147,7 +135,7 @@ def SignatureHelp_MethodTrigger_test( app ):
         'signature_help': has_entries( {
           'activeSignature': 0,
           'activeParameter': 0,
-          'signatures': contains(
+          'signatures': contains_exactly(
             SignatureMatcher( 'add(x int, y int) int',
                               [ ParameterMatcher( 4, 9 ),
                                 ParameterMatcher( 11, 16 ) ] )

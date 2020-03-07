@@ -1,4 +1,4 @@
-# Copyright (C) 2019 ycmd contributors
+# Copyright (C) 2020 ycmd contributors
 #
 # This file is part of ycmd.
 #
@@ -15,24 +15,25 @@
 # You should have received a copy of the GNU General Public License
 # along with ycmd.  If not, see <http://www.gnu.org/licenses/>.
 
-from __future__ import unicode_literals
-from __future__ import print_function
-from __future__ import division
-from __future__ import absolute_import
-# Not installing aliases from python-future; it's unreliable and slow.
-from builtins import *  # noqa
-
-from mock import patch
-from nose.tools import ok_
+from unittest.mock import patch
+from hamcrest import assert_that, equal_to
 
 from ycmd import user_options_store
 from ycmd.completers.go.hook import GetCompleter
 
 
 def GetCompleter_GoplsFound_test():
-  ok_( GetCompleter( user_options_store.GetAll() ) )
+  assert_that( GetCompleter( user_options_store.GetAll() ) )
 
 
-@patch( 'ycmd.completers.go.go_completer.PATH_TO_GOPLS', 'path_does_not_exist' )
+@patch( 'ycmd.completers.go.go_completer.PATH_TO_GOPLS', None )
 def GetCompleter_GoplsNotFound_test( *args ):
-  ok_( not GetCompleter( user_options_store.GetAll() ) )
+  assert_that( not GetCompleter( user_options_store.GetAll() ) )
+
+
+@patch( 'ycmd.utils.FindExecutableWithFallback',
+        wraps = lambda x, fb: x if x == 'gopls' else None )
+@patch( 'os.path.isfile', return_value = True )
+def GetCompleter_GoplsFromUserOption_test( *args ):
+  user_options = user_options_store.GetAll().copy( gopls_binary_path = 'gopls' )
+  assert_that( GetCompleter( user_options )._gopls_path, equal_to( 'gopls' ) )

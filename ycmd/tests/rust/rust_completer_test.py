@@ -1,4 +1,4 @@
-# Copyright (C) 2019 ycmd contributors
+# Copyright (C) 2020 ycmd contributors
 #
 # This file is part of ycmd.
 #
@@ -15,24 +15,33 @@
 # You should have received a copy of the GNU General Public License
 # along with ycmd.  If not, see <http://www.gnu.org/licenses/>.
 
-from __future__ import unicode_literals
-from __future__ import print_function
-from __future__ import division
-from __future__ import absolute_import
-# Not installing aliases from python-future; it's unreliable and slow.
-from builtins import *  # noqa
-
-from mock import patch
-from nose.tools import ok_
+from unittest.mock import patch
+from hamcrest import assert_that, equal_to
 
 from ycmd import user_options_store
 from ycmd.completers.rust.hook import GetCompleter
 
 
 def GetCompleter_RlsFound_test():
-  ok_( GetCompleter( user_options_store.GetAll() ) )
+  assert_that( GetCompleter( user_options_store.GetAll() ) )
 
 
 @patch( 'ycmd.completers.rust.rust_completer.RLS_EXECUTABLE', None )
 def GetCompleter_RlsNotFound_test( *args ):
-  ok_( not GetCompleter( user_options_store.GetAll() ) )
+  assert_that( not GetCompleter( user_options_store.GetAll() ) )
+
+
+@patch( 'ycmd.utils.FindExecutableWithFallback',
+        wraps = lambda x, fb: x if x == 'rls' or x == 'rustc' else fb )
+@patch( 'os.path.isfile', return_value = True )
+def GetCompleter_RlsFromUserOption_test( *args ):
+  user_options = user_options_store.GetAll().copy( rls_binary_path = 'rls' )
+  user_options = user_options.copy( rustc_binary_path = 'rustc' )
+  assert_that( GetCompleter( user_options )._rls_path, equal_to( 'rls' ) )
+  assert_that( GetCompleter( user_options )._rustc_path, equal_to( 'rustc' ) )
+
+
+@patch( 'ycmd.completers.rust.rust_completer.RLS_EXECUTABLE', None )
+def GetCompleter_RustcNotDefine_test( *args ):
+  user_options = user_options_store.GetAll().copy( rls_binary_path = 'rls' )
+  assert_that( not GetCompleter( user_options ) )

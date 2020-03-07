@@ -1,6 +1,4 @@
-# encoding: utf-8
-#
-# Copyright (C) 2015-2018 ycmd contributors
+# Copyright (C) 2015-2020 ycmd contributors
 #
 # This file is part of ycmd.
 #
@@ -17,23 +15,17 @@
 # You should have received a copy of the GNU General Public License
 # along with ycmd.  If not, see <http://www.gnu.org/licenses/>.
 
-from __future__ import absolute_import
-from __future__ import unicode_literals
-from __future__ import print_function
-from __future__ import division
-# Not installing aliases from python-future; it's unreliable and slow.
-from builtins import *  # noqa
-
 from hamcrest import ( assert_that,
-                       contains,
+                       contains_exactly,
                        contains_inanyorder,
+                       equal_to,
                        has_entries,
                        has_entry,
                        matches_regexp )
-from mock import patch
-from nose.tools import eq_
+from unittest.mock import patch
 import requests
 import pprint
+import pytest
 
 from ycmd.tests.typescript import IsolatedYcmd, PathToTestFile, SharedYcmd
 from ycmd.tests.test_utils import ( BuildRequest,
@@ -83,7 +75,8 @@ def RunTest( app, test ):
 
   print( 'completer response: {0}'.format( pprint.pformat( response.json ) ) )
 
-  eq_( response.status_code, test[ 'expect' ][ 'response' ] )
+  assert_that( response.status_code,
+               equal_to( test[ 'expect' ][ 'response' ] ) )
 
   assert_that( response.json, test[ 'expect' ][ 'data' ] )
 
@@ -129,8 +122,8 @@ def Subcommands_Format_WholeFile_Spaces_test( app ):
     'expect': {
       'response': requests.codes.ok,
       'data': has_entries( {
-        'fixits': contains( has_entries( {
-          'chunks': contains(
+        'fixits': contains_exactly( has_entries( {
+          'chunks': contains_exactly(
             ChunkMatcher( '    ',
                           LocationMatcher( filepath,  3,  1 ),
                           LocationMatcher( filepath,  3,  3 ) ),
@@ -206,8 +199,8 @@ def Subcommands_Format_WholeFile_Tabs_test( app ):
     'expect': {
       'response': requests.codes.ok,
       'data': has_entries( {
-        'fixits': contains( has_entries( {
-          'chunks': contains(
+        'fixits': contains_exactly( has_entries( {
+          'chunks': contains_exactly(
             ChunkMatcher( '\t',
                           LocationMatcher( filepath,  3,  1 ),
                           LocationMatcher( filepath,  3,  3 ) ),
@@ -293,8 +286,8 @@ def Subcommands_Format_Range_Spaces_test( app ):
     'expect': {
       'response': requests.codes.ok,
       'data': has_entries( {
-        'fixits': contains( has_entries( {
-          'chunks': contains(
+        'fixits': contains_exactly( has_entries( {
+          'chunks': contains_exactly(
             ChunkMatcher( '    ',
                           LocationMatcher( filepath,  6,  1 ),
                           LocationMatcher( filepath,  6,  3 ) ),
@@ -320,7 +313,7 @@ def Subcommands_Format_Range_Spaces_test( app ):
   } )
 
 
-@SharedYcmd
+@IsolatedYcmd()
 def Subcommands_Format_Range_Tabs_test( app ):
   filepath = PathToTestFile( 'test.ts' )
   RunTest( app, {
@@ -347,8 +340,8 @@ def Subcommands_Format_Range_Tabs_test( app ):
     'expect': {
       'response': requests.codes.ok,
       'data': has_entries( {
-        'fixits': contains( has_entries( {
-          'chunks': contains(
+        'fixits': contains_exactly( has_entries( {
+          'chunks': contains_exactly(
             ChunkMatcher( '\t',
                           LocationMatcher( filepath,  6,  1 ),
                           LocationMatcher( filepath,  6,  3 ) ),
@@ -586,7 +579,6 @@ def Subcommands_GoToReferences_Unicode_test( app ):
   } )
 
 
-@SharedYcmd
 def Subcommands_GoTo_Basic( app, goto_command ):
   RunTest( app, {
     'description': goto_command + ' works within file',
@@ -603,12 +595,14 @@ def Subcommands_GoTo_Basic( app, goto_command ):
   } )
 
 
-def Subcommands_GoTo_Basic_test():
-  for command in [ 'GoTo', 'GoToDefinition', 'GoToDeclaration' ]:
-    yield Subcommands_GoTo_Basic, command
-
-
+@pytest.mark.parametrize( 'command', [ 'GoTo',
+                                       'GoToDefinition',
+                                       'GoToDeclaration' ] )
 @SharedYcmd
+def Subcommands_GoTo_Basic_test( app, command ):
+  Subcommands_GoTo_Basic( app, command )
+
+
 def Subcommands_GoTo_Unicode( app, goto_command ):
   RunTest( app, {
     'description': goto_command + ' works with Unicode characters',
@@ -625,12 +619,14 @@ def Subcommands_GoTo_Unicode( app, goto_command ):
   } )
 
 
-def Subcommands_GoTo_Unicode_test():
-  for command in [ 'GoTo', 'GoToDefinition', 'GoToDeclaration' ]:
-    yield Subcommands_GoTo_Unicode, command
-
-
+@pytest.mark.parametrize( 'command', [ 'GoTo',
+                                       'GoToDefinition',
+                                       'GoToDeclaration' ] )
 @SharedYcmd
+def Subcommands_GoTo_Unicode_test( app, command ):
+  Subcommands_GoTo_Unicode( app, command )
+
+
 def Subcommands_GoTo_Fail( app, goto_command ):
   RunTest( app, {
     'description': goto_command + ' fails on non-existing method',
@@ -647,9 +643,12 @@ def Subcommands_GoTo_Fail( app, goto_command ):
   } )
 
 
-def Subcommands_GoTo_Fail_test():
-  for command in [ 'GoTo', 'GoToDefinition', 'GoToDeclaration' ]:
-    yield Subcommands_GoTo_Fail, command
+@pytest.mark.parametrize( 'command', [ 'GoTo',
+                                       'GoToDefinition',
+                                       'GoToDeclaration' ] )
+@SharedYcmd
+def Subcommands_GoTo_Fail_test( app, command ):
+  Subcommands_GoTo_Fail( app, command )
 
 
 @SharedYcmd
@@ -702,7 +701,7 @@ def Subcommands_FixIt_test( app ):
         'fixits': contains_inanyorder(
           has_entries( {
             'text': "Declare method 'nonExistingMethod'",
-            'chunks': contains(
+            'chunks': contains_exactly(
               ChunkMatcher(
                 matches_regexp(
                   '^\r?\n'
@@ -717,7 +716,7 @@ def Subcommands_FixIt_test( app ):
           } ),
           has_entries( {
             'text': "Declare property 'nonExistingMethod'",
-            'chunks': contains(
+            'chunks': contains_exactly(
               ChunkMatcher(
                 matches_regexp( '^\r?\n'
                                 '    nonExistingMethod: any;$' ),
@@ -728,7 +727,7 @@ def Subcommands_FixIt_test( app ):
           } ),
           has_entries( {
             'text': "Add index signature for property 'nonExistingMethod'",
-            'chunks': contains(
+            'chunks': contains_exactly(
               ChunkMatcher(
                 matches_regexp( '^\r?\n'
                                 '    \\[x: string\\]: any;$' ),
@@ -756,8 +755,8 @@ def Subcommands_OrganizeImports_test( app ):
     'expect': {
       'response': requests.codes.ok,
       'data': has_entries( {
-        'fixits': contains( has_entries( {
-          'chunks': contains(
+        'fixits': contains_exactly( has_entries( {
+          'chunks': contains_exactly(
             ChunkMatcher(
               matches_regexp(
                 'import \\* as lib from "library";\r?\n'
@@ -832,7 +831,7 @@ def Subcommands_RefactorRename_Simple_test( app ):
     'expect': {
       'response': requests.codes.ok,
       'data': has_entries( {
-        'fixits': contains( has_entries( {
+        'fixits': contains_exactly( has_entries( {
           'chunks': contains_inanyorder(
             ChunkMatcher(
               'test',
@@ -864,7 +863,7 @@ def Subcommands_RefactorRename_MultipleFiles_test( app ):
     'expect': {
       'response': requests.codes.ok,
       'data': has_entries( {
-        'fixits': contains( has_entries( {
+        'fixits': contains_exactly( has_entries( {
           'chunks': contains_inanyorder(
             ChunkMatcher(
               'this-is-a-longer-string',
@@ -912,7 +911,7 @@ def Subcommands_RefactorRename_SimpleUnicode_test( app ):
     'expect': {
       'response': requests.codes.ok,
       'data': has_entries( {
-        'fixits': contains( has_entries( {
+        'fixits': contains_exactly( has_entries( {
           'chunks': contains_inanyorder(
             ChunkMatcher(
               'ø',
@@ -956,7 +955,7 @@ def Subcommands_StopServer_Timeout_test( app ):
   assert_that( app.post_json( '/debug_info', request_data ).json,
                has_entry(
                  'completer',
-                 has_entry( 'servers', contains(
+                 has_entry( 'servers', contains_exactly(
                    has_entry( 'is_running', False )
                  ) )
                ) )

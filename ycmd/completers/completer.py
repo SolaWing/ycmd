@@ -1,4 +1,4 @@
-# Copyright (C) 2011-2018 ycmd contributors
+# Copyright (C) 2011-2020 ycmd contributors
 #
 # This file is part of ycmd.
 #
@@ -15,19 +15,11 @@
 # You should have received a copy of the GNU General Public License
 # along with ycmd.  If not, see <http://www.gnu.org/licenses/>.
 
-from __future__ import unicode_literals
-from __future__ import print_function
-from __future__ import division
-from __future__ import absolute_import
-# Not installing aliases from python-future; it's unreliable and slow.
-from builtins import *  # noqa
-
 import abc
 import threading
 from ycmd import utils
 from ycmd.completers import completer_utils
 from ycmd.responses import NoDiagnosticSupport, SignatureHelpAvailalability
-from future.utils import with_metaclass
 
 NO_USER_COMMANDS = 'This completer does not define any commands.'
 
@@ -35,7 +27,7 @@ NO_USER_COMMANDS = 'This completer does not define any commands.'
 MESSAGE_POLL_TIMEOUT = 10
 
 
-class Completer( with_metaclass( abc.ABCMeta, object ) ):
+class Completer( metaclass = abc.ABCMeta ):
   """A base class for all Completers in YCM.
 
   Here's several important things you need to know if you're writing a custom
@@ -502,7 +494,7 @@ class Completer( with_metaclass( abc.ABCMeta, object ) ):
     return False
 
 
-class CompletionsCache( object ):
+class CompletionsCache:
   """Cache of computed completions for a particular request."""
 
   def __init__( self ):

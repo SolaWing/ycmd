@@ -7,24 +7,20 @@ jobs:
     vmImage: 'ubuntu-16.04'
   strategy:
     matrix:
-      # Tests are failing on Python 2.7.0 with the exception
-      # "TypeError: argument can't be <type 'unicode'>"
-      'Python 2.7 without libclang completer':
-        YCM_PYTHON_VERSION: '2.7.13'
+      'Python 3.6 without libclang completer':
+        YCM_PYTHON_VERSION: '3.6.3'
         USE_CLANG_COMPLETER: false
-      'Python 2.7':
-        YCM_PYTHON_VERSION: '2.7.13'
-      'Python 3.5':
-        YCM_PYTHON_VERSION: '3.5.3'
-      'Python 3.5 using Clang compiler':
-        YCM_PYTHON_VERSION: '3.5.3'
+      'Python 3.6':
+        YCM_PYTHON_VERSION: '3.6.3'
+      'Python 3.6 using Clang compiler':
+        YCM_PYTHON_VERSION: '3.6.3'
         YCM_COMPILER: 'clang'
       'C++ benchmark':
-        YCM_PYTHON_VERSION: '3.5.3'
+        YCM_PYTHON_VERSION: '3.6.3'
         YCM_BENCHMARK: true
         COVERAGE: false
       'C++ linting':
-        YCM_PYTHON_VERSION: '3.5.3'
+        YCM_PYTHON_VERSION: '3.6.3'
         YCM_CLANG_TIDY: true
         COVERAGE: false
     maxParallel: 6
@@ -58,14 +54,10 @@ jobs:
     vmImage: 'macOS-10.13'
   strategy:
     matrix:
-      'Python 2.7':
-        # Prior versions fail to compile with error "ld: library not found for
-        # -lSystemStubs"
-        YCM_PYTHON_VERSION: '2.7.13'
-      'Python 3.5':
-        YCM_PYTHON_VERSION: '3.5.3'
+      'Python 3.6':
+        YCM_PYTHON_VERSION: '3.6.3'
       'C++ benchmark':
-        YCM_PYTHON_VERSION: '3.5.3'
+        YCM_PYTHON_VERSION: '3.6.3'
         YCM_BENCHMARK: true
     maxParallel: 3
   variables:
@@ -95,8 +87,8 @@ jobs:
     vmImage: 'vs2015-win2012r2'
   strategy:
     matrix:
-      'Python 3.7 64-bit':
-        YCM_PYTHON_INSTALLER_URL: 'https://www.python.org/ftp/python/3.7.3/python-3.7.3-amd64.exe'
+      'Python 3.8 64-bit':
+        YCM_PYTHON_INSTALLER_URL: 'https://www.python.org/ftp/python/3.8.1/python-3.8.1-amd64.exe'
   variables:
     MSVC: 14
     MSBUILD_PATH: 'C:\Program Files (x86)\MSBuild\14.0\Bin'
@@ -120,8 +112,8 @@ jobs:
     vmImage: 'vs2017-win2016'
   strategy:
     matrix:
-      'Python 3.7 64-bit':
-        YCM_PYTHON_INSTALLER_URL: 'https://www.python.org/ftp/python/3.7.3/python-3.7.3-amd64.exe'
+      'Python 3.8 64-bit':
+        YCM_PYTHON_INSTALLER_URL: 'https://www.python.org/ftp/python/3.8.1/python-3.8.1-amd64.exe'
   variables:
     MSVC: 15
     MSBUILD_PATH: 'C:\Program Files (x86)\Microsoft Visual Studio\2017\Enterprise\MSBuild\15.0\Bin'
@@ -145,14 +137,12 @@ jobs:
     vmImage: 'windows-2019'
   strategy:
     matrix:
-      'Python 2.7 64-bit':
-        YCM_PYTHON_INSTALLER_URL: 'https://www.python.org/ftp/python/2.7.15/python-2.7.15.amd64.msi'
-      'Python 3.7 32-bit':
-        YCM_PYTHON_INSTALLER_URL: 'https://www.python.org/ftp/python/3.7.3/python-3.7.3.exe'
-      'Python 3.7 64-bit':
-        YCM_PYTHON_INSTALLER_URL: 'https://www.python.org/ftp/python/3.7.3/python-3.7.3-amd64.exe'
+      'Python 3.8 32-bit':
+        YCM_PYTHON_INSTALLER_URL: 'https://www.python.org/ftp/python/3.8.1/python-3.8.1.exe'
+      'Python 3.8 64-bit':
+        YCM_PYTHON_INSTALLER_URL: 'https://www.python.org/ftp/python/3.8.1/python-3.8.1-amd64.exe'
       'C++ benchmark':
-        YCM_PYTHON_INSTALLER_URL: 'https://www.python.org/ftp/python/3.7.3/python-3.7.3-amd64.exe'
+        YCM_PYTHON_INSTALLER_URL: 'https://www.python.org/ftp/python/3.8.1/python-3.8.1-amd64.exe'
         YCM_BENCHMARK: true
         COVERAGE: false
     maxParallel: 4

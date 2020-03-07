@@ -1,4 +1,4 @@
-# Copyright (C) 2011-2018 ycmd contributors
+# Copyright (C) 2011-2020 ycmd contributors
 #
 # This file is part of ycmd.
 #
@@ -15,28 +15,21 @@
 # You should have received a copy of the GNU General Public License
 # along with ycmd.  If not, see <http://www.gnu.org/licenses/>.
 
-from __future__ import absolute_import
-from __future__ import unicode_literals
-from __future__ import print_function
-from __future__ import division
-# Not installing aliases from python-future; it's unreliable and slow.
-from builtins import *  # noqa
-
 from collections import defaultdict
-from future.utils import itervalues, PY2
 import os
 import errno
 import time
 import requests
 import threading
+from urllib.parse import urljoin
 
 from ycmd.completers.completer import Completer
 from ycmd.completers.completer_utils import GetFileLines
 from ycmd.completers.cs import solutiondetection
 from ycmd.utils import ( ByteOffsetToCodepointOffset,
                          CodepointOffsetToByteOffset,
-                         LOGGER,
-                         urljoin )
+                         FindExecutableWithFallback,
+                         LOGGER )
 from ycmd import responses
 from ycmd import utils
 
@@ -49,13 +42,22 @@ PATH_TO_ROSLYN_OMNISHARP = os.path.join(
   os.path.abspath( os.path.dirname( __file__ ) ),
   '..', '..', '..', 'third_party', 'omnisharp-roslyn'
 )
-PATH_TO_ROSLYN_OMNISHARP_BINARY = os.path.join(
+PATH_TO_OMNISHARP_ROSLYN_BINARY = os.path.join(
   PATH_TO_ROSLYN_OMNISHARP, 'Omnisharp.exe' )
-if ( not os.path.isfile( PATH_TO_ROSLYN_OMNISHARP_BINARY )
+if ( not os.path.isfile( PATH_TO_OMNISHARP_ROSLYN_BINARY )
      and os.path.isfile( os.path.join( PATH_TO_ROSLYN_OMNISHARP, 'run' ) ) ):
-  PATH_TO_ROSLYN_OMNISHARP_BINARY = (
+  PATH_TO_OMNISHARP_ROSLYN_BINARY = (
     os.path.join( PATH_TO_ROSLYN_OMNISHARP, 'run' ) )
 LOGFILE_FORMAT = 'omnisharp_{port}_{sln}_{std}_'
+
+
+def ShouldEnableCsCompleter( user_options ):
+  roslyn = FindExecutableWithFallback( user_options[ 'roslyn_binary_path' ],
+                                       PATH_TO_OMNISHARP_ROSLYN_BINARY )
+  if roslyn:
+    return True
+  LOGGER.info( 'No omnisharp-roslyn executable at %s', roslyn )
+  return False
 
 
 class CsharpCompleter( Completer ):
@@ -64,21 +66,20 @@ class CsharpCompleter( Completer ):
   """
 
   def __init__( self, user_options ):
-    super( CsharpCompleter, self ).__init__( user_options )
+    super().__init__( user_options )
     self._solution_for_file = {}
     self._completer_per_solution = {}
     self._diagnostic_store = None
     self._solution_state_lock = threading.Lock()
     self.SetSignatureHelpTriggers( [ '(', ',' ] )
-
-    if not os.path.isfile( PATH_TO_ROSLYN_OMNISHARP_BINARY ):
-      raise RuntimeError(
-           SERVER_NOT_FOUND_MSG.format( PATH_TO_ROSLYN_OMNISHARP_BINARY ) )
+    self._roslyn_path = FindExecutableWithFallback(
+        user_options[ 'roslyn_binary_path' ],
+        PATH_TO_OMNISHARP_ROSLYN_BINARY )
 
 
   def Shutdown( self ):
     if self.user_options[ 'auto_stop_csharp_server' ]:
-      for solutioncompleter in itervalues( self._completer_per_solution ):
+      for solutioncompleter in self._completer_per_solution.values():
         solutioncompleter._StopServer()
 
 
@@ -99,7 +100,8 @@ class CsharpCompleter( Completer ):
         desired_omnisharp_port = self.user_options.get( 'csharp_server_port' )
         completer = CsharpSolutionCompleter( solution,
                                              keep_logfiles,
-                                             desired_omnisharp_port )
+                                             desired_omnisharp_port,
+                                             self._roslyn_path )
         self._completer_per_solution[ solution ] = completer
 
     return self._completer_per_solution[ solution ]
@@ -305,7 +307,7 @@ class CsharpCompleter( Completer ):
       omnisharp_server = responses.DebugInfoServer(
         name = 'OmniSharp',
         handle = None,
-        executable = PATH_TO_ROSLYN_OMNISHARP_BINARY )
+        executable = self._roslyn_path )
 
       return responses.BuildDebugInfoResponse( name = 'C#',
                                                servers = [ omnisharp_server ] )
@@ -339,7 +341,7 @@ class CsharpCompleter( Completer ):
 
 
   def _CheckAllRunning( self, action ):
-    solutioncompleters = itervalues( self._completer_per_solution )
+    solutioncompleters = self._completer_per_solution.values()
     return all( action( completer ) for completer in solutioncompleters
                 if completer._ServerIsRunning() )
 
@@ -357,7 +359,11 @@ class CsharpCompleter( Completer ):
 
 
 class CsharpSolutionCompleter( object ):
-  def __init__( self, solution_path, keep_logfiles, desired_omnisharp_port ):
+  def __init__( self,
+                solution_path,
+                keep_logfiles,
+                desired_omnisharp_port,
+                roslyn_path ):
     self._solution_path = solution_path
     self._keep_logfiles = keep_logfiles
     self._filename_stderr = None
@@ -366,6 +372,7 @@ class CsharpSolutionCompleter( object ):
     self._omnisharp_phandle = None
     self._desired_omnisharp_port = desired_omnisharp_port
     self._server_state_lock = threading.RLock()
+    self._roslyn_path = roslyn_path
 
 
   def CodeCheck( self, request_data ):
@@ -389,18 +396,14 @@ class CsharpSolutionCompleter( object ):
 
       self._ChooseOmnisharpPort()
 
-      # Roslyn fails unless you open it in shell in Window on Python 2
-      # Shell isn't preferred, but I don't see any other way to resolve
-      shell_required = PY2 and utils.OnWindows()
-
-      command = [ PATH_TO_ROSLYN_OMNISHARP_BINARY,
+      command = [ PATH_TO_OMNISHARP_ROSLYN_BINARY,
                   '-p',
                   str( self._omnisharp_port ),
                   '-s',
                   str( self._solution_path ) ]
 
       if ( not utils.OnWindows()
-           and PATH_TO_ROSLYN_OMNISHARP_BINARY.endswith( '.exe' ) ):
+           and self._roslyn_path.endswith( '.exe' ) ):
         command.insert( 0, 'mono' )
 
       LOGGER.info( 'Starting OmniSharp server with: %s', command )
@@ -418,8 +421,7 @@ class CsharpSolutionCompleter( object ):
       with utils.OpenForStdHandle( self._filename_stderr ) as fstderr:
         with utils.OpenForStdHandle( self._filename_stdout ) as fstdout:
           self._omnisharp_phandle = utils.SafePopen(
-              command, stdout = fstdout, stderr = fstderr,
-              shell = shell_required )
+              command, stdout = fstdout, stderr = fstderr )
 
       LOGGER.info( 'Started OmniSharp server' )
 
@@ -759,7 +761,7 @@ class CsharpSolutionCompleter( object ):
   def _GetResponse( self, handler, parameters = {}, timeout = None ):
     """ Handle communication with server """
     target = urljoin( self._ServerLocation(), handler )
-    LOGGER.debug( 'TX: %s', parameters )
+    LOGGER.debug( 'TX (%s): %s', handler, parameters )
     response = requests.post( target, json = parameters, timeout = timeout )
     LOGGER.debug( 'RX: %s', response.json() )
     return response.json()

@@ -39,7 +39,7 @@ tests][test-setup].**
 
 This is all for Ubuntu Linux. Details on getting ycmd running on other OS's can
 be found in [YCM's instructions][ycm-install] (ignore the Vim-specific parts).
-Note that **ycmd runs on Python 2.7.1+ and 3.5.1+.**
+Note that **ycmd runs on Python 3.5.1+.**
 
 First, install the minimal dependencies:
 ```
@@ -100,8 +100,8 @@ completer and [clangd][clangd]-based completer that both provide semantic
 completion for C-family languages. [clangd][clangd] support is currently
 **experimental** and changes in the near future might break backwards
 compatibility. There's also a Jedi-based completer for semantic completion for
-Python, an OmniSharp-based completer for C#, a [Gocode][gocode]-based completer
-for Go (using [Godef][godef] for jumping to definitions), a TSServer-based
+Python, an OmniSharp-based completer for C#, a [gopls][gopls]-based completer
+for Go (using [gopls][gopls] for jumping to definitions), a TSServer-based
 completer for JavaScript and TypeScript, a [jdt.ls][jdtls]-based server for
 Java, and a [RLS][]-based completer for Rust. More will be added with time.
 
@@ -183,9 +183,8 @@ of the following return codes if unsuccessful:
 
 - 3: unexpected error while loading the library;
 - 4: the `ycm_core` library is missing;
-- 5: the `ycm_core` library is compiled for Python 2 but loaded in Python 3;
-- 6: the `ycm_core` library is compiled for Python 3 but loaded in Python 2;
 - 7: the version of the `ycm_core` library is outdated.
+- 8: server is started with python; recompile with python3.
 
 User-level customization
 -----------------------
@@ -294,6 +293,13 @@ LSP completers currently supported without `language_server`:
 - Rust
 - Go
 - C-family
+
+One can also override the root directory, with `project_directory`.
+
+```python
+def Settings( **kwargs ):
+  return { 'project_directory': 'src/' } # The path may be absolute as well.
+```
 
 ##### C-family settings
 
@@ -481,8 +487,6 @@ This software is licensed under the [GPL v3 license][gpl].
 [extra-conf-doc]: https://github.com/ycm-core/YouCompleteMe#c-family-semantic-completion
 [emacs-ycmd]: https://github.com/abingham/emacs-ycmd
 [gpl]: http://www.gnu.org/copyleft/gpl.html
-[gocode]: https://github.com/nsf/gocode
-[godef]: https://github.com/Manishearth/godef
 [kak-ycmd]: https://github.com/mawww/kak-ycmd
 [ccoc]: https://github.com/ycm-core/ycmd/blob/master/CODE_OF_CONDUCT.md
 [dev-setup]: https://github.com/ycm-core/ycmd/blob/master/DEV_SETUP.md

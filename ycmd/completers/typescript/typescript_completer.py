@@ -1,4 +1,4 @@
-# Copyright (C) 2015-2018 ycmd contributors
+# Copyright (C) 2015-2020 ycmd contributors
 #
 # This file is part of ycmd.
 #
@@ -14,13 +14,6 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with ycmd.  If not, see <http://www.gnu.org/licenses/>.
-
-from __future__ import unicode_literals
-from __future__ import print_function
-from __future__ import division
-from __future__ import absolute_import
-# Not installing aliases from python-future; it's unreliable and slow.
-from builtins import *  # noqa
 
 import json
 import logging
@@ -51,7 +44,7 @@ TSSERVER_DIR = os.path.abspath(
 LOGFILE_FORMAT = 'tsserver_'
 
 
-class DeferredResponse( object ):
+class DeferredResponse:
   """
   A deferred that resolves to a response from TSServer.
   """
@@ -78,7 +71,10 @@ class DeferredResponse( object ):
       return self._message[ 'body' ]
 
 
-def FindTSServer():
+def FindTSServer( user_options_path ):
+  tsserver = utils.FindExecutableWithFallback( user_options_path , None )
+  if tsserver and os.path.isfile( tsserver ):
+    return tsserver
   # The TSServer executable is installed at the root directory on Windows while
   # it's installed in the bin folder on other platforms.
   for executable in [ os.path.join( TSSERVER_DIR, 'bin', 'tsserver' ),
@@ -90,8 +86,8 @@ def FindTSServer():
   return None
 
 
-def ShouldEnableTypeScriptCompleter():
-  tsserver = FindTSServer()
+def ShouldEnableTypeScriptCompleter( user_options ):
+  tsserver = FindTSServer( user_options[ 'tsserver_binary_path' ] )
   if not tsserver:
     LOGGER.error( 'Not using TypeScript completer: TSServer not installed '
                   'in %s', TSSERVER_DIR )
@@ -138,14 +134,15 @@ class TypeScriptCompleter( Completer ):
 
 
   def __init__( self, user_options ):
-    super( TypeScriptCompleter, self ).__init__( user_options )
+    super().__init__( user_options )
 
     self._logfile = None
 
     self._tsserver_lock = threading.RLock()
     self._tsserver_handle = None
     self._tsserver_version = None
-    self._tsserver_executable = FindTSServer()
+    self._tsserver_executable = FindTSServer(
+        user_options[ 'tsserver_binary_path' ] )
     # Used to read response only if TSServer is running.
     self._tsserver_is_running = threading.Event()
 
@@ -203,7 +200,7 @@ class TypeScriptCompleter( Completer ):
       # looking at the source code it seems like this is the way:
       # https://github.com/Microsoft/TypeScript/blob/8a93b489454fdcbdf544edef05f73a913449be1d/src/server/server.ts#L136
       environ = os.environ.copy()
-      utils.SetEnviron( environ, 'TSS_LOG', tsserver_log )
+      environ[ 'TSS_LOG' ] = tsserver_log
 
       LOGGER.info( 'TSServer log file: %s', self._logfile )
 
