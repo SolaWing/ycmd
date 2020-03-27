@@ -27,7 +27,7 @@ from ycmd.completers.language_server.simple_language_server_completer import (
 LOGFILE_FORMAT = 'rubyls_'
 PROJECT_ROOT_FILES = [
   'Gemfile',
-  '.solargraph.yml',
+  # only use Gemfile as root, solargraph will use relative path from Gemfile
 ]
 
 
