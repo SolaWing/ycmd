@@ -1,7 +1,7 @@
 我实现的功能:
 feat: 过滤算法
 feat: objc补全, 头文件补全
-feat: swift补全
+feat: swift补全, diag
 feat: ruby补全
 feat: diag排序
 feat: 根据语言默认ctags补全

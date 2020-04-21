@@ -194,8 +194,8 @@ class RubyCompleter( SimpleLSPCompleter ):
         else:
             self._command_line = [lang_server_bin, "stdio"]
             # self._command_line = ["nc", "127.0.0.1", "7658"]
-            settings['diagnostics'] = True
-            settings['formatting'] = True
+        settings['diagnostics'] = True
+        settings['formatting'] = True
       settings['logLevel'] = self._ServerLoggingLevel
       # settings['logLevel'] = 'debug'
 
