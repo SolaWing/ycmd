@@ -18,28 +18,15 @@
 #include "IdentifierUtils.h"
 #include "Utils.h"
 
-#include <boost/regex.hpp>
 #include <unordered_map>
+
+#include <sstream>
 
 namespace YouCompleteMe {
 
 namespace fs = boost::filesystem;
 
 namespace {
-
-// For details on the tag format supported, see here for details:
-// http://ctags.sourceforge.net/FORMAT
-// TL;DR: The only supported format is the one Exuberant Ctags emits.
-
-// const char *const TAG_REGEX =
-//   "^([^\\t\\n\\r]+)"  // The first field is the identifier
-//   "\\t"  // A TAB char is the field separator
-//   // The second field is the path to the file that has the identifier; either
-//   // absolute or relative to the tags file.
-//   "([^\\t\\n\\r]+)"
-//   "\\t.*?"  // Non-greedy everything
-//   "(?:language:([^\\t\\n\\r]+))?"  // We want to capture the language of the file
-//   ;
 
 // Only used as the equality comparer for the below unordered_map which stores
 // const char* pointers and not std::string but needs to hash based on string
@@ -171,22 +158,24 @@ const StaticMap *LANG_TO_FILETYPE = new StaticMap {
 }  // unnamed namespace
 
 
+// For details on the tag format supported, see here for details:
+// http://ctags.sourceforge.net/FORMAT
+// TL;DR: The only supported format is the one Exuberant Ctags emits.
 FiletypeIdentifierMap ExtractIdentifiersFromTagsFile(
   const fs::path &path_to_tag_file ) {
   FiletypeIdentifierMap filetype_identifier_map;
-  std::string tags_file_contents;
+  std::vector<std::string> tags_file_contents;
 
   try {
-    tags_file_contents = ReadUtf8File( path_to_tag_file );
+      tags_file_contents = ReadUtf8File(path_to_tag_file);
   } catch ( ... ) {
     return filetype_identifier_map;
   }
 
-  std::istringstream istring {tags_file_contents};
-  std::string line;
+  std::string* line;
   std::string const languageMarker{"language:"};
   auto appendLine = [&]{
-      std::istringstream iline {line};
+      std::istringstream iline {*line};
       std::string identifier, p;
       if (!std::getline(iline, identifier, '\t')) { return; }
       if (!std::getline(iline, p, '\t')) { return; }
@@ -213,17 +202,19 @@ FiletypeIdentifierMap ExtractIdentifiersFromTagsFile(
       path = NormalizePath( path, path_to_tag_file.parent_path() );
       filetype_identifier_map[ std::move(filetype) ][ path.string() ].push_back( std::move(identifier) );
   };
-  // skip prefix headerr
-  while (std::getline(istring, line)) {
-      if (!(line.length() > 0 && line[0] == '!')) {
-          appendLine();
-          break;
-      }
-  }
-  while (std::getline(istring, line)) {
-      appendLine();
-  }
-  return filetype_identifier_map;
+    // skip prefix headerr
+    int i = 0;
+    for (; i < tags_file_contents.size(); ++i) {
+        line = &tags_file_contents[i];
+        if (!(line->length() > 0 && (*line)[0] == '!')) {
+            break;
+        }
+    }
+    for (; i < tags_file_contents.size(); ++i) {
+        line = &tags_file_contents[i];
+        appendLine();
+    }
+    return filetype_identifier_map;
 }
 
 } // namespace YouCompleteMe

@@ -101,6 +101,12 @@ SEVERITY = [
   'Hint',
 ]
 
+FILE_EVENT_KIND = {
+  'create': 1,
+  'modify': 2,
+  'delete': 3
+}
+
 
 class InvalidUriException( Exception ):
   """Raised when trying to convert a server URI to a file path but the scheme
@@ -282,7 +288,13 @@ def Initialize( request_id, project_directory, settings ):
     'rootUri': FilePathToUri( project_directory ),
     'initializationOptions': settings,
     'capabilities': {
-      'workspace': { 'applyEdit': True, 'documentChanges': True },
+      'workspace': {
+        'applyEdit': True,
+        'didChangeWatchedFiles': {
+          'dynamicRegistration': True
+        },
+        'documentChanges': True
+      },
       'textDocument': {
         'codeAction': {
           'codeActionLiteralSupport': {
@@ -327,6 +339,9 @@ def Initialize( request_id, project_directory, settings ):
             ],
           },
         },
+        'synchronization': {
+          'didSave': True
+        },
       },
     },
   } )
@@ -342,6 +357,10 @@ def Shutdown( request_id ):
 
 def Exit():
   return BuildNotification( 'exit', None )
+
+
+def Void( request ):
+  return Accept( request, None )
 
 
 def Reject( request, request_error, data = None ):
@@ -364,9 +383,18 @@ def Accept( request, result ):
   return BuildResponse( request, msg )
 
 
-def ApplyEditResponse( request ):
-  msg = { 'applied': True }
+def ApplyEditResponse( request, applied ):
+  msg = { 'applied': applied }
   return Accept( request, msg )
+
+
+def DidChangeWatchedFiles( path, kind ):
+  return BuildNotification( 'workspace/didChangeWatchedFiles', {
+    'changes': [ {
+      'uri': FilePathToUri( path ),
+      'type': FILE_EVENT_KIND[ kind ]
+    } ]
+  } )
 
 
 def DidChangeConfiguration( config ):
@@ -404,6 +432,19 @@ def DidChangeTextDocument( file_state, file_contents, ranges = None ):
       change,
     ] if file_contents is not None else [],
   } )
+
+
+def DidSaveTextDocument( file_state, file_contents ):
+  params = {
+    'textDocument': {
+      'uri': FilePathToUri( file_state.filename ),
+      'version': file_state.version,
+    },
+  }
+  if file_contents is not None:
+    params.update( { 'text': file_contents } )
+
+  return BuildNotification( 'textDocument/didSave', params )
 
 
 def DidCloseTextDocument( file_state ):

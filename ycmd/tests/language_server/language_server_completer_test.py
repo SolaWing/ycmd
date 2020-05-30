@@ -31,6 +31,7 @@ from hamcrest import ( all_of,
                        is_not,
                        raises )
 
+from ycmd.completers import completer
 from ycmd.completers.language_server import language_server_completer as lsc
 from ycmd.completers.language_server.language_server_completer import (
     NoHoverInfoException,
@@ -63,6 +64,7 @@ class MockCompleter( lsc.LanguageServerCompleter, DummyCompleter ):
 
   def StartServer( self, request_data, **kwargs ):
     self._started = True
+    self._project_directory = self.GetProjectDirectory( request_data )
     return True
 
 
@@ -78,8 +80,12 @@ class MockCompleter( lsc.LanguageServerCompleter, DummyCompleter ):
     return self._started
 
 
-  def _RestartServer( self, request_data ):
-    pass
+  def GetCommandLine( self ):
+    return [ 'server' ]
+
+
+  def GetServerName( self ):
+    return 'mock_completer'
 
 
 @IsolatedYcmd( { 'global_ycm_extra_conf':
@@ -1359,6 +1365,25 @@ def LanguageServerCompleter_Diagnostics_PercentEncodeCannonical_test( app ):
         'filepath': filepath
       } ) )
     )
+
+
+@IsolatedYcmd()
+@patch.object( completer, 'MESSAGE_POLL_TIMEOUT', 0.01 )
+def LanguageServerCompleter_PollForMessages_ServerNotStarted_test( app ):
+  server = MockCompleter()
+  request_data = RequestWrap( BuildRequest() )
+  assert_that( server.PollForMessages( request_data ), equal_to( True ) )
+
+
+@IsolatedYcmd()
+def LanguageServerCompleter_OnFileSave_BeforeServerReady_test( app ):
+  completer = MockCompleter()
+  request_data = RequestWrap( BuildRequest() )
+  with patch.object( completer, 'ServerIsReady', return_value = False ):
+    with patch.object( completer.GetConnection(),
+                       'SendNotification' ) as send_notification:
+      completer.OnFileSave( request_data )
+      send_notification.assert_not_called()
 
 
 @IsolatedYcmd()

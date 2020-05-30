@@ -58,7 +58,6 @@ def ProjectPath( *args ):
                          *args )
 
 
-InternalNonProjectFile = PathToTestFile( DEFAULT_PROJECT_DIR, 'test.java' )
 TestFactory = ProjectPath( 'TestFactory.java' )
 TestLauncher = ProjectPath( 'TestLauncher.java' )
 TestWidgetImpl = ProjectPath( 'TestWidgetImpl.java' )
@@ -69,7 +68,6 @@ youcompleteme_Test = PathToTestFile( DEFAULT_PROJECT_DIR,
                                      'Test.java' )
 
 DIAG_MATCHERS_PER_FILE = {
-  InternalNonProjectFile: [],
   TestFactory: contains_inanyorder(
     has_entries( {
       'kind': 'WARNING',
@@ -648,7 +646,7 @@ def FileReadyToParse_ChangeFileContentsFileData_test( app ):
   assert_that( diags, empty() )
 
   # Now send the request again, but don't include the unsaved file. It should be
-  # read from disk, casuing the diagnostics for that file to appear.
+  # read from disk, causing the diagnostics for that file to appear.
   event_data = BuildRequest( event_name = 'FileReadyToParse',
                              contents = contents,
                              filepath = filepath,

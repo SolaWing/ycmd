@@ -20,8 +20,7 @@ import os
 import re
 from ycmd import responses, utils
 from ycmd.utils import LOGGER
-from ycmd.completers.language_server.simple_language_server_completer import (
-    SimpleLSPCompleter )
+from ycmd.completers.language_server import language_server_completer
 
 
 LOGFILE_FORMAT = 'rubyls_'
@@ -68,7 +67,7 @@ def _UseSorbet(project_dir):
 
 
 
-class RubyCompleter( SimpleLSPCompleter ):
+class RubyCompleter( language_server_completer.LanguageServerCompleter ):
   def __init__( self, user_options ):
     super( RubyCompleter, self ).__init__( user_options )
 
@@ -167,8 +166,7 @@ class RubyCompleter( SimpleLSPCompleter ):
           )]
       )
 
-  def StartServer( self, request_data ):
-    with self._server_state_mutex:
+  def _StartServerNoLock( self, request_data ):
       settings = self._settings['ls']
       self._project_directory = self.GetProjectDirectory(request_data)
       sorbet = None
@@ -199,11 +197,12 @@ class RubyCompleter( SimpleLSPCompleter ):
       settings['logLevel'] = self._ServerLoggingLevel
       # settings['logLevel'] = 'debug'
 
-      return super().StartServer(request_data)
+      return super()._StartServerNoLock(request_data)
 
-  # def _ShouldResolveCompletionItems( self ):
-  #   # FIXME: solargraph only append documentation into completionItem
-  #   # ignore it to avoid performance issue.
+  def _ShouldResolveCompletionItems( self ):
+    # FIXME: solargraph only append documentation into completionItem
+    # ignore it to avoid performance issue.
+    return False
 
 
   def ShouldUseNowInner(self, request_data):
