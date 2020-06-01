@@ -233,6 +233,7 @@ calculate_score:
       }
       // 连续匹配可能因为前缀被前面字符串部分匹配，而导致最佳连续数算错。
       // 如: aaabcd, abcd中a会匹配第一个a,导致连续数只有3，但应该是4。
+      // 因此需要尝试修正
       if (longest_count >= 2 && longest_start_index > 0) { // 至少2个以上连续时才尝试修正.
           auto previous_unmatch_candidate_iter = match_pairs[longest_start_index].second-1;
           auto origin_start = match_pairs[longest_start_index].first;
@@ -259,7 +260,7 @@ calculate_score:
       }
     }
 
-    size_t index_sum = 0;
+    size_t index_sum = 0; // sum by the match pos offset, so front match is lower
     size_t change_case_count = 0;
     { // loop for calculate index_sum and change_case_count
         for (auto range = match_pairs.cbegin(), e = match_pairs.cend() - 1; range != e; ++range) {

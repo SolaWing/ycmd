@@ -319,6 +319,7 @@ class SwiftCompleter( Completer ):
       return []
 
   def ComputeCandidatesInner( self, request_data ):
+      # SourceKit codecomplete no completion when have query..., can't pass query to it..
       data = self.RequestDataExtract(request_data)
       if data is None: return []
 
