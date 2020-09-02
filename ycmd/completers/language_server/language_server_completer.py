@@ -84,6 +84,9 @@ PROVIDERS_MAP = {
     lambda self, request_data, args: self.GoTo( request_data,
                                                 [ 'TypeDefinition' ] )
   ),
+  'workspaceSymbolProvider': (
+    lambda self, request_data, args: self.GoToSymbol( request_data, args )
+  ),
 }
 
 # Each command is mapped to a list of providers. This allows a command to use
@@ -104,6 +107,7 @@ DEFAULT_SUBCOMMANDS_MAP = {
   'GoToReferences':     [ 'referencesProvider' ],
   'RefactorRename':     [ 'renameProvider' ],
   'Format':             [ 'documentFormattingProvider' ],
+  'GoToSymbol':         [ 'workspaceSymbolProvider' ],
 }
 
 
@@ -202,9 +206,11 @@ class Response:
 
     if 'error' in self._message:
       error = self._message[ 'error' ]
-      raise ResponseFailedException( 'Request failed: {0}: {1}'.format(
-        error.get( 'code' ) or 0,
-        error.get( 'message' ) or 'No message' ) )
+      raise ResponseFailedException(
+        'Request failed: '
+        f'{ error.get( "code" ) or 0 }'
+        ': '
+        f'{ error.get( "message" ) or "No message" }' )
 
     return self._message
 
@@ -886,8 +892,6 @@ class LanguageServerCompleter( Completer ):
 
 
   def Language( self ):
-    """Returns the string used to identify the language in user's
-    .ycm_extra_conf.py file. Default to the completer name in lower case."""
     return self._language
 
 
@@ -907,8 +911,8 @@ class LanguageServerCompleter( Completer ):
                  self.GetServerName(),
                  self.GetCommandLine() )
 
-    self._stderr_file = utils.CreateLogfile( '{}_stderr'.format(
-      utils.MakeSafeFileNameString( self.GetServerName() ) ) )
+    self._stderr_file = utils.CreateLogfile(
+      f'{ utils.MakeSafeFileNameString( self.GetServerName() ) }_stderr' )
 
     with utils.OpenForStdHandle( self._stderr_file ) as stderr:
       self._server_handle = utils.SafePopen(
@@ -932,7 +936,9 @@ class LanguageServerCompleter( Completer ):
 
     self._connection.AwaitServerConnection()
 
-    LOGGER.info( '%s started', self.GetServerName() )
+    LOGGER.info( '%s started with PID %s',
+                 self.GetServerName(),
+                 self._server_handle.pid )
 
     return True
 
@@ -979,7 +985,7 @@ class LanguageServerCompleter( Completer ):
 
       with self._server_info_mutex:
         utils.WaitUntilProcessIsTerminated( self._server_handle,
-                                            timeout = 15 )
+                                            timeout = 30 )
 
         LOGGER.info( '%s stopped', self.GetServerName() )
     except Exception:
@@ -1300,12 +1306,16 @@ class LanguageServerCompleter( Completer ):
         sig[ 'parameters' ] = []
       for arg in sig[ 'parameters' ]:
         arg_label = arg[ 'label' ]
-        assert not isinstance( arg_label, list )
-        begin = sig[ 'label' ].find( arg_label, end )
-        end = begin + len( arg_label )
+        if not isinstance( arg_label, list ):
+          begin = sig[ 'label' ].find( arg_label, end )
+          end = begin + len( arg_label )
+        else:
+          begin, end = arg_label
         arg[ 'label' ] = [
           utils.CodepointOffsetToByteOffset( sig_label, begin ),
           utils.CodepointOffsetToByteOffset( sig_label, end ) ]
+    result.setdefault( 'activeParameter', 0 )
+    result.setdefault( 'activeSignature', 0 )
     return result
 
 
@@ -1470,20 +1480,6 @@ class LanguageServerCompleter( Completer ):
 
 
   def DefaultSettings( self, request_data ):
-    return {}
-
-
-  def GetSettings( self, module, request_data ):
-    if hasattr( module, 'Settings' ):
-      settings = module.Settings(
-        language = self.Language(),
-        filename = request_data[ 'filepath' ],
-        client_data = request_data[ 'extra_conf_data' ] )
-      if settings is not None:
-        return settings
-
-    LOGGER.debug( 'No Settings function defined in %s', module.__file__ )
-
     return {}
 
 
@@ -2158,6 +2154,40 @@ class LanguageServerCompleter( Completer ):
     return _LocationListToGoTo( request_data, result )
 
 
+  def GoToSymbol( self, request_data, args ):
+    if not self.ServerIsReady():
+      raise RuntimeError( 'Server is initializing. Please wait.' )
+
+    self._UpdateServerWithFileContents( request_data )
+
+    if len( args ) < 1:
+      raise RuntimeError( 'Must specify something to search for' )
+
+    query = args[ 0 ]
+
+    request_id = self.GetConnection().NextRequestId()
+    response = self.GetConnection().GetResponse(
+      request_id,
+      lsp.WorkspaceSymbol( request_id, query ),
+      REQUEST_TIMEOUT_COMMAND )
+
+    result = response.get( 'result' ) or []
+
+    locations = [
+      responses.BuildGoToResponseFromLocation(
+        _PositionToLocationAndDescription( request_data,
+                                           symbol_info[ 'location' ] )[ 0 ],
+        symbol_info[ 'name' ] ) for symbol_info in result
+    ]
+
+    if not locations:
+      raise RuntimeError( "Symbol not found" )
+    elif len( locations ) == 1:
+      return locations[ 0 ]
+    else:
+      return locations
+
+
   def GetCodeActions( self, request_data, args ):
     """Performs the codeAction request and returns the result as a FixIt
     response."""
@@ -2166,67 +2196,36 @@ class LanguageServerCompleter( Completer ):
 
     self._UpdateServerWithFileContents( request_data )
 
-    line_num_ls = request_data[ 'line_num' ] - 1
     request_id = self.GetConnection().NextRequestId()
-    if 'range' in request_data:
-      code_actions = self.GetConnection().GetResponse(
-        request_id,
-        lsp.CodeAction( request_id,
-                        request_data,
-                        lsp.Range( request_data ),
-                        [] ),
-        REQUEST_TIMEOUT_COMMAND )
-    else:
 
-      def WithinRange( diag ):
-        start = diag[ 'range' ][ 'start' ]
-        end = diag[ 'range' ][ 'end' ]
+    cursor_range_ls = lsp.Range( request_data )
 
-        if line_num_ls < start[ 'line' ] or line_num_ls > end[ 'line' ]:
-          return False
+    with self._server_info_mutex:
+      # _latest_diagnostics contains LSP rnages, _not_ YCM ranges
+      file_diagnostics = list( self._latest_diagnostics[
+          lsp.FilePathToUri( request_data[ 'filepath' ] ) ] )
 
-        return True
+    matched_diagnostics = [
+      d for d in file_diagnostics if lsp.RangesOverlap( d[ 'range' ],
+                                                        cursor_range_ls )
+    ]
 
-      with self._server_info_mutex:
-        file_diagnostics = list( self._latest_diagnostics[
-            lsp.FilePathToUri( request_data[ 'filepath' ] ) ] )
 
+    # If we didn't find any overlapping the strict range/character. Find any
+    # that overlap line of the cursor.
+    if not matched_diagnostics and 'range' not in request_data:
       matched_diagnostics = [
-        d for d in file_diagnostics if WithinRange( d )
+        d for d in file_diagnostics
+        if lsp.RangesOverlapLines( d[ 'range' ], cursor_range_ls )
       ]
 
-      if matched_diagnostics:
-        code_actions = self.GetConnection().GetResponse(
-          request_id,
-          lsp.CodeAction( request_id,
-                          request_data,
-                          matched_diagnostics[ 0 ][ 'range' ],
-                          matched_diagnostics ),
-          REQUEST_TIMEOUT_COMMAND )
-
-      else:
-        line_value = request_data[ 'line_value' ]
-
-        code_actions = self.GetConnection().GetResponse(
-          request_id,
-          lsp.CodeAction(
-            request_id,
-            request_data,
-            # Use the whole line
-            {
-              'start': {
-                'line': line_num_ls,
-                'character': 0,
-              },
-              'end': {
-                'line': line_num_ls,
-                'character': lsp.CodepointsToUTF16CodeUnits(
-                  line_value,
-                  len( line_value ) + 1 ) - 1,
-              }
-            },
-            [] ),
-          REQUEST_TIMEOUT_COMMAND )
+    code_actions = self.GetConnection().GetResponse(
+      request_id,
+      lsp.CodeAction( request_id,
+                      request_data,
+                      cursor_range_ls,
+                      matched_diagnostics ),
+      REQUEST_TIMEOUT_COMMAND )
 
     return self.CodeActionResponseToFixIts( request_data,
                                             code_actions[ 'result' ] )
@@ -2278,18 +2277,25 @@ class LanguageServerCompleter( Completer ):
 
 
   def CodeActionLiteralToFixIt( self, request_data, code_action_literal ):
-    return WorkspaceEditToFixIt( request_data,
-                                 code_action_literal[ 'edit' ],
-                                 code_action_literal[ 'title' ] )
+    return WorkspaceEditToFixIt(
+        request_data,
+        code_action_literal[ 'edit' ],
+        code_action_literal[ 'title' ],
+        code_action_literal.get( 'kind' ) )
 
 
   def CodeActionCommandToFixIt( self, request_data, code_action_command ):
     command = code_action_command[ 'command' ]
-    return self.CommandToFixIt( request_data, command )
+    return self.CommandToFixIt(
+        request_data,
+        command,
+        code_action_command.get( 'kind' ) )
 
 
-  def CommandToFixIt( self, request_data, command ):
-    return responses.UnresolvedFixIt( command, command[ 'title' ] )
+  def CommandToFixIt( self, request_data, command, kind = None ):
+    return responses.UnresolvedFixIt( command,
+                                      command[ 'title' ],
+                                      kind )
 
 
   def RefactorRename( self, request_data, args ):
@@ -2316,19 +2322,6 @@ class LanguageServerCompleter( Completer ):
       raise RuntimeError( 'Cannot rename the symbol under cursor.' )
 
     return responses.BuildFixItResponse( [ fixit ] )
-
-
-  def AdditionalFormattingOptions( self, request_data ):
-    # While we have the settings in self._settings[ 'formatting_options' ], we
-    # actually run Settings again here, which allows users to have different
-    # formatting options for different files etc. if they should decide that's
-    # appropriate.
-    module = extra_conf_store.ModuleForSourceFile( request_data[ 'filepath' ] )
-    try:
-      settings = self.GetSettings( module, request_data )
-      return settings.get( 'formatting_options', {} )
-    except AttributeError:
-      return {}
 
 
   def Format( self, request_data ):
@@ -2379,7 +2372,13 @@ class LanguageServerCompleter( Completer ):
 
     # Return a ycmd fixit
     response = collector.requests
-    assert len( response ) == 1
+    assert len( response ) < 2
+    if not response:
+      return responses.BuildFixItResponse( [ responses.FixIt(
+        responses.Location( request_data[ 'line_num' ],
+                            request_data[ 'column_num' ],
+                            request_data[ 'filepath' ] ),
+        [] ) ] )
     fixit = WorkspaceEditToFixIt(
       request_data,
       response[ 0 ][ 'edit' ],
@@ -2697,9 +2696,9 @@ def _GetCompletionItemStartCodepointOrReject( text_edit, request_data ):
 
   # Conservatively rejecting candidates that breach the protocol
   if edit_range[ 'start' ][ 'line' ] != edit_range[ 'end' ][ 'line' ]:
+    new_text = text_edit[ 'newText' ]
     raise IncompatibleCompletionException(
-      "The TextEdit '{0}' spans multiple lines".format(
-        text_edit[ 'newText' ] ) )
+      f"The TextEdit '{ new_text }' spans multiple lines" )
 
   file_contents = GetFileLines( request_data, request_data[ 'filepath' ] )
   line_value = file_contents[ edit_range[ 'start' ][ 'line' ] ]
@@ -2709,9 +2708,9 @@ def _GetCompletionItemStartCodepointOrReject( text_edit, request_data ):
     edit_range[ 'start' ][ 'character' ] + 1 )
 
   if start_codepoint > request_data[ 'start_codepoint' ]:
+    new_text = text_edit[ 'newText' ]
     raise IncompatibleCompletionException(
-      "The TextEdit '{0}' starts after the start position".format(
-        text_edit[ 'newText' ] ) )
+      f"The TextEdit '{ new_text }' starts after the start position" )
 
   return start_codepoint
 
@@ -2865,7 +2864,10 @@ def TextEditToChunks( request_data, uri, text_edit ):
   ]
 
 
-def WorkspaceEditToFixIt( request_data, workspace_edit, text='' ):
+def WorkspaceEditToFixIt( request_data,
+                          workspace_edit,
+                          text='',
+                          kind = None ):
   """Converts a LSP workspace edit to a ycmd FixIt suitable for passing to
   responses.BuildFixItResponse."""
 
@@ -2892,7 +2894,8 @@ def WorkspaceEditToFixIt( request_data, workspace_edit, text='' ):
                         request_data[ 'column_num' ],
                         request_data[ 'filepath' ] ),
     chunks,
-    text )
+    text,
+    kind )
 
 
 class LanguageServerCompletionsCache( CompletionsCache ):

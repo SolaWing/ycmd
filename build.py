@@ -21,8 +21,8 @@ import tempfile
 IS_64BIT = sys.maxsize > 2**32
 PY_MAJOR, PY_MINOR = sys.version_info[ 0 : 2 ]
 PY_VERSION = sys.version_info[ 0 : 3 ]
-if PY_VERSION < ( 3, 5, 1 ):
-  sys.exit( 'ycmd requires Python >= 3.5.1; '
+if PY_VERSION < ( 3, 6, 0 ):
+  sys.exit( 'ycmd requires Python >= 3.6.0; '
             'your version of Python is ' + sys.version +
             '\nHint: Try running python3 ' + ' '.join( sys.argv ) )
 
@@ -62,7 +62,7 @@ NO_PYTHON_HEADERS_ERROR = 'ERROR: Python headers are missing in {include_dir}.'
 # Regular expressions used to find static and dynamic Python libraries.
 # Notes:
 #  - Python 3 library name may have an 'm' suffix on Unix platforms, for
-#    instance libpython3.5m.so;
+#    instance libpython3.6m.so;
 #  - the linker name (the soname without the version) does not always
 #    exist so we look for the versioned names too;
 #  - on Windows, the .lib extension is used instead of the .dll one. See
@@ -81,16 +81,16 @@ DYNAMIC_PYTHON_LIBRARY_REGEX = """
   )$
 """
 
-JDTLS_MILESTONE = '0.54.0'
-JDTLS_BUILD_STAMP = '202004152304'
+JDTLS_MILESTONE = '0.59.0'
+JDTLS_BUILD_STAMP = '202007221016'
 JDTLS_SHA256 = (
-  '2e6474e39a85e243d869a88c5a4a569884d6e1bf3718b556c5584195a5bb9f2e'
+  'a3a7999032114673bd2212d929a74c56b22fece0fb7e7410bd82f3e17443a295'
 )
 
-TSSERVER_VERSION = '3.8.3'
+TSSERVER_VERSION = '3.9.7'
 
-RUST_TOOLCHAIN = 'nightly-2020-04-17'
-RLS_DIR = p.join( DIR_OF_THIRD_PARTY, 'rls' )
+RUST_TOOLCHAIN = 'nightly-2020-07-08'
+RLS_DIR = p.join( DIR_OF_THIRD_PARTY, 'rust-analyzer' )
 
 BUILD_ERROR_MESSAGE = (
   'ERROR: the build failed.\n\n'
@@ -795,46 +795,44 @@ def GetCsCompleterDataForPlatform():
   ####################################
   DATA = {
     'win32': {
+      'version': 'v1.35.4',
+      'download_url': ( 'https://github.com/OmniSharp/omnisharp-roslyn/release'
+                        's/download/v1.35.4/omnisharp.http-win-x86.zip' ),
       'file_name': 'omnisharp.http-win-x86.zip',
-      'version': 'v1.34.2',
-      'download_url': ( 'https://github.com/OmniSharp/omnisharp-roslyn/relea'
-                        'ses/download/v1.34.2/omnisharp.http-win-x86.zip' ),
-      'check_sum': ( 'd66ee6ce347bba58de06a585bff63e8f42178c8b212883be0700919'
-                     '61c3c63d6' ),
+      'check_sum': ( 'f6a44ec4e9edfbb4cb13626b09859d3dcd9b92e202f00b484d3c5956'
+                     '4dfa236b' ),
     },
     'win64': {
+      'version': 'v1.35.4',
+      'download_url': ( 'https://github.com/OmniSharp/omnisharp-roslyn/release'
+                        's/download/v1.35.4/omnisharp.http-win-x64.zip' ),
       'file_name': 'omnisharp.http-win-x64.zip',
-      'version': 'v1.34.2',
-      'download_url': ( 'https://github.com/OmniSharp/omnisharp-roslyn/relea'
-                        'ses/download/v1.34.2/omnisharp.http-win-x64.zip' ),
-      'check_sum': ( 'ab6bdac04b7225a69de11a0bdf0777facbe7d9895e9b6b4c8ebe8b5'
-                     '4b51412e5' ),
+      'check_sum': ( '18ea074d099592c211929754cbc616e9b640b4143d60b20b374e015b'
+                     '97932703' ),
     },
     'macos': {
+      'version': 'v1.35.4',
+      'download_url': ( 'https://github.com/OmniSharp/omnisharp-roslyn/release'
+                        's/download/v1.35.4/omnisharp.http-osx.tar.gz' ),
       'file_name': 'omnisharp.http-osx.tar.gz',
-      'version': 'v1.34.2',
-      'download_url': ( 'https://github.com/OmniSharp/omnisharp-roslyn/relea'
-                        'ses/download/v1.34.2/omnisharp.http-osx.tar.gz' ),
-      'check_sum': ( 'bea5e6e35a45bcece293ad2a32b717be16242d5ee6ca0004ca1c7af'
-                     'c9cacdbf7' ),
-    },
-    'linux64': {
-      'file_name': 'omnisharp.http-linux-x64.tar.gz',
-      'version': 'v1.34.2',
-      'download_url': ( 'https://github.com/OmniSharp/omnisharp-roslyn/relea'
-                        'ses/download/v1.34.2/omnisharp.http-linux-x64.tar.g'
-                        'z' ),
-      'check_sum': ( '16aa6f3d97c11829b3fc177cea5c221ddb952a5d372fe84e735f695'
-                     '50d661722' ),
+      'check_sum': ( '5e7e4870605ea53c1588d6a11e31a277b062b29477c3486d43a3c609'
+                     '99f1cae8' ),
     },
     'linux32': {
+      'version': 'v1.35.4',
+      'download_url': ( 'https://github.com/OmniSharp/omnisharp-roslyn/release'
+                        's/download/v1.35.4/omnisharp.http-linux-x86.tar.gz' ),
       'file_name': 'omnisharp.http-linux-x86.tar.gz',
-      'version': 'v1.34.2',
-      'download_url': ( 'https://github.com/OmniSharp/omnisharp-roslyn/relea'
-                        'ses/download/v1.34.2/omnisharp.http-linux-x86.tar.g'
-                        'z' ),
-      'check_sum': ( '6f89480ce95286640f670943f5d8e0d1f1c28db6bab07461be3f452'
-                     'e8b43c70b' ),
+      'check_sum': ( '5998daa508e79e2e1f1bbf018ef59a7b82420506cb6fa3fa75a54248'
+                     '94f89c19' ),
+    },
+    'linux64': {
+      'version': 'v1.35.4',
+      'download_url': ( 'https://github.com/OmniSharp/omnisharp-roslyn/release'
+                        's/download/v1.35.4/omnisharp.http-linux-x64.tar.gz' ),
+      'file_name': 'omnisharp.http-linux-x64.tar.gz',
+      'check_sum': ( 'a1b89e5cb67afedfc17515eae565c58a31c36d660dde7f15e4de4ef8'
+                     '5e464b1c' ),
     },
   }
   if OnWindows():
@@ -852,7 +850,7 @@ def EnableGoCompleter( args ):
   new_env[ 'GO111MODULE' ] = 'on'
   new_env[ 'GOPATH' ] = p.join( DIR_OF_THIS_SCRIPT, 'third_party', 'go' )
   new_env[ 'GOBIN' ] = p.join( new_env[ 'GOPATH' ], 'bin' )
-  CheckCall( [ go, 'get', 'golang.org/x/tools/gopls@v0.4.1' ],
+  CheckCall( [ go, 'get', 'golang.org/x/tools/gopls@v0.4.4' ],
              env = new_env,
              quiet = args.quiet,
              status_message = 'Building gopls for go completion' )
@@ -912,7 +910,10 @@ def EnableRustCompleter( switches ):
                  env = new_env,
                  quiet = switches.quiet )
 
-      for component in [ 'rls', 'rust-analysis', 'rust-src' ]:
+      for component in [ 'rust-src',
+                         'rust-analyzer-preview',
+                         'rustfmt',
+                         'clippy' ]:
         CheckCall( [ rustup, 'component', 'add', component,
                      '--toolchain', RUST_TOOLCHAIN ],
                    env = new_env,
@@ -965,6 +966,27 @@ def EnableJavaScriptCompleter( args ):
              status_message = 'Setting up Tern for JavaScript completion' )
 
 
+def CheckJavaVersion( required_version ):
+  java = FindExecutableOrDie(
+    'java',
+    f'java {required_version} is required to install JDT.LS' )
+  java_version = None
+  try:
+    java_version = int(
+      subprocess.check_output(
+        [ java, os.path.join( DIR_OF_THIS_SCRIPT, 'CheckJavaVersion.java' ) ],
+        stderr=subprocess.STDOUT )
+      .decode( 'utf-8' )
+      .strip() )
+  except subprocess.CalledProcessError:
+    pass
+
+  if java_version is None or java_version < required_version:
+    print( f'\n\n*** WARNING ***: jdt.ls requires Java { required_version }.'
+           ' You must set the option java_binary_path to point to a working '
+           f'java { required_version }.\n\n' )
+
+
 def EnableJavaCompleter( switches ):
   def Print( *args, **kwargs ):
     if not switches.quiet:
@@ -973,6 +995,8 @@ def EnableJavaCompleter( switches ):
   if switches.quiet:
     sys.stdout.write( 'Installing jdt.ls for Java support...' )
     sys.stdout.flush()
+
+  CheckJavaVersion( 11 )
 
   TARGET = p.join( DIR_OF_THIRD_PARTY, 'eclipse.jdt.ls', 'target', )
   REPOSITORY = p.join( TARGET, 'repository' )

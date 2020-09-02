@@ -26,6 +26,7 @@ from functools import partial
 
 from tempfile import NamedTemporaryFile
 
+from ycmd import extra_conf_store
 from ycmd import responses
 from ycmd import utils
 from ycmd.completers.completer import Completer
@@ -129,7 +130,7 @@ class TypeScriptCompleter( Completer ):
   It uses TSServer which is bundled with TypeScript 1.5
 
   See the protocol here:
-  https://github.com/Microsoft/TypeScript/blob/2cb0dfd99dc2896958b75e44303d8a7a32e5dc33/src/server/protocol.d.ts
+  https://github.com/microsoft/TypeScript/blob/master/src/server/protocol.ts
   """
 
 
@@ -180,7 +181,6 @@ class TypeScriptCompleter( Completer ):
 
     LOGGER.info( 'Enabling TypeScript completion' )
 
-
   def _SetServerVersion( self ):
     version = self._SendRequest( 'status' )[ 'version' ]
     with self._tsserver_lock:
@@ -197,8 +197,7 @@ class TypeScriptCompleter( Completer ):
       return
 
     self._logfile = utils.CreateLogfile( LOGFILE_FORMAT )
-    tsserver_log = '-file {path} -level {level}'.format( path = self._logfile,
-                                                         level = _LogLevel() )
+    tsserver_log = f'-file { self._logfile } -level {_LogLevel()}'
     # TSServer gets the configuration for the log file through the
     # environment variable 'TSS_LOG'. This seems to be undocumented but
     # looking at the source code it seems like this is the way:
@@ -215,6 +214,7 @@ class TypeScriptCompleter( Completer ):
                                              stderr = subprocess.STDOUT,
                                              env = environ )
 
+    LOGGER.info( "TSServer started with PID %s", self._tsserver_handle.pid )
     self._tsserver_is_running.set()
 
     utils.StartThread( self._SetServerVersion )
@@ -361,12 +361,16 @@ class TypeScriptCompleter( Completer ):
     return utils.ProcessIsRunning( self._tsserver_handle )
 
 
+  def Language( self ):
+    return 'typescript'
+
+
   def ServerIsHealthy( self ):
     return self._ServerIsRunning()
 
 
   def SupportedFiletypes( self ):
-    return [ 'javascript', 'typescript', 'typescriptreact' ]
+    return [ 'javascript', 'typescript', 'typescriptreact', 'javascriptreact' ]
 
 
   def SignatureHelpAvailable( self ):
@@ -443,6 +447,8 @@ class TypeScriptCompleter( Completer ):
                               self._GoToReferences( request_data ) ),
       'GoToType'          : ( lambda self, request_data, args:
                               self._GoToType( request_data ) ),
+      'GoToSymbol'        : ( lambda self, request_data, args:
+                              self._GoToSymbol( request_data, args ) ),
       'GetType'           : ( lambda self, request_data, args:
                               self._GetType( request_data ) ),
       'GetDoc'            : ( lambda self, request_data, args:
@@ -469,6 +475,8 @@ class TypeScriptCompleter( Completer ):
 
 
   def OnFileReadyToParse( self, request_data ):
+    # Only load the extra conf. We don't need it for anything but Format.
+    extra_conf_store.ModuleFileForSourceFile( request_data[ 'filepath' ] )
     self._Reload( request_data )
 
     diagnostics = self.GetDiagnosticsForCurrentFile( request_data )
@@ -676,13 +684,13 @@ class TypeScriptCompleter( Completer ):
 
   def _GoToImplementation( self, request_data ):
     self._Reload( request_data )
-    filespans = self._SendRequest( 'implementation', {
-      'file':   request_data[ 'filepath' ],
-      'line':   request_data[ 'line_num' ],
-      'offset': request_data[ 'column_codepoint' ]
-    } )
-
-    if not filespans:
+    try:
+      filespans = self._SendRequest( 'implementation', {
+        'file':   request_data[ 'filepath' ],
+        'line':   request_data[ 'line_num' ],
+        'offset': request_data[ 'column_codepoint' ]
+      } )
+    except RuntimeError:
       raise RuntimeError( 'No implementation found.' )
 
     results = []
@@ -737,6 +745,36 @@ class TypeScriptCompleter( Completer ):
     )
 
 
+  def _GoToSymbol( self, request_data, args ):
+    if len( args ) < 1:
+      raise RuntimeError( 'Must specify something to search for' )
+    query = args[ 0 ]
+
+    self._Reload( request_data )
+    filespans = self._SendRequest( 'navto', {
+      'searchValue': query,
+      'file': request_data[ 'filepath' ]
+    } )
+
+    if not filespans:
+      raise RuntimeError( 'Symbol not found' )
+
+    results = [
+      responses.BuildGoToResponseFromLocation(
+        _BuildLocation( GetFileLines( request_data, fs[ 'file' ] ),
+                        fs[ 'file' ],
+                        fs[ 'start' ][ 'line' ],
+                        fs[ 'start' ][ 'offset' ] ),
+        fs[ 'name' ] )
+      for fs in filespans
+    ]
+
+    if len( results ) == 1:
+      return results[ 0 ]
+
+    return results
+
+
   def _GetType( self, request_data ):
     self._Reload( request_data )
     info = self._SendRequest( 'quickinfo', {
@@ -755,8 +793,7 @@ class TypeScriptCompleter( Completer ):
       'offset': request_data[ 'column_codepoint' ]
     } )
 
-    message = '{0}\n\n{1}'.format( info[ 'displayString' ],
-                                   info[ 'documentation' ] )
+    message = f'{ info[ "displayString" ] }\n\n{info[ "documentation" ]}'
     return responses.BuildDetailedInfoResponse( message )
 
 
@@ -815,8 +852,8 @@ class TypeScriptCompleter( Completer ):
     } )
 
     if not response[ 'info' ][ 'canRename' ]:
-      raise RuntimeError( 'Value cannot be renamed: {0}'.format(
-        response[ 'info' ][ 'localizedErrorMessage' ] ) )
+      raise RuntimeError( 'Value cannot be renamed: '
+                          f'{ response[ "info" ][ "localizedErrorMessage" ] }' )
 
     # The format of the response is:
     #
@@ -869,14 +906,15 @@ class TypeScriptCompleter( Completer ):
     # for the list of options. While not standard, a way to support these
     # options, which is already adopted by a number of clients, would be to read
     # the "formatOptions" field in the tsconfig.json file.
-    options = request_data[ 'options' ]
+    options = dict( request_data[ 'options' ] )
+    options[ 'tabSize' ] = options.pop( 'tab_size' )
+    options[ 'indentSize' ] = options[ 'tabSize' ]
+    options[ 'convertTabsToSpaces' ] = options.pop( 'insert_spaces' )
+    options.update(
+      self.AdditionalFormattingOptions( request_data ) )
     self._SendRequest( 'configure', {
       'file': filepath,
-      'formatOptions': {
-        'tabSize': options[ 'tab_size' ],
-        'indentSize': options[ 'tab_size' ],
-        'convertTabsToSpaces': options[ 'insert_spaces' ],
-      }
+      'formatOptions': options
     } )
 
     response = self._SendRequest( 'format',

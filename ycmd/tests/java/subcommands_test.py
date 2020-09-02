@@ -91,6 +91,7 @@ def Subcommands_DefinedSubcommands_test( app ):
                  'GoToImplementation',
                  'GoToReferences',
                  'GoToType',
+                 'GoToSymbol',
                  'OpenProject',
                  'OrganizeImports',
                  'RefactorRename',
@@ -103,6 +104,7 @@ def Subcommands_DefinedSubcommands_test( app ):
   ( 'GoToDeclaration', [] ),
   ( 'GoToDefinition', [] ),
   ( 'GoToReferences', [] ),
+  ( 'GoToSymbol', [ 'test' ] ),
   ( 'GetType', [] ),
   ( 'GetDoc', [] ),
   ( 'FixIt', [] ),
@@ -173,7 +175,7 @@ def RunTest( app, test, contents = None ):
         expect_errors = True
       )
 
-      print( 'completer response: {0}'.format( pformat( response.json ) ) )
+      print( f'completer response: { pformat( response.json ) }' )
 
       assert_that( response.status_code,
                    equal_to( test[ 'expect' ][ 'response' ] ) )
@@ -642,6 +644,113 @@ def Subcommands_GoToReferences_test( app ):
 
 @WithRetry
 @SharedYcmd
+def Subcommands_GoToSymbol_SingleSameFile_test( app ):
+  contents = ReadFile( TEST_JAVA )
+
+  event_data = BuildRequest( filepath = TEST_JAVA,
+                             filetype = 'java',
+                             line_num = 1,
+                             column_num = 1,
+                             contents = contents,
+                             command_arguments = [ 'GoToSymbol', 'TéstClass' ],
+                             completer_target = 'filetype_default' )
+
+  response = app.post_json( '/run_completer_command', event_data ).json
+
+  assert_that( response, has_entries( {
+    'filepath': TEST_JAVA,
+    'description': "TéstClass",
+    'line_num': 20,
+    'column_num': 16,
+  } ) )
+
+
+@WithRetry
+@SharedYcmd
+def Subcommands_GoToSymbol_Multiple_test( app ):
+  contents = ReadFile( TEST_JAVA )
+
+  event_data = BuildRequest( filepath = TEST_JAVA,
+                             filetype = 'java',
+                             line_num = 1,
+                             column_num = 1,
+                             contents = contents,
+                             command_arguments = [ 'GoToSymbol', 'test' ],
+                             completer_target = 'filetype_default' )
+
+  response = app.post_json( '/run_completer_command', event_data ).json
+
+  assert_that( response, contains_inanyorder(
+    has_entries( {
+      'filepath': PathToTestFile( 'simple_eclipse_project',
+                                  'src',
+                                  'com',
+                                  'test',
+                                  'TestFactory.java' ) ,
+      'description': "TestFactory",
+      'line_num': 12,
+      'column_num': 14,
+    } ),
+    has_entries( {
+      'filepath': PathToTestFile( 'simple_eclipse_project',
+                                  'src',
+                                  'com',
+                                  'test',
+                                  'TestWidgetImpl.java' ) ,
+      'description': "TestWidgetImpl",
+      'line_num': 11,
+      'column_num': 7,
+    } ),
+    has_entries( {
+      'filepath': PathToTestFile( 'simple_eclipse_project',
+                                  'src',
+                                  'com',
+                                  'test',
+                                  'TestLauncher.java' ) ,
+      'description': "TestLauncher",
+      'line_num': 6,
+      'column_num': 7,
+    } ),
+    has_entries( {
+      'filepath': PathToTestFile( 'simple_eclipse_project',
+                                  'src',
+                                  'com',
+                                  'youcompleteme',
+                                  'Test.java' ) ,
+      'description': "Test",
+      'line_num': 3,
+      'column_num': 14,
+    } )
+  ) )
+
+
+@WithRetry
+@SharedYcmd
+def Subcommands_GoToSymbol_None_test( app ):
+  contents = ReadFile( TEST_JAVA )
+
+  event_data = BuildRequest( filepath = TEST_JAVA,
+                             filetype = 'java',
+                             line_num = 1,
+                             column_num = 1,
+                             contents = contents,
+                             command_arguments = [ 'GoToSymbol', 'abcd' ],
+                             completer_target = 'filetype_default' )
+
+  response = app.post_json( '/run_completer_command',
+                            event_data,
+                            expect_errors = True )
+
+  assert_that( response.status_code,
+               equal_to( requests.codes.internal_server_error ) )
+
+  assert_that( response.json,
+               ErrorMatcher( RuntimeError, 'Symbol not found' ) )
+
+
+
+@WithRetry
+@SharedYcmd
 def Subcommands_RefactorRename_Simple_test( app ):
   filepath = PathToTestFile( 'simple_eclipse_project',
                              'src',
@@ -841,6 +950,7 @@ def Subcommands_FixIt_SingleDiag_MultipleOption_Insertion_test( app,
     'fixits': contains_inanyorder(
       has_entries( {
         'text': "Import 'Wibble' (com.test.wobble)",
+        'kind': 'quickfix',
         'chunks': contains_exactly(
           ChunkMatcher( 'package com.test;\n\n'
                         'import com.test.wobble.Wibble;\n\n',
@@ -850,6 +960,7 @@ def Subcommands_FixIt_SingleDiag_MultipleOption_Insertion_test( app,
       } ),
       has_entries( {
         'text': "Create constant 'Wibble'",
+        'kind': 'quickfix',
         'chunks': contains_exactly(
           ChunkMatcher( '\n\nprivate static final String Wibble = null;',
                         LocationMatcher( filepath, 16, 4 ),
@@ -858,6 +969,7 @@ def Subcommands_FixIt_SingleDiag_MultipleOption_Insertion_test( app,
       } ),
       has_entries( {
         'text': "Create class 'Wibble'",
+        'kind': 'quickfix',
         'chunks': contains_exactly(
           ChunkMatcher( wibble_text.format( os.linesep, 'class' ),
                         LocationMatcher( wibble_path, 1, 1 ),
@@ -866,6 +978,7 @@ def Subcommands_FixIt_SingleDiag_MultipleOption_Insertion_test( app,
       } ),
       has_entries( {
         'text': "Create interface 'Wibble'",
+        'kind': 'quickfix',
         'chunks': contains_exactly(
           ChunkMatcher( wibble_text.format( os.linesep, 'interface' ),
                         LocationMatcher( wibble_path, 1, 1 ),
@@ -874,6 +987,7 @@ def Subcommands_FixIt_SingleDiag_MultipleOption_Insertion_test( app,
       } ),
       has_entries( {
         'text': "Create enum 'Wibble'",
+        'kind': 'quickfix',
         'chunks': contains_exactly(
           ChunkMatcher( wibble_text.format( os.linesep, 'enum' ),
                         LocationMatcher( wibble_path, 1, 1 ),
@@ -882,6 +996,7 @@ def Subcommands_FixIt_SingleDiag_MultipleOption_Insertion_test( app,
       } ),
       has_entries( {
         'text': "Create local variable 'Wibble'",
+        'kind': 'quickfix',
         'chunks': contains_exactly(
           ChunkMatcher( 'Object Wibble;\n\t',
                         LocationMatcher( filepath, 19, 5 ),
@@ -890,6 +1005,7 @@ def Subcommands_FixIt_SingleDiag_MultipleOption_Insertion_test( app,
       } ),
       has_entries( {
         'text': "Create field 'Wibble'",
+        'kind': 'quickfix',
         'chunks': contains_exactly(
           ChunkMatcher( '\n\nprivate Object Wibble;',
                         LocationMatcher( filepath, 16, 4 ),
@@ -898,6 +1014,7 @@ def Subcommands_FixIt_SingleDiag_MultipleOption_Insertion_test( app,
       } ),
       has_entries( {
         'text': "Create parameter 'Wibble'",
+        'kind': 'quickfix',
         'chunks': contains_exactly(
           ChunkMatcher( ', Object Wibble',
                         LocationMatcher( filepath, 18, 32 ),
@@ -906,6 +1023,7 @@ def Subcommands_FixIt_SingleDiag_MultipleOption_Insertion_test( app,
       } ),
       has_entries( {
         'text': 'Generate toString()...',
+        'kind': 'source.generate.toString',
         'chunks': contains_exactly(
           ChunkMatcher( '\n\n@Override\npublic String toString() {'
                         '\n\treturn "TestFactory []";\n}',
@@ -915,6 +1033,7 @@ def Subcommands_FixIt_SingleDiag_MultipleOption_Insertion_test( app,
       } ),
       has_entries( {
         'text': 'Organize imports',
+        'kind': 'source.organizeImports',
         'chunks': contains_exactly(
           ChunkMatcher( '\n\nimport com.test.wobble.Wibble;\n\n',
                         LocationMatcher( filepath, 1, 18 ),
@@ -923,6 +1042,7 @@ def Subcommands_FixIt_SingleDiag_MultipleOption_Insertion_test( app,
       } ),
       has_entries( {
         'text': 'Change modifiers to final where possible',
+        'kind': 'refactor',
         'chunks': contains_exactly(
           ChunkMatcher( 'final Wibble w ) {\n    if ( w == Wibble.CUTHBERT ) {'
                         '\n    }\n  }\n\n  public AbstractTestWidget getWidget'
@@ -954,6 +1074,7 @@ def Subcommands_FixIt_SingleDiag_SingleOption_Modify_test( app ):
     'fixits': contains_inanyorder(
       has_entries( {
         'text': "Change type of 'test' to 'boolean'",
+        'kind': 'quickfix',
         'chunks': contains_exactly(
           ChunkMatcher( 'boolean',
                         LocationMatcher( filepath, 14, 12 ),
@@ -962,6 +1083,7 @@ def Subcommands_FixIt_SingleDiag_SingleOption_Modify_test( app ):
       } ),
       has_entries( {
         'text': 'Generate toString()...',
+        'kind': 'source.generate.toString',
         'chunks': contains_exactly(
           ChunkMatcher( '\n\n@Override\npublic String toString() {'
                         '\n\treturn "TestFactory []";\n}',
@@ -971,6 +1093,7 @@ def Subcommands_FixIt_SingleDiag_SingleOption_Modify_test( app ):
       } ),
       has_entries( {
         'text': 'Organize imports',
+        'kind': 'source.organizeImports',
         'chunks': contains_exactly(
           ChunkMatcher( '\n\nimport com.test.wobble.Wibble;\n\n',
                         LocationMatcher( filepath, 1, 18 ),
@@ -979,6 +1102,7 @@ def Subcommands_FixIt_SingleDiag_SingleOption_Modify_test( app ):
       } ),
       has_entries( {
         'text': 'Change modifiers to final where possible',
+        'kind': 'refactor',
         'chunks': contains_exactly(
           ChunkMatcher( 'final Wibble w ) {\n    if ( w == Wibble.CUTHBERT ) {'
                         '\n    }\n  }\n\n  public AbstractTestWidget getWidget'
@@ -1007,6 +1131,7 @@ def Subcommands_FixIt_SingleDiag_MultiOption_Delete_test( app ):
     'fixits': contains_inanyorder(
       has_entries( {
         'text': "Remove 'testString', keep assignments with side effects",
+        'kind': 'quickfix',
         'chunks': contains_exactly(
           ChunkMatcher( '',
                         LocationMatcher( filepath, 14, 21 ),
@@ -1040,63 +1165,81 @@ def Subcommands_FixIt_SingleDiag_MultiOption_Delete_test( app ):
                 filepath, 15, 29, fixits )
 
 
-@pytest.mark.parametrize( 'description,column', [
-  ( 'diags are merged in FixIt options - start of line', 1 ),
-  ( 'diags are merged in FixIt options - start of diag 1', 10 ),
-  ( 'diags are merged in FixIt options - end of diag 1', 15 ),
-  ( 'diags are merged in FixIt options - start of diag 2', 23 ),
-  ( 'diags are merged in FixIt options - end of diag 2', 46 ),
-  ( 'diags are merged in FixIt options - end of line', 55 ),
+@pytest.mark.parametrize( 'description,column,expect_fixits', [
+  ( 'diags are merged in FixIt options - start of line', 1, 'MERGE' ),
+  ( 'diags are not merged in FixIt options - start of diag 1', 10, 'FIRST' ),
+  ( 'diags are not merged in FixIt options - end of diag 1', 15, 'FIRST' ),
+  ( 'diags are not merged in FixIt options - start of diag 2', 23, 'SECOND' ),
+  ( 'diags are not merged in FixIt options - end of diag 2', 46, 'SECOND' ),
+  ( 'diags are merged in FixIt options - end of line', 55, 'MERGE' ),
 ] )
 @SharedYcmd
-def Subcommands_FixIt_MultipleDiags_test( app, description, column ):
+def Subcommands_FixIt_MultipleDiags_test( app,
+                                          description,
+                                          column,
+                                          expect_fixits ):
   filepath = PathToTestFile( 'simple_eclipse_project',
                              'src',
                              'com',
                              'test',
                              'TestFactory.java' )
 
+  FIRST = [
+    has_entries( {
+      'text': "Change type of 'test' to 'boolean'",
+      'kind': 'quickfix',
+      'chunks': contains_exactly(
+        ChunkMatcher( 'boolean',
+                      LocationMatcher( filepath, 14, 12 ),
+                      LocationMatcher( filepath, 14, 15 ) ),
+      ),
+    } ),
+  ]
+  SECOND = [
+    has_entries( {
+      'text': "Remove argument to match 'doSomethingVaguelyUseful()'",
+      'kind': 'quickfix',
+      'chunks': contains_exactly(
+        ChunkMatcher( '',
+                      LocationMatcher( filepath, 30, 48 ),
+                      LocationMatcher( filepath, 30, 50 ) ),
+      ),
+    } ),
+    has_entries( {
+      'text': "Change method 'doSomethingVaguelyUseful()': Add parameter "
+      "'Bar'",
+      'chunks': instance_of( list ),
+    } ),
+    has_entries( {
+      'text': "Create method 'doSomethingVaguelyUseful(Bar)' in type "
+      "'AbstractTestWidget'",
+      'chunks': instance_of( list ),
+    } ),
+  ]
+
+  ACTIONS = [
+    has_entries( {
+      'text': "Generate toString()...",
+      'chunks': instance_of( list ),
+    } ),
+    has_entries( {
+      'text': "Organize imports",
+      'chunks': instance_of( list ),
+    } ),
+    has_entries( {
+      'text': 'Change modifiers to final where possible',
+      'chunks': instance_of( list ),
+    } ),
+  ]
+
+  FIXITS = {
+    'FIRST': FIRST + ACTIONS,
+    'SECOND': SECOND + ACTIONS,
+    'MERGE': FIRST + SECOND + ACTIONS,
+  }
+
   fixits = has_entries( {
-    'fixits': contains_inanyorder(
-      has_entries( {
-        'text': "Change type of 'test' to 'boolean'",
-        'chunks': contains_exactly(
-          ChunkMatcher( 'boolean',
-                        LocationMatcher( filepath, 14, 12 ),
-                        LocationMatcher( filepath, 14, 15 ) ),
-        ),
-      } ),
-      has_entries( {
-        'text': "Remove argument to match 'doSomethingVaguelyUseful()'",
-        'chunks': contains_exactly(
-          ChunkMatcher( '',
-                        LocationMatcher( filepath, 30, 48 ),
-                        LocationMatcher( filepath, 30, 50 ) ),
-        ),
-      } ),
-      has_entries( {
-        'text': "Change method 'doSomethingVaguelyUseful()': Add parameter "
-                "'Bar'",
-        'chunks': instance_of( list ),
-      } ),
-      has_entries( {
-        'text': "Create method 'doSomethingVaguelyUseful(Bar)' in type "
-                "'AbstractTestWidget'",
-        'chunks': instance_of( list ),
-      } ),
-      has_entries( {
-        'text': "Generate toString()...",
-        'chunks': instance_of( list ),
-      } ),
-      has_entries( {
-        'text': "Organize imports",
-        'chunks': instance_of( list ),
-      } ),
-      has_entries( {
-        'text': 'Change modifiers to final where possible',
-        'chunks': instance_of( list ),
-      } ),
-    )
+    'fixits': contains_inanyorder( *FIXITS[ expect_fixits ] )
   } )
 
   RunFixItTest( app, description, filepath, 30, column, fixits )
@@ -1132,6 +1275,7 @@ def Subcommands_FixIt_Range_test( app ):
         'fixits': contains_inanyorder(
           has_entries( {
             'text': 'Extract to field',
+            'kind': 'refactor.extract.field',
             'chunks': contains_exactly(
               ChunkMatcher(
                 matches_regexp(
@@ -1153,6 +1297,7 @@ def Subcommands_FixIt_Range_test( app ):
           } ),
           has_entries( {
             'text': 'Extract to method',
+            'kind': 'refactor.extract.function',
             'chunks': contains_exactly(
               # This one is a wall of text that rewrites 35 lines
               ChunkMatcher( instance_of( str ),
@@ -1162,6 +1307,7 @@ def Subcommands_FixIt_Range_test( app ):
           } ),
           has_entries( {
             'text': 'Extract to local variable (replace all occurrences)',
+            'kind': 'refactor.extract.variable',
             'chunks': contains_exactly(
               ChunkMatcher(
                 matches_regexp(
@@ -1174,6 +1320,7 @@ def Subcommands_FixIt_Range_test( app ):
           } ),
           has_entries( {
             'text': 'Extract to local variable',
+            'kind': 'refactor.extract.variable',
             'chunks': contains_exactly(
               ChunkMatcher(
                 matches_regexp(
@@ -1181,6 +1328,20 @@ def Subcommands_FixIt_Range_test( app ):
                   'useful: " \\+ w.getWidgetInfo\\(\\);\n'
                   '\t\tSystem.out.println\\( \\w+' ),
                 LocationMatcher( filepath, 34, 9 ),
+                LocationMatcher( filepath, 34, 73 ) ),
+            ),
+          } ),
+          has_entries( {
+            'text': 'Introduce Parameter...',
+            'kind': 'refactor.introduce.parameter',
+            'chunks': contains_exactly(
+              ChunkMatcher(
+                'String string) {\n'
+                '        AbstractTestWidget w = factory.getWidget( "Test" );\n'
+                '        w.doSomethingVaguelyUseful();\n'
+                '\n'
+                '        System.out.println( string',
+                LocationMatcher( filepath, 30, 26 ),
                 LocationMatcher( filepath, 34, 73 ) ),
             ),
           } ),
@@ -1225,6 +1386,7 @@ def Subcommands_FixIt_Unicode_test( app ):
     'fixits': contains_inanyorder(
       has_entries( {
         'text': "Remove argument to match 'doUnicødeTes()'",
+        'kind': 'quickfix',
         'chunks': contains_exactly(
           ChunkMatcher( '',
                         LocationMatcher( TEST_JAVA, 13, 24 ),
@@ -1233,6 +1395,7 @@ def Subcommands_FixIt_Unicode_test( app ):
       } ),
       has_entries( {
         'text': "Change method 'doUnicødeTes()': Add parameter 'String'",
+        'kind': 'quickfix',
         'chunks': contains_exactly(
           ChunkMatcher( 'String test2',
                         LocationMatcher( TEST_JAVA, 6, 31 ),
@@ -1241,6 +1404,7 @@ def Subcommands_FixIt_Unicode_test( app ):
       } ),
       has_entries( {
         'text': "Create method 'doUnicødeTes(String)'",
+        'kind': 'quickfix',
         'chunks': contains_exactly(
           ChunkMatcher( 'private void doUnicødeTes(String test2) {\n}\n\n\n',
                         LocationMatcher( TEST_JAVA, 20, 3 ),
@@ -1274,6 +1438,7 @@ def Subcommands_FixIt_InvalidURI_test( app ):
   fixits = has_entries( {
     'fixits': contains_inanyorder(
       has_entries( {
+        'kind': 'quickfix',
         'text': "Change type of 'test' to 'boolean'",
         'chunks': contains_exactly(
           ChunkMatcher( 'boolean',
@@ -1283,6 +1448,7 @@ def Subcommands_FixIt_InvalidURI_test( app ):
       } ),
       has_entries( {
         'text': 'Organize imports',
+        'kind': 'source.organizeImports',
         'chunks': contains_exactly(
           ChunkMatcher( '\n\nimport com.test.wobble.Wibble;\n\n',
                         LocationMatcher( '', 1, 1 ),
@@ -1291,6 +1457,7 @@ def Subcommands_FixIt_InvalidURI_test( app ):
       } ),
       has_entries( {
         'text': 'Change modifiers to final where possible',
+        'kind': 'refactor',
         'chunks': contains_exactly(
           ChunkMatcher( "final Wibble w ) {\n    if ( w == Wibble.CUTHBERT ) {"
                         "\n    }\n  }\n\n  public AbstractTestWidget getWidget"
@@ -1302,6 +1469,7 @@ def Subcommands_FixIt_InvalidURI_test( app ):
       } ),
       has_entries( {
         'text': 'Generate toString()...',
+        'kind': 'source.generate.toString',
         'chunks': contains_exactly(
           ChunkMatcher( '\n\n@Override\npublic String toString() {'
                         '\n\treturn "TestFactory []";\n}',
@@ -1835,7 +2003,7 @@ def Subcommands_RequestFailed_test( app ):
 @SharedYcmd
 def Subcommands_IndexOutOfRange_test( app ):
   RunTest( app, {
-    'description': 'Request error handles the error',
+    'description': 'Request with invalid position does not crash',
     'request': {
       'command': 'FixIt',
       'line_num': 99,
@@ -1847,6 +2015,34 @@ def Subcommands_IndexOutOfRange_test( app ):
       'data': has_entries( { 'fixits': contains_exactly( has_entries(
         { 'text': 'Generate Getters and Setters',
           'chunks': instance_of( list ) } ) ) } ),
+    }
+  } )
+
+
+@WithRetry
+@SharedYcmd
+def Subcommands_InvalidRange_test( app ):
+  RunTest( app, {
+    'description': 'Request with invalid visual range is rejected',
+    'request': {
+      'command': 'FixIt',
+      'line_num': 99,
+      'column_num': 99,
+      'filepath': TEST_JAVA,
+      'range': {
+        'start': {
+          'line_num': 99,
+          'column_num': 99
+        },
+        'end': {
+          'line_num': 100,
+          'column_num': 100
+        }
+      }
+    },
+    'expect': {
+      'response': requests.codes.internal_server_error,
+      'data': ErrorMatcher( RuntimeError, 'Invalid range' ),
     }
   } )
 
@@ -2017,8 +2213,8 @@ def Subcommands_ExtraConf_SettingsValid_UnknownExtraConf_test( app ):
                             } ),
                             expect_errors = True )
 
-  print( 'FileReadyToParse result: {}'.format( json.dumps( response.json,
-                                                           indent = 2 ) ) )
+  print( 'FileReadyToParse result: '
+         f'{ json.dumps( response.json, indent = 2 ) }' )
 
   assert_that( response.status_code,
                equal_to( requests.codes.internal_server_error ) )

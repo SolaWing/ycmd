@@ -323,7 +323,7 @@ def LanguageServerCompleter_GoTo_test( app ):
         )
       else:
         result = completer.OnUserCommand( [ command ], request_data )
-        print( 'Result: {}'.format( result ) )
+        print( f'Result: { result }' )
         assert_that( result, exception )
 
 
@@ -578,7 +578,7 @@ def WorkspaceEditToFixIt_test():
     lsc.WorkspaceEditToFixIt( request_data, workspace_edit, 'test' )
   ] )
 
-  print( 'Response: {0}'.format( response ) )
+  print( f'Response: { response }' )
   assert_that(
     response,
     has_entries( {
@@ -609,8 +609,8 @@ def WorkspaceEditToFixIt_test():
     lsc.WorkspaceEditToFixIt( request_data, workspace_edit, 'test' )
   ] )
 
-  print( 'Response: {0}'.format( response ) )
-  print( 'Type Response: {0}'.format( type( response ) ) )
+  print( f'Response: { response }' )
+  print( f'Type Response: { type( response ) }' )
 
   assert_that(
     response,
@@ -1021,6 +1021,8 @@ def LanguageServerCompleter_GetCodeActions_CursorOnEmptyLine_test( app ):
                      has_entry( 'fixits', empty() ) )
         assert_that(
           # Range passed to lsp.CodeAction.
+          # LSP requires to use the start of the next line as the end position
+          # for a range that ends with a newline.
           code_action.call_args[ 0 ][ 2 ],
           has_entries( {
             'start': has_entries( {
@@ -1028,7 +1030,7 @@ def LanguageServerCompleter_GetCodeActions_CursorOnEmptyLine_test( app ):
               'character': 0
             } ),
             'end': has_entries( {
-              'line': 0,
+              'line': 1,
               'character': 0
             } )
           } )
