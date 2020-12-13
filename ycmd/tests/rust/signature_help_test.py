@@ -21,7 +21,6 @@ import requests
 from ycmd.utils import ReadFile
 from ycmd.tests.rust import PathToTestFile, SharedYcmd
 from ycmd.tests.test_utils import ( CombineRequest,
-                                    ParameterMatcher,
                                     SignatureMatcher,
                                     SignatureAvailableMatcher,
                                     WaitUntilCompleterServerReady,
@@ -108,8 +107,7 @@ def SignatureHelp_MethodTrigger_test( app ):
           'activeSignature': 0,
           'activeParameter': 0,
           'signatures': contains_exactly(
-            SignatureMatcher( 'pub fn build_rocket(&self)',
-                              [ ParameterMatcher( 20, 25 ) ] )
+            SignatureMatcher( 'fn build_rocket(&self)', [] )
           ),
         } ),
       } )
@@ -133,3 +131,8 @@ def Signature_Help_Available_test( app ):
   response = app.get( '/signature_help_available',
                       { 'subserver': 'rust' } ).json
   assert_that( response, SignatureAvailableMatcher( 'YES' ) )
+
+
+def Dummy_test():
+  # Workaround for https://github.com/pytest-dev/pytest-rerunfailures/issues/51
+  assert True

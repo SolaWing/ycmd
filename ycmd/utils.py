@@ -387,11 +387,15 @@ def SafePopen( args, **kwargs ):
   return subprocess.Popen( args, **kwargs )
 
 
-# Shim for importlib.machinery.SourceFileLoader.
-# See upstream Python docs for info on what this does.
+# Read the link and don't ask questions. Python likes to make importing hard.
+# https://docs.python.org/3/library/importlib.html#importing-a-source-file-directly
 def LoadPythonSource( name, pathname ):
-  import importlib.machinery
-  return importlib.machinery.SourceFileLoader( name, pathname ).load_module()
+  import importlib.util
+  spec = importlib.util.spec_from_file_location( name, pathname )
+  module = importlib.util.module_from_spec( spec )
+  sys.modules[ spec.name ] = module
+  spec.loader.exec_module( module )
+  return module
 
 
 def SplitLines( contents ):
@@ -552,3 +556,41 @@ def AbsolutePath( path, relative_to ):
     path = os.path.join( relative_to, path )
 
   return os.path.normpath( path )
+
+
+def UpdateDict( target, override ):
+  """Apply the updates in |override| to the dict |target|. This is like
+  dict.update, but recursive. i.e. if the existing element is a dict, then
+  override elements of the sub-dict rather than wholesale replacing.
+  e.g.
+  UpdateDict(
+    {
+      'outer': { 'inner': { 'key': 'oldValue', 'existingKey': True } }
+    },
+    {
+      'outer': { 'inner': { 'key': 'newValue' } },
+      'newKey': { 'newDict': True },
+    }
+  )
+  yields:
+    {
+      'outer': {
+        'inner': {
+           'key': 'newValue',
+           'existingKey': True
+        }
+      },
+      'newKey': { newDict: True }
+    }
+  """
+
+  for key, value in override.items():
+    current_value = target.get( key )
+    if not isinstance( current_value, Mapping ):
+      target[ key ] = value
+    elif isinstance( value, Mapping ):
+      target[ key ] = UpdateDict( current_value, value )
+    else:
+      target[ key ] = value
+
+  return target

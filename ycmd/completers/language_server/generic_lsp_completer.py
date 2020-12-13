@@ -15,6 +15,7 @@
 # You should have received a copy of the GNU General Public License
 # along with ycmd.  If not, see <http://www.gnu.org/licenses/>.
 
+import string
 from ycmd import responses, utils
 from ycmd.completers.language_server import language_server_completer
 
@@ -24,9 +25,28 @@ class GenericLSPCompleter( language_server_completer.LanguageServerCompleter ):
     self._name = server_settings[ 'name' ]
     self._supported_filetypes = server_settings[ 'filetypes' ]
     self._project_root_files = server_settings.get( 'project_root_files', [] )
-    super().__init__( user_options )
-    self._command_line = server_settings[ 'cmdline' ]
-    self._command_line[ 0 ] = utils.FindExecutable( self._command_line[ 0 ] )
+    self._capabilities = server_settings.get( 'capabilities', {} )
+
+    self._command_line = server_settings.get( 'cmdline' )
+    self._port = server_settings.get( 'port' )
+    if self._port:
+      connection_type = 'tcp'
+      if self._port == '*':
+        self._port = utils.GetUnusedLocalhostPort()
+    else:
+      connection_type = 'stdio'
+
+    if self._command_line:
+      self._command_line[ 0 ] = utils.FindExecutable(
+        self._command_line[ 0 ] )
+
+      for idx in range( len( self._command_line ) ):
+        self._command_line[ idx ] = string.Template(
+          self._command_line[ idx ] ).safe_substitute( {
+            'port': self._port
+          } )
+
+    super().__init__( user_options, connection_type )
 
 
   def GetProjectRootFiles( self ):
@@ -77,3 +97,14 @@ class GenericLSPCompleter( language_server_completer.LanguageServerCompleter ):
 
   def SupportedFiletypes( self ):
     return self._supported_filetypes
+
+
+  def ExtraCapabilities( self ):
+    return self._capabilities
+
+
+  def WorkspaceConfigurationResponse( self, request ):
+    if self._capabilities.get( 'workspace', {} ).get( 'configuration' ):
+      sections_to_config_map = self._settings.get( 'config_sections', {} )
+      return [ sections_to_config_map.get( item.get( 'section', '' ) )
+               for item in request[ 'params' ][ 'items' ] ]

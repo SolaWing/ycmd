@@ -238,6 +238,7 @@ def Subcommands_GetDoc_NoDocumentation_test( app ):
   } )
 
 
+@WithRetry
 @SharedYcmd
 def Subcommands_GetDoc_Function_test( app ):
   RunTest( app, {
@@ -253,7 +254,7 @@ def Subcommands_GetDoc_Function_test( app ):
       'data': has_entry( 'detailed_info',
                          'common::test\n'
                          'pub fn create_universe()\n'
-                         '___\n'
+                         '---\n'
                          'Be careful when using that function' ),
     }
   } )
@@ -512,3 +513,8 @@ def Subcommands_FixIt_Basic_test( app ):
       } )
     },
   } )
+
+
+def Dummy_test():
+  # Workaround for https://github.com/pytest-dev/pytest-rerunfailures/issues/51
+  assert True

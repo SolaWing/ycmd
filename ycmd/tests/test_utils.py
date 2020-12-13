@@ -52,6 +52,11 @@ ycm_core = ImportCore()
 from unittest import skipIf
 
 TESTS_DIR = os.path.abspath( os.path.dirname( __file__ ) )
+TEST_OPTIONS = {
+  # The 'client' represented by the tests supports on-demand resolve, but the
+  # server default config doesn't for backward compatibility
+  'max_num_candidates_to_detail': 10
+}
 
 WindowsOnly = skipIf( not OnWindows(), 'Windows only' )
 ClangOnly = skipIf( not ycm_core.HasClangSupport(),
@@ -181,21 +186,25 @@ def CompleterProjectDirectoryMatcher( project_directory ):
   )
 
 
-def SignatureMatcher( label, parameters ):
-  return has_entries( {
+def SignatureMatcher( label, parameters, docs = None ):
+  entries = {
     'label': equal_to( label ),
     'parameters': contains_exactly( *parameters )
-  } )
+  }
+  if docs is not None:
+    entries.update( { 'documentation': docs } )
+  return has_entries( entries )
 
 
 def SignatureAvailableMatcher( available ):
   return has_entries( { 'available': equal_to( available ) } )
 
 
-def ParameterMatcher( begin, end ):
-  return has_entries( {
-    'label': contains_exactly( begin, end )
-  } )
+def ParameterMatcher( begin, end, docs = None ):
+  entries = { 'label': contains_exactly( begin, end ) }
+  if docs is not None:
+    entries.update( { 'documentation': docs } )
+  return has_entries( entries )
 
 
 @contextlib.contextmanager
@@ -237,6 +246,7 @@ def TemporarySymlink( source, link ):
 def SetUpApp( custom_options = {} ):
   bottle.debug( True )
   options = user_options_store.DefaultOptions()
+  options.update( TEST_OPTIONS )
   options.update( custom_options )
   handlers.UpdateUserOptions( options )
   extra_conf_store.Reset()
@@ -387,26 +397,29 @@ def TemporaryTestDir():
     shutil.rmtree( tmp_dir )
 
 
-def WithRetry( test ):
-  """Decorator to be applied to tests that retries the test over and over
-  until it passes or |timeout| seconds have passed."""
+def WithRetry( *args, **kwargs ):
+  """Decorator to be applied to tests that retries the test over and over"""
 
-  if 'YCM_TEST_NO_RETRY' in os.environ:
-    return test
+  if len( args ) == 1 and callable( args[ 0 ] ):
+    # We are the decorator
+    f = args[ 0 ]
 
-  @functools.wraps( test )
-  def wrapper( *args, **kwargs ):
-    expiry = time.time() + 30
-    while True:
-      try:
-        test( *args, **kwargs )
-        return
-      except Exception as test_exception:
-        if time.time() > expiry:
-          raise
-        print( f'Test failed, retrying: { test_exception }' )
-        time.sleep( 0.25 )
-  return wrapper
+    def ReturnDecorator( wrapper ):
+      return wrapper( f )
+  else:
+    # We need to return the decorator
+    def ReturnDecorator( wrapper ):
+      return wrapper
+
+  if os.environ.get( 'YCM_TEST_NO_RETRY' ) == 'XFAIL':
+    return ReturnDecorator( pytest.mark.xfail( strict = False ) )
+  elif os.environ.get( 'YCM_TEST_NO_RETRY' ):
+    # This is a "null" decorator
+    return ReturnDecorator( lambda f: f )
+  else:
+    opts = { 'reruns': 20, 'reruns_delay': 0.5 }
+    opts.update( kwargs )
+    return ReturnDecorator( pytest.mark.flaky( **opts ) )
 
 
 def WaitForDiagnosticsToBeReady( app, filepath, contents, filetype, **kwargs ):

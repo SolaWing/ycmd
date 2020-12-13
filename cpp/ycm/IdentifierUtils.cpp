@@ -18,31 +18,28 @@
 #include "IdentifierUtils.h"
 #include "Utils.h"
 
+#include <filesystem>
+#include <string_view>
 #include <unordered_map>
 
 #include <sstream>
 
 namespace YouCompleteMe {
 
-namespace fs = boost::filesystem;
+namespace fs = std::filesystem;
 
 namespace {
 
 // Only used as the equality comparer for the below unordered_map which stores
 // const char* pointers and not std::string but needs to hash based on string
 // values and not pointer values.
-// When passed a const char* this will create a temporary std::string for
-// comparison, but it's fast enough for our use case.
 struct StringEqualityComparer {
-  bool operator()( const std::string &a, const std::string &b ) const {
+  bool operator()( std::string_view a, std::string_view b ) const {
     return a == b;
   }
 };
 
-typedef std::unordered_map < const char *,
-      const char *,
-      std::hash< std::string >,
-      StringEqualityComparer > StaticMap;
+typedef std::unordered_map < std::string_view, std::string_view> StaticMap;
 const StaticMap *EXT_TO_FILETYPE = new StaticMap {
           { ".rb", "ruby" },
           { ".h", "c" },
@@ -187,23 +184,23 @@ FiletypeIdentifierMap ExtractIdentifiersFromTagsFile(
           if (v.first == languageMarker.end()) {
               language.erase(language.begin(), v.second);
               filetype = FindWithDefault( *LANG_TO_FILETYPE,
-                      language.c_str(),
-                      Lowercase( language ).c_str() );
+                      language,
+                      Lowercase( language ) );
           }
       }
       fs::path path( std::move(p) );
       if (filetype.empty()) {
-          language = boost::filesystem::extension(path);
+          language = fs::path(path).extension();
           auto it = EXT_TO_FILETYPE->find( language.c_str() );
           if (it == EXT_TO_FILETYPE->end()) { return; } // skip unknown extension type
           filetype = it->second;
       }
 
-      path = NormalizePath( path, path_to_tag_file.parent_path() );
-      filetype_identifier_map[ std::move(filetype) ][ path.string() ].push_back( std::move(identifier) );
+      path = fs::weakly_canonical( path_to_tag_file.parent_path() / path );
+      filetype_identifier_map[ std::move(filetype) ][ std::move(path).string() ].push_back( std::move(identifier) );
   };
     // skip prefix headerr
-    int i = 0;
+    size_t i = 0;
     for (; i < tags_file_contents.size(); ++i) {
         line = &tags_file_contents[i];
         if (!(line->length() > 0 && (*line)[0] == '!')) {

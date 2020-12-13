@@ -25,7 +25,9 @@ from urllib.request import pathname2url, url2pathname
 from ycm_core import DiffString
 from ycmd.utils import ( ByteOffsetToCodepointOffset,
                          ToBytes,
-                         ToUnicode )
+                         ToUnicode,
+                         UpdateDict )
+
 from ycmd.utils import LineColumnFromByteOffset
 
 Error = collections.namedtuple( 'RequestError', [ 'code', 'reason' ] )
@@ -309,78 +311,78 @@ def BuildResponse( request, parameters ):
   return _BuildMessageData( message )
 
 
-def Initialize( request_id, project_directory, settings ):
+def Initialize( request_id, project_directory, extra_capabilities, settings ):
   """Build the Language Server initialize request"""
 
+  capabilities = {
+    'workspace': {
+      'applyEdit': True,
+      'didChangeWatchedFiles': {
+        'dynamicRegistration': True
+      },
+      'workspaceEdit': { 'documentChanges': True, },
+      'symbol': {
+        'symbolKind': {
+          'valueSet': list( range( 1, len( SYMBOL_KIND ) ) ),
+        }
+      }
+    },
+    'textDocument': {
+      'codeAction': {
+        'codeActionLiteralSupport': {
+          'codeActionKind': {
+            'valueSet': [ '',
+                          'quickfix',
+                          'refactor',
+                          'refactor.extract',
+                          'refactor.inline',
+                          'refactor.rewrite',
+                          'source',
+                          'source.organizeImports' ]
+          }
+        }
+      },
+      'completion': {
+        'completionItemKind': {
+          # ITEM_KIND list is 1-based.
+          # valueSet is a list of the indices of items supported
+          'valueSet': list( range( 1, len( ITEM_KIND ) ) ),
+        },
+        'completionItem': {
+          'documentationFormat': [
+            'plaintext',
+            'markdown'
+          ],
+        },
+      },
+      'hover': {
+        'contentFormat': [
+          'plaintext',
+          'markdown'
+        ]
+      },
+      'signatureHelp': {
+        'signatureInformation': {
+          'parameterInformation': {
+            'labelOffsetSupport': True,
+          },
+          'documentationFormat': [
+            'plaintext',
+            'markdown'
+          ],
+        },
+      },
+      'synchronization': {
+        'didSave': True
+      },
+    },
+  }
   return BuildRequest( request_id, 'initialize', {
     'processId': os.getpid(),
     'rootPath': project_directory,
     'rootUri': FilePathToUri( project_directory ),
     'initializationOptions': settings,
-    'capabilities': {
-      'experimental': { 'statusNotification': True },
-      'workspace': {
-        'applyEdit': True,
-        'didChangeWatchedFiles': {
-          'dynamicRegistration': True
-        },
-        'workspaceEdit': { 'documentChanges': True, },
-        'symbol': {
-          'symbolKind': {
-            'valueSet': list( range( 1, len( SYMBOL_KIND ) ) ),
-          }
-        }
-      },
-      'textDocument': {
-        'codeAction': {
-          'codeActionLiteralSupport': {
-            'codeActionKind': {
-              'valueSet': [ '',
-                            'quickfix',
-                            'refactor',
-                            'refactor.extract',
-                            'refactor.inline',
-                            'refactor.rewrite',
-                            'source',
-                            'source.organizeImports' ]
-            }
-          }
-        },
-        'completion': {
-          'completionItemKind': {
-            # ITEM_KIND list is 1-based.
-            # valueSet is a list of the indices of items supported
-            'valueSet': list( range( 1, len( ITEM_KIND ) ) ),
-          },
-          'completionItem': {
-            'documentationFormat': [
-              'plaintext',
-              'markdown'
-            ],
-          },
-        },
-        'hover': {
-          'contentFormat': [
-            'plaintext',
-            'markdown'
-          ]
-        },
-        'signatureHelp': {
-          'signatureInformation': {
-            'parameterInformation': {
-              'labelOffsetSupport': True,
-            },
-            'documentationFormat': [
-              'plaintext',
-              'markdown'
-            ],
-          },
-        },
-        'synchronization': {
-          'didSave': True
-        },
-      },
-    },
+    'capabilities': UpdateDict( capabilities, extra_capabilities ),
   } )
 
 
@@ -452,10 +454,6 @@ def DidOpenTextDocument( file_state, file_types, file_contents ):
 
 
 def DidChangeTextDocument( file_state, file_contents, ranges = None ):
-  # NOTE: Passing `None` for the second argument will send an empty
-  # textDocument/didChange notification. It is useful when a LSP server
-  # needs to be forced to reparse a file without sending all the changes.
-  # More specifically, clangd completer relies on this.
   change = { 'text': file_contents }
   if ranges is not None:
       change['range'] = ranges
@@ -467,7 +465,7 @@ def DidChangeTextDocument( file_state, file_contents, ranges = None ):
     },
     'contentChanges': [
       change,
-    ] if file_contents is not None else [],
+    ]
   } )
 
 

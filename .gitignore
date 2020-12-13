@@ -84,7 +84,8 @@ third_party/eclipse.jdt.ls
 ycmd/tests/rust/testdata/common/target
 
 # TSServer
-third_party/tsserver
+third_party/tsserver/node_modules
+third_party/tsserver/package-lock.json
 
 # clangd local installation
 third_party/clangd
@@ -100,6 +101,9 @@ third_party/generic_server/package-lock.json
 
 # clangd index data
 .clangd/
+.cache/
 
 # installation directory for gopls
 third_party/go
+
+third_party/regex-build

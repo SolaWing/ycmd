@@ -17,7 +17,7 @@ LIBCLANG_DIR = p.join( DIR_OF_THIRD_PARTY, 'clang', 'lib' )
 
 python_path = [
   p.join( DIR_OF_THIRD_PARTY, 'bottle' ),
-  p.join( DIR_OF_THIRD_PARTY, 'cregex', 'regex_3' ),
+  p.join( DIR_OF_THIRD_PARTY, 'regex-build' ),
   p.join( DIR_OF_THIRD_PARTY, 'frozendict' ),
   p.join( DIR_OF_THIRD_PARTY, 'jedi_deps', 'jedi' ),
   p.join( DIR_OF_THIRD_PARTY, 'jedi_deps', 'parso' ),
@@ -242,8 +242,8 @@ def PytestValgrind( parsed_args, extra_pytests_args ):
           '--gen-suppressions=all',
           '--error-exitcode=1',
           '--leak-check=full',
-          '--show-leak-kinds=all',
-          '--show-reachable=no',
+          '--show-leak-kinds=definite,indirect',
+          '--errors-for-leak-kinds=definite,indirect',
           '--suppressions=' + p.join( DIR_OF_THIS_SCRIPT,
                                       'valgrind.suppressions' ) ]
   subprocess.check_call( cmd +
@@ -330,6 +330,7 @@ def SetUpGenericLSPCompleter():
   npm = FindExecutableOrDie( 'npm', 'npm is required to'
                                     'run GenericLSPCompleter tests.' )
   subprocess.check_call( [ npm, 'install' ] )
+  subprocess.check_call( [ npm, 'run', 'compile' ] )
   os.chdir( old_cwd )
 
 
@@ -340,7 +341,8 @@ def Main():
     sys.exit()
 
   print( 'Running tests on Python', platform.python_version() )
-  SetUpGenericLSPCompleter()
+  if not parsed_args.skip_build:
+    SetUpGenericLSPCompleter()
   if not parsed_args.no_flake8:
     RunFlake8()
   BuildYcmdLibs( parsed_args )

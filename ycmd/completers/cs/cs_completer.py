@@ -18,8 +18,10 @@
 from collections import defaultdict
 import os
 import errno
+import json
 import time
-import requests
+import urllib.request
+import urllib.error
 import threading
 from urllib.parse import urljoin
 
@@ -30,7 +32,8 @@ from ycmd.utils import ( ByteOffsetToCodepointOffset,
                          CodepointOffsetToByteOffset,
                          FindExecutable,
                          FindExecutableWithFallback,
-                         LOGGER )
+                         LOGGER,
+                         ToBytes )
 from ycmd import responses
 from ycmd import utils
 
@@ -147,11 +150,13 @@ class CsharpCompleter( Completer ):
         begin = sig_label.find( arg_label, end )
         end = begin + len( arg_label )
         parameters.append( {
+          'documentation': arg.get( 'Documentation', '' ),
           'label': [ CodepointOffsetToByteOffset( sig_label, begin ),
                      CodepointOffsetToByteOffset( sig_label, end ) ]
         } )
 
       return {
+        'documentation': s.get( 'Documentation', '' ),
         'label': sig_label,
         'parameters': parameters
       }
@@ -839,9 +844,16 @@ class CsharpSolutionCompleter( object ):
     """ Handle communication with server """
     target = urljoin( self._ServerLocation(), handler )
     LOGGER.debug( 'TX (%s): %s', handler, parameters )
-    response = requests.post( target, json = parameters, timeout = timeout )
-    LOGGER.debug( 'RX: %s', response.json() )
-    return response.json()
+    try:
+      response = urllib.request.urlopen(
+        target,
+        data = ToBytes( json.dumps( parameters ) ),
+        timeout = timeout )
+      response = json.loads( response.read() )
+    except urllib.error.HTTPError as response:
+      response = json.loads( response.fp.read() )
+    LOGGER.debug( 'RX: %s', response )
+    return response
 
 
   def _ChooseOmnisharpPort( self ):
