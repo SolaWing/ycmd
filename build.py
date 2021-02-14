@@ -17,6 +17,7 @@ import sysconfig
 import tarfile
 from zipfile import ZipFile
 import tempfile
+import urllib.request
 
 IS_64BIT = sys.maxsize > 2**32
 PY_MAJOR, PY_MINOR = sys.version_info[ 0 : 2 ]
@@ -34,21 +35,11 @@ for folder in os.listdir( DIR_OF_THIRD_PARTY ):
   abs_folder_path = p.join( DIR_OF_THIRD_PARTY, folder )
   if p.isdir( abs_folder_path ) and not os.listdir( abs_folder_path ):
     sys.exit(
-      'ERROR: folder {} in {} is empty; you probably forgot to run:\n'
-      '\tgit submodule update --init --recursive\n'.format( folder,
-                                                            DIR_OF_THIRD_PARTY )
+      f'ERROR: folder { folder } in { DIR_OF_THIRD_PARTY } is empty; '
+      'you probably forgot to run:\n'
+      '\tgit submodule update --init --recursive\n'
     )
 
-sys.path[ 0:0 ] = [ p.join( DIR_OF_THIRD_PARTY, 'requests_deps', 'requests' ),
-                    p.join( DIR_OF_THIRD_PARTY,
-                            'requests_deps',
-                            'urllib3',
-                            'src' ),
-                    p.join( DIR_OF_THIRD_PARTY, 'requests_deps', 'chardet' ),
-                    p.join( DIR_OF_THIRD_PARTY, 'requests_deps', 'certifi' ),
-                    p.join( DIR_OF_THIRD_PARTY, 'requests_deps', 'idna' ) ]
-
-import requests
 
 NO_DYNAMIC_PYTHON_ERROR = (
   'ERROR: found static Python library ({library}) but a dynamic one is '
@@ -81,10 +72,10 @@ DYNAMIC_PYTHON_LIBRARY_REGEX = """
   )$
 """
 
-JDTLS_MILESTONE = '0.63.0'
-JDTLS_BUILD_STAMP = '202010141717'
+JDTLS_MILESTONE = '0.67.0'
+JDTLS_BUILD_STAMP = '202012170459'
 JDTLS_SHA256 = (
-  '56eef6b138bdaa60ff8a794d622d390abac8286c0e5e1370616baf9a601fd1c8'
+  'b4b14a30ac4b513b69f2d0a6297e7a8766d65bcdccadf3c26ef08c4385e31f87'
 )
 
 RUST_TOOLCHAIN = 'nightly-2020-10-05'
@@ -117,8 +108,7 @@ def RemoveDirectory( directory ):
     except OSError:
       try_number += 1
   raise RuntimeError(
-    'Cannot remove directory {} after {} tries.'.format( directory,
-                                                         max_tries ) )
+    f'Cannot remove directory { directory } after { max_tries } tries.' )
 
 
 
@@ -139,10 +129,9 @@ def CheckFileIntegrity( file_path, check_sum ):
 
 
 def DownloadFileTo( download_url, file_path ):
-  request = requests.get( download_url, stream = True )
-  with open( file_path, 'wb' ) as package_file:
-    package_file.write( request.content )
-  request.close()
+  with urllib.request.urlopen( download_url ) as response:
+    with open( file_path, 'wb' ) as package_file:
+      package_file.write( response.read() )
 
 
 def OnMac():
@@ -173,9 +162,8 @@ def FindExecutableOrDie( executable, message ):
   path = FindExecutable( executable )
 
   if not path:
-    sys.exit( "ERROR: Unable to find executable '{}'. {}".format(
-      executable,
-      message ) )
+    sys.exit( f"ERROR: Unable to find executable '{ executable }'. "
+              f"{ message }" )
 
   return path
 
@@ -348,18 +336,18 @@ def CustomPythonCmakeArgs( args ):
   # The CMake 'FindPythonLibs' Module does not work properly.
   # So we are forced to do its job for it.
   if not args.quiet:
-    print( 'Searching Python {major}.{minor} libraries...'.format(
-      major = PY_MAJOR, minor = PY_MINOR ) )
+    print( f'Searching Python { PY_MAJOR }.{ PY_MINOR } libraries...' )
 
   python_library, python_include = FindPythonLibraries()
 
   if not args.quiet:
-    print( 'Found Python library: {0}'.format( python_library ) )
-    print( 'Found Python headers folder: {0}'.format( python_include ) )
+    print( f'Found Python library: { python_library }' )
+    print( f'Found Python headers folder: { python_include }' )
 
   return [
-    '-DPYTHON_LIBRARY={0}'.format( python_library ),
-    '-DPYTHON_INCLUDE_DIR={0}'.format( python_include )
+    f'-DPython3_LIBRARY={ python_library }',
+    f'-DPython3_EXECUTABLE={ sys.executable }',
+    f'-DPython3_INCLUDE_DIR={ python_include }'
   ]
 
 
@@ -371,8 +359,7 @@ def GetGenerator( args ):
     # Studio 16 generator.
     if args.msvc == 16:
       return 'Visual Studio 16'
-    return 'Visual Studio {version}{arch}'.format(
-        version = args.msvc, arch = ' Win64' if IS_64BIT else '' )
+    return f"Visual Studio { args.msvc }{ ' Win64' if IS_64BIT else '' }"
   return 'Unix Makefiles'
 
 
@@ -485,12 +472,16 @@ def ParseArguments():
 
 
 def FindCmake( args ):
-  cmake_exe = 'cmake'
+  cmake_exe = [ 'cmake3', 'cmake' ]
 
   if args.cmake_path:
-    cmake_exe = args.cmake_path
+    cmake_exe.insert( 0, args.cmake_path )
 
-  return FindExecutableOrDie( cmake_exe, 'CMake is required to build ycmd' )
+  cmake = PathToFirstExistingExecutable( cmake_exe )
+  if cmake is None:
+    sys.exit( "ERROR: Unable to find cmake executable in any of"
+              f" { cmake_exe }. CMake is required to build ycmd" )
+  return cmake
 
 
 def GetCmakeCommonArgs( args ):
@@ -552,7 +543,7 @@ def RunYcmdTests( args, build_dir ):
 
   tests_cmd = [ p.join( tests_dir, 'ycm_core_tests' ) ]
   if args.core_tests != '*':
-    tests_cmd.append( '--gtest_filter={}'.format( args.core_tests ) )
+    tests_cmd.append( f'--gtest_filter={ args.core_tests }' )
   if not args.valgrind:
     CheckCall( tests_cmd,
                env = new_env,
@@ -653,8 +644,7 @@ def BuildYcmdLib( cmake, cmake_common_args, script_args ):
       CheckCall( build_command,
                  exit_message = BUILD_ERROR_MESSAGE,
                  quiet = script_args.quiet,
-                 status_message = 'Compiling ycmd target: {0}'.format(
-                   target ) )
+                 status_message = f'Compiling ycmd target: { target }' )
 
     if script_args.core_tests:
       RunYcmdTests( script_args, build_dir )
@@ -715,7 +705,7 @@ def EnableCsCompleter( args ):
     download_data = GetCsCompleterDataForPlatform()
     version = download_data[ 'version' ]
 
-    WriteStdout( "Installing Omnisharp {}\n".format( version ) )
+    WriteStdout( f"Installing Omnisharp { version }\n" )
 
     CleanCsCompleter( build_dir, version )
     package_path = DownloadCsCompleter( WriteStdout, download_data )
@@ -765,10 +755,9 @@ def DownloadCsCompleter( writeStdout, download_data ):
     writeStdout( 'DONE\n' )
 
   if p.exists( package_path ):
-    writeStdout( 'Using cached Omnisharp: {}\n'.format( file_name ) )
+    writeStdout( f'Using cached Omnisharp: { file_name }\n' )
   else:
-    writeStdout( 'Downloading Omnisharp from {}...'.format(
-                    download_url ) )
+    writeStdout( f'Downloading Omnisharp from { download_url }...' )
     DownloadFileTo( download_url, package_path )
     writeStdout( 'DONE\n' )
 
@@ -776,7 +765,7 @@ def DownloadCsCompleter( writeStdout, download_data ):
 
 
 def ExtractCsCompleter( writeStdout, build_dir, package_path ):
-  writeStdout( 'Extracting Omnisharp to {}...'.format( build_dir ) )
+  writeStdout( f'Extracting Omnisharp to { build_dir }...' )
   if OnWindows():
     with ZipFile( package_path, 'r' ) as package_zip:
       package_zip.extractall()
@@ -849,7 +838,7 @@ def EnableGoCompleter( args ):
   new_env[ 'GOPATH' ] = p.join( DIR_OF_THIS_SCRIPT, 'third_party', 'go' )
   new_env.pop( 'GOROOT', None )
   new_env[ 'GOBIN' ] = p.join( new_env[ 'GOPATH' ], 'bin' )
-  CheckCall( [ go, 'get', 'golang.org/x/tools/gopls@v0.5.4' ],
+  CheckCall( [ go, 'get', 'golang.org/x/tools/gopls@v0.6.4' ],
              env = new_env,
              quiet = args.quiet,
              status_message = 'Building gopls for go completion' )
@@ -886,8 +875,7 @@ def EnableRustCompleter( switches ):
 
     if OnWindows():
       rustup_cmd = [ rustup_init ]
-      rustup_url = 'https://win.rustup.rs/{}'.format(
-        'x86_64' if IS_64BIT else 'i686' )
+      rustup_url = f"https://win.rustup.rs/{ 'x86_64' if IS_64BIT else 'i686' }"
     else:
       rustup_cmd = [ 'sh', rustup_init ]
       rustup_url = 'https://sh.rustup.rs'
@@ -1009,12 +997,12 @@ def EnableJavaCompleter( switches ):
 
 
   if p.exists( file_name ):
-    Print( 'Using cached jdt.ls: {0}'.format( file_name ) )
+    Print( f'Using cached jdt.ls: { file_name }' )
   else:
-    Print( "Downloading jdt.ls from {0}...".format( url ) )
+    Print( f"Downloading jdt.ls from { url }..." )
     DownloadFileTo( url, file_name )
 
-  Print( "Extracting jdt.ls to {0}...".format( REPOSITORY ) )
+  Print( f"Extracting jdt.ls to { REPOSITORY }..." )
   with tarfile.open( file_name ) as package_tar:
     package_tar.extractall( REPOSITORY )
 
@@ -1076,8 +1064,8 @@ def DownloadClangd( printer ):
   target = GetClangdTarget()
   target_name, check_sum = target[ not IS_64BIT ]
   target_name = target_name.format( version = CLANGD_VERSION )
-  file_name = '{}.tar.bz2'.format( target_name )
-  download_url = 'https://dl.bintray.com/ycm-core/clangd/{}'.format( file_name )
+  file_name = f'{ target_name }.tar.bz2'
+  download_url = f'https://dl.bintray.com/ycm-core/clangd/{ file_name }'
 
   file_name = p.join( CLANGD_CACHE_DIR, file_name )
 
@@ -1090,14 +1078,14 @@ def DownloadClangd( printer ):
     os.remove( file_name )
 
   if p.exists( file_name ):
-    printer( 'Using cached Clangd: {}'.format( file_name ) )
+    printer( f'Using cached Clangd: { file_name }' )
   else:
-    printer( "Downloading Clangd from {}...".format( download_url ) )
+    printer( f"Downloading Clangd from { download_url }..." )
     DownloadFileTo( download_url, file_name )
     if not CheckFileIntegrity( file_name, check_sum ):
       sys.exit( 'ERROR: downloaded Clangd archive does not match checksum.' )
 
-  printer( "Extracting Clangd to {}...".format( CLANGD_OUTPUT_DIR ) )
+  printer( f"Extracting Clangd to { CLANGD_OUTPUT_DIR }..." )
   with tarfile.open( file_name ) as package_tar:
     package_tar.extractall( CLANGD_OUTPUT_DIR )
 
