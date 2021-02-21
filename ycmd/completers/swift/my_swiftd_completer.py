@@ -92,6 +92,10 @@ class SwiftCompleter( Completer ):
                   [self._sourcekitten_binary_path, "daemon"],
                   env = ({"SOURCEKIT_LOGGING": "3"} if LOGGER.isEnabledFor( logging.DEBUG ) else None),
                   stdin = PIPE, stdout = PIPE, stderr = stderr) # type: subprocess.Popen
+              # TODO: 开启编译通知
+              # self.request("source.request.enable-compile-notifications", {
+              #     "key.value": 1
+              # })
 
   def _StopServer(self):
       with self._server_state_mutex:
@@ -234,6 +238,8 @@ class SwiftCompleter( Completer ):
       offset = len(utils.ToBytes(contents[:LineOffsetInStr(contents, line)])) + column - 1
       return (filename, contents, offset, additional_flags)
 
+  # TODO: use PollForMessagesInner for notification
+  # TODO: register compile notification
   def OnFileReadyToParse( self, request_data ):
     filename = request_data[ 'filepath' ]
     if not filename: return
