@@ -88,8 +88,8 @@ class SwiftCompleter( Completer ):
           self._extra_conf_storage = {}
           self._source_repository = {}
           self._open_modules = {}
+
           self._responses = {} # { id: response }
-          self._notifications = [] # [ todoNotifications ]
 
           self._server_stderr = utils.CreateLogfile( 'SwiftD_stderr_' )
           with utils.OpenForStdHandle( self._server_stderr ) as stderr:
@@ -97,9 +97,9 @@ class SwiftCompleter( Completer ):
                   [self._sourcekitten_binary_path, "daemon"],
                   env = ({"SOURCEKIT_LOGGING": "3"} if LOGGER.isEnabledFor( logging.DEBUG ) else None),
                   stdin = PIPE, stdout = PIPE, stderr = stderr) # type: subprocess.Popen
-              self.notification("source.request.enable-compile-notifications", {
-                  "key.value": 1
-              })
+              # self.notification("source.request.enable-compile-notifications", {
+              #     "key.value": 1
+              # })
           self._connection = SwiftCompleterConnection(self._server_handle.stdout)
           self._connection.Start()
 
@@ -171,28 +171,12 @@ class SwiftCompleter( Completer ):
               return response
 
           while True:
-              response = self._connection.queue.get()
-              if response.get("id") == request_id:
+              response = self._connection.response_queue.get()
+              response_id = response["id"]
+              if response_id == request_id:
                   return response
 
-              self.__HandleResponse(response)
-
-
-  def _HandleQueue(self):
-      with self._server_state_mutex:
-        while True:
-          try:
-              response = self._connection.queue.get_nowait()
-              self.__HandleResponse(response)
-          except Empty:
-              return
-
-  def __HandleResponse(self, response):
-      request_id = response.get("id")
-      if request_id is None:
-          self._notifications.append(response)
-      else:
-          self._responses[request_id] = response
+              self._responses[response_id] = response
 
 
   def DebugInfo( self, request_data ):
@@ -334,6 +318,35 @@ class SwiftCompleter( Completer ):
             "key.sourcefile": filename,
             "key.name": filename,
         })
+
+  # def PollForMessagesInner( self, request_data, timeout ):
+  #     notifications = []
+  #     while True:
+  #         try:
+  #             notifications.append(self._connection.notification_queue.get_nowait())
+  #         except Empty:
+  #             break
+
+  #     if notifications:
+  #         messages = list(filter(bool, (self.ConvertNotificationToMessage(n) for n in notifications)))
+  #         if messages:
+  #           return messages
+
+  #     try:
+  #         notification = self._connection.notification_queue.get(timeout = timeout)
+  #         while True:
+  #             message = self.ConvertNotificationToMessage(request_data, notification)
+  #             if message:
+  #               return [ message ]
+  #     except Empty:
+  #         return True
+
+  def ConvertNotificationToMessage(self, request_data, notification):
+      result = notification.get("result")
+      if result:
+          key = result.get("key.notification")
+          if key == "source.notification.compile-will-start":
+              return responses.BuildDisplayMessageResponse(f"Compiling {os.path.basename(result['key.filepath'])} ...")
 
   def QuickCandidates(self, request_data):
       if request_data['force_semantic'] and request_data[ 'query' ]:
@@ -586,7 +599,8 @@ class SwiftCompleterConnection(threading.Thread):
         super().__init__()
         self._stop_event = threading.Event()
         self._io = io
-        self.queue = SimpleQueue()
+        self.response_queue = SimpleQueue()
+        self.notification_queue = SimpleQueue()
 
     def Start( self ):
           # Wraps the fact that this class inherits (privately, in a sense) from
@@ -599,7 +613,10 @@ class SwiftCompleterConnection(threading.Thread):
     def run( self ):
         while not self._stop_event.is_set():
             response = self.__GetResponse()
-            self.queue.put(response)
+            if response.get("id") is None:
+                self.notification_queue.put(response)
+            else:
+                self.response_queue.put(response)
 
     def __GetResponse(self):
         headers = {}
