@@ -32,6 +32,7 @@ import os
 import threading
 import tempfile
 from ycmd.utils import LOGGER
+from queue import SimpleQueue, Empty
 
 import re
 import time
@@ -72,6 +73,7 @@ class SwiftCompleter( Completer ):
     self._server_state_mutex = threading.RLock()
     self._server_handle = None # type: subprocess.Popen
     self._sourcekitten_binary_path = PATH_TO_SOURCEKITTEN
+    
     self._StartServer()
 
   def SupportedFiletypes( self ):
@@ -86,16 +88,20 @@ class SwiftCompleter( Completer ):
           self._extra_conf_storage = {}
           self._source_repository = {}
           self._open_modules = {}
+          self._responses = {} # { id: response }
+          self._notifications = [] # [ todoNotifications ]
+
           self._server_stderr = utils.CreateLogfile( 'SwiftD_stderr_' )
           with utils.OpenForStdHandle( self._server_stderr ) as stderr:
               self._server_handle = utils.SafePopen(
                   [self._sourcekitten_binary_path, "daemon"],
                   env = ({"SOURCEKIT_LOGGING": "3"} if LOGGER.isEnabledFor( logging.DEBUG ) else None),
                   stdin = PIPE, stdout = PIPE, stderr = stderr) # type: subprocess.Popen
-              # TODO: 开启编译通知
-              # self.request("source.request.enable-compile-notifications", {
-              #     "key.value": 1
-              # })
+              self.notification("source.request.enable-compile-notifications", {
+                  "key.value": 1
+              })
+          self._connection = SwiftCompleterConnection(self._server_handle.stdout)
+          self._connection.Start()
 
   def _StopServer(self):
       with self._server_state_mutex:
@@ -114,9 +120,10 @@ class SwiftCompleter( Completer ):
                     "key.name": filename,
                 })
 
+              self._connection.Stop()
               self._SendNotification("end")
               self._server_handle.communicate()
-          except Exception as e:
+          except Exception:
               LOGGER.exception( 'Error while stopping SwiftLSP server' )
           else:
               self._server_handle = None
@@ -141,43 +148,52 @@ class SwiftCompleter( Completer ):
   def _SendRequest(self, method, params=None):
       with self._server_state_mutex:
           self._request_id += 1
-          r = {"id": self._request_id, "method": method}
+          request_id = self._request_id
+          r = {"id": request_id, "method": method}
           if params: r["params"] = params
 
           d = json.dumps(r).encode()
           LOGGER.debug(f"send request len({len(d)}): {d}")
           self._writePackage(d)
+
           #  TODO: 先同步串行, 以后可能改成根据id串行, 且需要比对id
-          return self.__GetResponse()
+          return self.__GetResponse(request_id)
 
   def _writePackage(self, data):
       self._server_handle.stdin.write(b'Content-Length:%d\r\n\r\n'%(len(data)))
       self._server_handle.stdin.write(data)
       self._server_handle.stdin.flush()
 
-  def __GetResponse(self):
-    # with self._server_state_mutex:
-    headers = {}
-    while True:
-        line = self._server_handle.stdout.readline()
-        if len(line) < 3: break
+  def __GetResponse(self, request_id):
+      with self._server_state_mutex:
+          response = self._responses.pop(request_id, None)
+          if response is not None:
+              return response
 
-        m = header_pattern.search(line)
-        if m: headers[m.group(1)] = m.group(2)
+          while True:
+              response = self._connection.queue.get()
+              if response.get("id") == request_id:
+                  return response
 
-    try:
-        content_length = int(headers[b'Content-Length'])
-        r = json.loads( self._server_handle.stdout.read(content_length))
-        error = None
-        if isinstance(r, dict): error = r.get("error")
-        if error:
-            LOGGER.error(f"response error: {error}")
-        else:
-            LOGGER.debug(f"get response: {r}")
-        return r
-    except (KeyError, ValueError) as e:
-        LOGGER.exception( 'Error while read package' )
-        return {}
+              self.__HandleResponse(response)
+
+
+  def _HandleQueue(self):
+      with self._server_state_mutex:
+        while True:
+          try:
+              response = self._connection.queue.get_nowait()
+              self.__HandleResponse(response)
+          except Empty:
+              return
+
+  def __HandleResponse(self, response):
+      request_id = response.get("id")
+      if request_id is None:
+          self._notifications.append(response)
+      else:
+          self._responses[request_id] = response
+
 
   def DebugInfo( self, request_data ):
     items = []
@@ -356,6 +372,12 @@ class SwiftCompleter( Completer ):
       # sourcekitd only support direct name, can't ecode as json string
       request = "{key.request: " + name + "," + request[1:]
       return self._SendRequest("yaml", request).get("result")
+
+  def notification(self, name, requestObject):
+      request  = json.dumps(requestObject, ensure_ascii=False)
+      # sourcekitd only support direct name, can't ecode as json string
+      request = "{key.request: " + name + "," + request[1:]
+      return self._SendNotification("yaml", request)
 
   def GetSubcommandsMap( self ):
     return {
@@ -555,6 +577,52 @@ class SwiftCompleter( Completer ):
                        if d.fixits_ and LocationLineInRange(location, d.location_extent_) ):
             return responses.BuildFixItResponse(fixits)
         return
+
+class SwiftCompleterConnection(threading.Thread):
+    def __init__( self, io ):
+        """
+        :type io: io.IOBase
+        """
+        super().__init__()
+        self._stop_event = threading.Event()
+        self._io = io
+        self.queue = SimpleQueue()
+
+    def Start( self ):
+          # Wraps the fact that this class inherits (privately, in a sense) from
+        # Thread.
+        self.start()
+
+    def Stop( self ):
+        self._stop_event.set()
+
+    def run( self ):
+        while not self._stop_event.is_set():
+            response = self.__GetResponse()
+            self.queue.put(response)
+
+    def __GetResponse(self):
+        headers = {}
+        while True:
+            line = self._io.readline()
+            if len(line) < 3: break
+
+            m = header_pattern.search(line)
+            if m: headers[m.group(1)] = m.group(2)
+
+        try:
+            content_length = int(headers[b'Content-Length'])
+            r = json.loads( self._io.read(content_length))
+            error = None
+            if isinstance(r, dict): error = r.get("error")
+            if error:
+                LOGGER.error(f"response error: {error}")
+            else:
+                LOGGER.debug(f"get response: {r}")
+            return r
+        except (KeyError, ValueError) as e:
+            LOGGER.exception( 'Error while read package' )
+            return {}
 
 def LocationInRange(location, location_range):
     """ return true if location in location_range """
