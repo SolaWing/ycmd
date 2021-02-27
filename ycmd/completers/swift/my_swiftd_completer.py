@@ -300,10 +300,9 @@ class SwiftCompleter( Completer ):
         diag = output.get("key.diagnostics")
 
     if not diag: return
-    bytes_contents = utils.ToBytes(contents)
     ycmd_diags = []
     for d in diag:
-        ConvertToYCMDDiag(d, bytes_contents, ycmd_diags)
+        ConvertToYCMDDiag(d, ycmd_diags)
     LOGGER.debug("%d diags", len(ycmd_diags))
     with self._server_state_mutex:
         if file_state['parse_id'] == parse_id: # no changes, save last diag
@@ -363,6 +362,9 @@ class SwiftCompleter( Completer ):
               # TODO: handle diag, but currently offset not convert to fixit #
               # diag = result.get("key.diagnostics")
               # if not diag: return
+              # ycmd_diags = []
+              # for d in diag:
+              #     ConvertToYCMDDiag(d, ycmd_diags)
 
 
   def QuickCandidates(self, request_data):
@@ -600,13 +602,16 @@ class SwiftCompleter( Completer ):
         diag = file_state.get('last_diag')
         if diag is None: return
 
-        fixits = [f for d in diag if d.fixits_ and LocationInRange(location, d.location_extent_)
-                    for f in d.fixits_]
+        bytes_contents = utils.ToBytes(contents)
+        fixits = [ConvertFixit(d.location_, d.text_, f, bytes_contents)
+                  for d in diag if d.fixits_ and LocationInRange(location, d.location_extent_)
+                  for f in d.fixits_]
         if fixits:
           return responses.BuildFixItResponse(fixits)
 
-        fixits = [f for d in diag if d.fixits_ and LocationLineInRange(location, d.location_extent_)
-                    for f in d.fixits_]
+        fixits = [ConvertFixit(d.location_, d.text_, f, bytes_contents)
+                  for d in diag if d.fixits_ and LocationLineInRange(location, d.location_extent_)
+                  for f in d.fixits_]
         if fixits:
           return responses.BuildFixItResponse(fixits)
 
@@ -704,7 +709,7 @@ def LocationFromDiag(sourcekit_diag):
     return responses.Location(line, column, path)
 
 
-def ConvertToYCMDDiag(sourcekit_diag, bytes_contents, output):
+def ConvertToYCMDDiag(sourcekit_diag, output):
     start = LocationFromDiag(sourcekit_diag)
     if start is None: return
     try:
@@ -715,9 +720,9 @@ def ConvertToYCMDDiag(sourcekit_diag, bytes_contents, output):
     end = responses.Location(start.line_number_, start.column_number_ + length, start.filename_)
     r = responses.Range(start, end)
 
+    chunks = sourcekit_diag.get("key.fixits")
     fixits = []
-    f = ConvertFixit(start, sourcekit_diag.get("key.description", ''), sourcekit_diag.get("key.fixits"), bytes_contents)
-    if f: fixits.append(f)
+    if chunks: fixits.append(chunks)
 
     output.append(responses.Diagnostic(
         ranges = [r],
@@ -729,10 +734,7 @@ def ConvertToYCMDDiag(sourcekit_diag, bytes_contents, output):
     ))
 
     for subdiag in sourcekit_diag.get("key.diagnostics", []):
-        ConvertToYCMDDiag(subdiag, bytes_contents, output)
-        # l = LocationFromDiag(subdiag)
-        # f = ConvertFixit(l, subdiag.get("key.description",""), subdiag.get("key.fixits"), bytes_contents)
-        # if f: fixits.append(f)
+        ConvertToYCMDDiag(subdiag, output)
 
 
 # return 0 if line overflow
