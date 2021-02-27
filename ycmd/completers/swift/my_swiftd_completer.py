@@ -331,18 +331,17 @@ class SwiftCompleter( Completer ):
               break
 
       messages = []
-      if notifications:
-          for n in notifications:
-              self.ConvertNotificationToMessages(request_data, n, messages)
-          if messages:
-            return messages
+      for n in notifications:
+          self.ConvertNotificationToMessages(request_data, n, messages)
+      if messages:
+          return messages
 
       try:
+        while True:
           notification = self._connection.notification_queue.get(timeout = timeout)
-          while True:
-              self.ConvertNotificationToMessages(request_data, notification, messages)
-              if messages:
-                return messages
+          self.ConvertNotificationToMessages(request_data, notification, messages)
+          if messages:
+              return messages
       except Empty:
           return True
 
