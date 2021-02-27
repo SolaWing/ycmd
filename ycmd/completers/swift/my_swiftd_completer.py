@@ -93,13 +93,17 @@ class SwiftCompleter( Completer ):
 
           self._server_stderr = utils.CreateLogfile( 'SwiftD_stderr_' )
           with utils.OpenForStdHandle( self._server_stderr ) as stderr:
+              cmd = [self._sourcekitten_binary_path, "daemon", "--enable-notification"]
+              env = None
+              if LOGGER.isEnabledFor( logging.DEBUG ):
+                  cmd.append("--verbose")
+                  env = {"SOURCEKIT_LOGGING": "3"}
               self._server_handle = utils.SafePopen(
-                  [self._sourcekitten_binary_path, "daemon"],
-                  env = ({"SOURCEKIT_LOGGING": "3"} if LOGGER.isEnabledFor( logging.DEBUG ) else None),
+                  cmd, env = env,
                   stdin = PIPE, stdout = PIPE, stderr = stderr) # type: subprocess.Popen
-              # self.notification("source.request.enable-compile-notifications", {
-              #     "key.value": 1
-              # })
+              self.notification("source.request.enable-compile-notifications", {
+                  "key.value": 1
+              })
           self._connection = SwiftCompleterConnection(self._server_handle.stdout)
           self._connection.Start()
 
@@ -238,8 +242,6 @@ class SwiftCompleter( Completer ):
       offset = len(utils.ToBytes(contents[:LineOffsetInStr(contents, line)])) + column - 1
       return (filename, contents, offset, additional_flags)
 
-  # TODO: use PollForMessagesInner for notification
-  # TODO: register compile notification
   def OnFileReadyToParse( self, request_data ):
     filename = request_data[ 'filepath' ]
     if not filename: return
@@ -319,34 +321,45 @@ class SwiftCompleter( Completer ):
             "key.name": filename,
         })
 
-  # def PollForMessagesInner( self, request_data, timeout ):
-  #     notifications = []
-  #     while True:
-  #         try:
-  #             notifications.append(self._connection.notification_queue.get_nowait())
-  #         except Empty:
-  #             break
+  def PollForMessagesInner( self, request_data, timeout ):
+      notifications = []
+      while True:
+          try:
+              notifications.append(self._connection.notification_queue.get_nowait())
+          except Empty:
+              break
 
-  #     if notifications:
-  #         messages = list(filter(bool, (self.ConvertNotificationToMessage(n) for n in notifications)))
-  #         if messages:
-  #           return messages
+      messages = []
+      if notifications:
+          for n in notifications:
+              self.ConvertNotificationToMessages(request_data, n, messages)
+          if messages:
+            return messages
 
-  #     try:
-  #         notification = self._connection.notification_queue.get(timeout = timeout)
-  #         while True:
-  #             message = self.ConvertNotificationToMessage(request_data, notification)
-  #             if message:
-  #               return [ message ]
-  #     except Empty:
-  #         return True
+      try:
+          notification = self._connection.notification_queue.get(timeout = timeout)
+          while True:
+              self.ConvertNotificationToMessages(request_data, notification, messages)
+              if messages:
+                return messages 
+      except Empty:
+          return True
 
-  def ConvertNotificationToMessage(self, request_data, notification):
+  def ConvertNotificationToMessages(self, request_data, notification, output):
+      """ 
+      :type output: list
+      """
       result = notification.get("result")
       if result:
           key = result.get("key.notification")
           if key == "source.notification.compile-will-start":
-              return responses.BuildDisplayMessageResponse(f"Compiling {os.path.basename(result['key.filepath'])} ...")
+              output.append({
+                  'statusline': f"Compiling {os.path.basename(result['key.filepath'])} ..."
+              })
+          if key == "source.notification.compile-did-finish":
+              output.append({ 'statusline': "" })
+              # TODO: handle diag, but currently offset not convert to fixit #
+
 
   def QuickCandidates(self, request_data):
       if request_data['force_semantic'] and request_data[ 'query' ]:
