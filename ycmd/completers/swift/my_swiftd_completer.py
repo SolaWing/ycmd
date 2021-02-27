@@ -73,7 +73,7 @@ class SwiftCompleter( Completer ):
     self._server_state_mutex = threading.RLock()
     self._server_handle = None # type: subprocess.Popen
     self._sourcekitten_binary_path = PATH_TO_SOURCEKITTEN
-    
+
     self._StartServer()
 
   def SupportedFiletypes( self ):
@@ -301,13 +301,15 @@ class SwiftCompleter( Completer ):
 
     if not diag: return
     bytes_contents = utils.ToBytes(contents)
-    diag = list(filter(bool, map(lambda d: ConvertToYCMDDiag(d, bytes_contents), diag)))
-    LOGGER.debug("%d diags", len(diag))
+    ycmd_diags = []
+    for d in diag:
+        ConvertToYCMDDiag(d, bytes_contents, ycmd_diags)
+    LOGGER.debug("%d diags", len(ycmd_diags))
     with self._server_state_mutex:
         if file_state['parse_id'] == parse_id: # no changes, save last diag
-            file_state['last_diag'] = diag
+            file_state['last_diag'] = ycmd_diags
 
-    return responses.BuildDiagnosticResponse(diag, filename, self.max_diagnostics_to_display)
+    return responses.BuildDiagnosticResponse(ycmd_diags, filename, self.max_diagnostics_to_display)
 
   def OnBufferUnload( self, request_data ):
     filename = request_data[ 'filepath' ]
@@ -341,12 +343,12 @@ class SwiftCompleter( Completer ):
           while True:
               self.ConvertNotificationToMessages(request_data, notification, messages)
               if messages:
-                return messages 
+                return messages
       except Empty:
           return True
 
   def ConvertNotificationToMessages(self, request_data, notification, output):
-      """ 
+      """
       :type output: list
       """
       result = notification.get("result")
@@ -359,6 +361,8 @@ class SwiftCompleter( Completer ):
           if key == "source.notification.compile-did-finish":
               output.append({ 'statusline': "" })
               # TODO: handle diag, but currently offset not convert to fixit #
+              # diag = result.get("key.diagnostics")
+              # if not diag: return
 
 
   def QuickCandidates(self, request_data):
@@ -595,14 +599,16 @@ class SwiftCompleter( Completer ):
             self.OnFileReadyToParse(request_data)
         diag = file_state.get('last_diag')
         if diag is None: return
-        for fixits in (d.fixits_ for d in diag
-                       if d.fixits_ and LocationInRange(location, d.location_extent_) ):
-            return responses.BuildFixItResponse(fixits)
-        # no accurate column match, try only line match
-        for fixits in (d.fixits_ for d in diag
-                       if d.fixits_ and LocationLineInRange(location, d.location_extent_) ):
-            return responses.BuildFixItResponse(fixits)
-        return
+
+        fixits = [f for d in diag if d.fixits_ and LocationInRange(location, d.location_extent_)
+                    for f in d.fixits_]
+        if fixits:
+          return responses.BuildFixItResponse(fixits)
+
+        fixits = [f for d in diag if d.fixits_ and LocationLineInRange(location, d.location_extent_)
+                    for f in d.fixits_]
+        if fixits:
+          return responses.BuildFixItResponse(fixits)
 
 class SwiftCompleterConnection(threading.Thread):
     def __init__( self, io ):
@@ -698,7 +704,7 @@ def LocationFromDiag(sourcekit_diag):
     return responses.Location(line, column, path)
 
 
-def ConvertToYCMDDiag(sourcekit_diag, bytes_contents):
+def ConvertToYCMDDiag(sourcekit_diag, bytes_contents, output):
     start = LocationFromDiag(sourcekit_diag)
     if start is None: return
     try:
@@ -710,23 +716,24 @@ def ConvertToYCMDDiag(sourcekit_diag, bytes_contents):
     r = responses.Range(start, end)
 
     fixits = []
-    f = ConvertFixit(start, "", sourcekit_diag.get("key.fixits"), bytes_contents)
+    f = ConvertFixit(start, sourcekit_diag.get("key.description", ''), sourcekit_diag.get("key.fixits"), bytes_contents)
     if f: fixits.append(f)
-    
-    for subdiag in sourcekit_diag.get("key.diagnostics", []):
-        l = LocationFromDiag(subdiag)
-        f = ConvertFixit(l, subdiag.get("key.description",""), subdiag.get("key.fixits"), bytes_contents)
-        if f: fixits.append(f)
 
-    #  TODO: swiftc compiler args #
-    return responses.Diagnostic(
+    output.append(responses.Diagnostic(
         ranges = [r],
         location = r.start_,
         location_extent = r,
         text = sourcekit_diag.get("key.description"),
         kind = DiagTypeFromKitten(sourcekit_diag.get("key.severity")),
         fixits = fixits
-    )
+    ))
+
+    for subdiag in sourcekit_diag.get("key.diagnostics", []):
+        ConvertToYCMDDiag(subdiag, bytes_contents, output)
+        # l = LocationFromDiag(subdiag)
+        # f = ConvertFixit(l, subdiag.get("key.description",""), subdiag.get("key.fixits"), bytes_contents)
+        # if f: fixits.append(f)
+
 
 # return 0 if line overflow
 def LineOffsetInStr(file_contents, line):
