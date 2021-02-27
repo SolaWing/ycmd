@@ -694,7 +694,7 @@ def ConvertFixit(location, desc, chunks, bytes_contents):
                                    BuildRangeFromOffset(location.filename_, bytes_contents,
                                                         c["key.offset"], c["key.length"]))
               for c in chunks]
-    return responses.FixIt( location, chunks, desc )
+    return responses.FixIt( location, chunks, desc, kind="quickfix" )
 
 def LocationFromDiag(sourcekit_diag):
     path = sourcekit_diag.get("key.filepath")
