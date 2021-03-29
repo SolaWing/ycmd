@@ -242,18 +242,15 @@ class SwiftCompleter( Completer ):
       offset = len(utils.ToBytes(contents[:LineOffsetInStr(contents, line)])) + column - 1
       return (filename, contents, offset, additional_flags)
 
-  def OnFileReadyToParse( self, request_data ):
+  def _GetFileState(self, request_data, contents, update=False):
     filename = request_data[ 'filepath' ]
     if not filename: return
-    # 限制不要重复编译
-    contents = GetFileContents( request_data, filename )
     with self._server_state_mutex:
         file_state = self._source_repository.get(filename)
         if file_state is None:
             if filename in self._open_modules:
                 return # module file 不需要编译, rare cause delay in rare execute branch
             file_state = {'parse_id': 0, 'last_contents': contents}
-            self._source_repository[filename] = file_state
 
             output = self.request("source.request.editor.open", {
                 "key.sourcefile": filename,
@@ -264,7 +261,10 @@ class SwiftCompleter( Completer ):
                 "key.enablesubstructure": 0
             }) # type: dict
             if output is None: LOGGER.warn("editor open error!"); return
-        else:
+
+            self._source_repository[filename] = file_state
+        elif update:
+            # TODO: close completion #
             diff = DiffString(file_state['last_contents'], contents)
             file_state['last_contents'] = contents
             file_state['parse_id'] += 1
@@ -278,7 +278,19 @@ class SwiftCompleter( Completer ):
             })
             if output is None: LOGGER.warn("editor open error!"); return
         parse_id = file_state['parse_id']
-    # lock end
+        return (file_state, parse_id, output)
+
+
+  # TODO: keep last diag, or diag will disappare when change one, and compile is slow #
+  # TODO: can cancel cursor, goto cmd #
+  def OnFileReadyToParse( self, request_data ):
+    self._StopCompleteSession()
+    filename = request_data[ 'filepath' ]
+    if not filename: return
+    # 限制不要重复编译
+    v = self._GetFileState(request_data, GetFileContents( request_data, filename ), update=True)
+    if v is None: return
+    file_state, parse_id, output = v
 
     diag = output.get("key.diagnostics")
     c = 0
