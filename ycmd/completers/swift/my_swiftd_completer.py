@@ -53,6 +53,7 @@ PATH_TO_SOURCEKITTEN = os.path.abspath( os.path.join(
 def ShouldEnableSwiftCompleter():
     return os.path.exists(PATH_TO_SOURCEKITTEN)
 
+# TODO: goto Type #
 class SwiftCompleter( Completer ):
   """
   A Completer that uses the SourceKitten.
@@ -67,8 +68,10 @@ class SwiftCompleter( Completer ):
     self._flags_for_file = {}
     self._extra_conf_storage = {}
     self._source_repository = {} # open files
+    self._complete_session = None
     self._open_modules = {}
     self._request_id = 0
+    self._counter = FastReadCounter()
     # Used to ensure that starting/stopping of the server is synchronized
     self._server_state_mutex = threading.RLock()
     self._server_handle = None # type: subprocess.Popen
@@ -87,6 +90,7 @@ class SwiftCompleter( Completer ):
           self._flags_for_file = {}
           self._extra_conf_storage = {}
           self._source_repository = {}
+          self._complete_session = None
           self._open_modules = {}
 
           self._responses = {} # { id: response }
@@ -117,6 +121,7 @@ class SwiftCompleter( Completer ):
               self._server_handle.pid ) )
 
           try:
+              self._StopCompleteSession()
               for filename, file_state in self._source_repository.items():
                 file_state['parse_id'] += 1 # cancel waiting parsing
                 self.request("source.request.editor.close", {
@@ -264,7 +269,6 @@ class SwiftCompleter( Completer ):
 
             self._source_repository[filename] = file_state
         elif update:
-            # TODO: close completion #
             diff = DiffString(file_state['last_contents'], contents)
             file_state['last_contents'] = contents
             file_state['parse_id'] += 1
@@ -376,6 +380,71 @@ class SwiftCompleter( Completer ):
               # ycmd_diags = []
               # for d in diag:
               #     ConvertToYCMDDiag(d, ycmd_diags)
+
+  def _StopCompleteSession(self):
+    with self._server_state_mutex:
+      if self._complete_session is None: return
+
+      self.notification("source.request.codecomplete.close", {
+          "key.sourcefile" : self._complete_session[1],
+          "key.name": self._complete_session[1],
+          "key.offset" : self._complete_session[2],
+      })
+      self._complete_session = None
+
+  def ComputeCandidates(self, request_data):
+      if ( not request_data[ 'force_semantic' ] and not self.ShouldUseNow( request_data ) ):
+          return []
+
+      c = self._counter.increment()
+
+      with self._server_state_mutex:
+          if c != self._counter.value: return [] # 有新请求，cancel中间的旧请求
+
+          if last_req := self._complete_session:
+              if last_req[0] == request_data: # reuse, update
+                  name, params = "source.request.codecomplete.update", {
+                      "key.sourcefile" : last_req[1],
+                      "key.name": last_req[1],
+                      "key.offset" : last_req[2],
+                      "key.codecomplete.options": {
+                          "key.codecomplete.filtertext": request_data['query'],
+                      }
+                  }
+              else:
+                  self._StopCompleteSession() # clear _complete_session, following request new
+
+          if self._complete_session is None:
+              data = self.RequestDataExtract(request_data)
+              name, params = "source.request.codecomplete.open", {
+                  "key.sourcefile" : data[0],
+                  "key.name": data[0],
+                  "key.sourcetext" : data[1],
+                  "key.offset" : data[2],
+                  "key.compilerargs" : data[3],
+                  "key.codecomplete.options": {
+                      "key.codecomplete.filtertext": request_data['query'],
+                      # "key.codecomplete.requeststart": 0
+                  }
+              }
+              self._complete_session = (request_data, data[0], data[2])
+
+          if self._max_candidates > 0:
+              params['key.codecomplete.options']['key.codecomplete.requestlimit'] = self._max_candidates
+
+          # get response
+          output = self.request(name, params)
+          if output is None: return []
+
+          completions = [ responses.BuildCompletionData(
+              completion['key.name'],
+              completion.get('key.typename'),
+              detailed_info = completion.get('key.doc.brief'),
+              menu_text     = completion.get('key.description'),
+              kind          = KindFromKittenKind(completion.get('key.kind')),
+              extra_data    = { 'template' : completion.get('key.sourcetext') }
+          ) for completion in output["key.results"] ]
+          return completions
 
 
   def QuickCandidates(self, request_data):
@@ -784,3 +853,13 @@ def DiagTypeFromKitten(sourcekind):
         "source.diagnostic.severity.error": "ERROR"
     }.get(sourcekind)
 
+class FastReadCounter(object):
+    def __init__(self):
+        self.value = 0
+        self._lock = threading.Lock()
+        
+    def increment(self):
+        """ return new value """
+        with self._lock:
+            self.value += 1
+            return self.value
