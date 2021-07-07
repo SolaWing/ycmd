@@ -167,6 +167,7 @@ class RubyCompleter( language_server_completer.LanguageServerCompleter ):
       )
 
   def _StartServerNoLock( self, request_data ):
+      self._connection_type = "stdio"
       settings = self._settings['ls']
       self._project_directory = self.GetProjectDirectory(request_data)
       sorbet = None
@@ -187,11 +188,21 @@ class RubyCompleter( language_server_completer.LanguageServerCompleter ):
         self._bin = lang_server_bin
         self._use_bundler = _UseBundler(self._project_directory)
         self._current_server_type = "solargraph"
-        if self._use_bundler:
-            self._command_line = ['bundle', 'exec', lang_server_bin, "stdio"]
+        useSocket = True
+        if useSocket:
+          # 简化实现，真实的需要listen一下才知道
+          self._connection_type = "tcp"
+          self._port = os.getppid() % 55536 + 10000
+          if self._use_bundler:
+              self._command_line = ['bundle', 'exec', lang_server_bin, "socket", "-p", str(self._port)]
+          else:
+              self._command_line = [lang_server_bin, "socket", "-p", str(self._port)]
         else:
-            self._command_line = [lang_server_bin, "stdio"]
-            # self._command_line = ["nc", "127.0.0.1", "7658"]
+          if self._use_bundler:
+              self._command_line = ['bundle', 'exec', lang_server_bin, "stdio"]
+          else:
+              self._command_line = [lang_server_bin, "stdio"]
+              # self._command_line = ["nc", "127.0.0.1", "7658"]
         settings['diagnostics'] = True
         settings['formatting'] = True
       settings['logLevel'] = self._ServerLoggingLevel
