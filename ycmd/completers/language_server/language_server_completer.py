@@ -601,24 +601,32 @@ class LanguageServerConnection( threading.Thread ):
 
   def _ServerToClientRequest( self, request ):
     method = request[ 'method' ]
-    if method == 'workspace/applyEdit':
-      self._collector.CollectApplyEdit( request, self )
-    elif method == 'workspace/configuration':
-      response = self._workspace_conf_handler( request )
-      if response is not None:
-        self.SendResponse( lsp.Accept( request, response ) )
-      else:
+    try:
+      if method == 'workspace/applyEdit':
+        self._collector.CollectApplyEdit( request, self )
+      elif method == 'workspace/configuration':
+        response = self._workspace_conf_handler( request )
+        if response is not None:
+          self.SendResponse( lsp.Accept( request, response ) )
+        else:
+          self.SendResponse( lsp.Reject( request, lsp.Errors.MethodNotFound ) )
+      elif method == 'client/registerCapability':
+        self._HandleDynamicRegistrations( request )
+      elif method == 'client/unregisterCapability':
+        for reg in request[ 'params' ][ 'unregisterations' ]:
+          if reg[ 'method' ] == 'workspace/didChangeWatchedFiles':
+            self._CancelWatchdogThreads()
+        self.SendResponse( lsp.Void( request ) )
+      else: # method unknown - reject
         self.SendResponse( lsp.Reject( request, lsp.Errors.MethodNotFound ) )
-    elif method == 'client/registerCapability':
-      self._HandleDynamicRegistrations( request )
-    elif method == 'client/unregisterCapability':
-      for reg in request[ 'params' ][ 'unregisterations' ]:
-        if reg[ 'method' ] == 'workspace/didChangeWatchedFiles':
-          self._CancelWatchdogThreads()
-      self.SendResponse( lsp.Void( request ) )
-    else:
-      # Reject the request
-      self.SendResponse( lsp.Reject( request, lsp.Errors.MethodNotFound ) )
+      return
+    except Exception:
+      LOGGER.exception( "Handling server to client request failed for request "
+                        "%s, rejecting it. This is probably a bug in ycmd.",
+                        request )
+
+    # unhandled, or failed; reject the request
+    self.SendResponse( lsp.Reject( request, lsp.Errors.MethodNotFound ) )
 
   def _DispatchMessage( self, message ):
     """Called in the message pump thread context when a complete message was
@@ -1525,8 +1533,8 @@ class LanguageServerCompleter( Completer ):
         else:
           begin, end = arg_label
         arg[ 'label' ] = [
-          utils.CodepointOffsetToByteOffset( sig_label, begin ),
-          utils.CodepointOffsetToByteOffset( sig_label, end ) ]
+          utils.CodepointOffsetToByteOffset( sig_label, begin + 1 ) - 1,
+          utils.CodepointOffsetToByteOffset( sig_label, end + 1 ) - 1 ]
     result.setdefault( 'activeParameter', 0 )
     result.setdefault( 'activeSignature', 0 )
     return result
@@ -2224,10 +2232,10 @@ class LanguageServerCompleter( Completer ):
 
       if self._resolve_completion_items:
         LOGGER.info( '%s: Language server requires resolve request',
-                     self.Langauge() )
+                     self.Language() )
       else:
         LOGGER.info( '%s: Language server does not require resolve request',
-                     self.Langauge() )
+                     self.Language() )
 
       self._is_completion_provider = (
           'completionProvider' in self._server_capabilities )
@@ -2250,7 +2258,7 @@ class LanguageServerCompleter( Completer ):
 
         self._sync_type = SYNC_TYPE[ sync ]
         LOGGER.info( '%s: Language server requires sync type of %s',
-                     self.Langauge(),
+                     self.Language(),
                      self._sync_type )
 
       # Update our semantic triggers if they are supplied by the server
@@ -2559,10 +2567,13 @@ class LanguageServerCompleter( Completer ):
     new_name = args[ 0 ]
 
     request_id = self.GetConnection().NextRequestId()
-    response = self.GetConnection().GetResponse(
-      request_id,
-      lsp.Rename( request_id, request_data, new_name ),
-      REQUEST_TIMEOUT_COMMAND )
+    try:
+      response = self.GetConnection().GetResponse(
+        request_id,
+        lsp.Rename( request_id, request_data, new_name ),
+        REQUEST_TIMEOUT_COMMAND )
+    except ResponseFailedException:
+      raise RuntimeError( 'Cannot rename the symbol under cursor.' )
 
     fixit = WorkspaceEditToFixIt( request_data, response[ 'result' ] )
     if not fixit:
@@ -2988,8 +2999,13 @@ def _SymbolInfoListToGoTo( request_data, symbols ):
     description = ( f'{ lsp.SYMBOL_KIND[ symbol[ "kind" ] ] }: '
                     f'{ symbol[ "name" ] }' )
 
-    return responses.BuildGoToResponseFromLocation( location,
+    goto = responses.BuildGoToResponseFromLocation( location,
                                                     description )
+    goto[ 'extra_data' ] = {
+      'kind': lsp.SYMBOL_KIND[ symbol[ 'kind' ] ],
+      'name': symbol[ 'name' ],
+    }
+    return goto
 
   locations = [ BuildGoToLocationFromSymbol( s ) for s in
                 sorted( symbols,
@@ -3201,9 +3217,12 @@ class LanguageServerCompletionsCache( CompletionsCache ):
     return request_data[ 'query' ].startswith( self._request_data[ 'query' ] )
 
 
-  def GetCompletionsIfCacheValid( self, request_data ):
+  def GetCompletionsIfCacheValid( self,
+                                  request_data,
+                                  **kwargs ):
     with self._access_lock:
-      if ( not self._is_incomplete and
+      if ( ( not self._is_incomplete
+             or kwargs.get( 'ignore_incomplete' ) ) and
            ( self._use_start_column or self._IsQueryPrefix( request_data ) ) ):
         return super().GetCompletionsIfCacheValidNoLock( request_data )
       return None

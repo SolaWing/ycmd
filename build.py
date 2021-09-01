@@ -19,6 +19,8 @@ from zipfile import ZipFile
 import tempfile
 import urllib.request
 
+IS_MSYS = 'MSYS' == os.environ.get( 'MSYSTEM' )
+
 IS_64BIT = sys.maxsize > 2**32
 PY_MAJOR, PY_MINOR = sys.version_info[ 0 : 2 ]
 PY_VERSION = sys.version_info[ 0 : 3 ]
@@ -72,13 +74,13 @@ DYNAMIC_PYTHON_LIBRARY_REGEX = """
   )$
 """
 
-JDTLS_MILESTONE = '0.67.0'
-JDTLS_BUILD_STAMP = '202012170459'
+JDTLS_MILESTONE = '0.68.0'
+JDTLS_BUILD_STAMP = '202101202016'
 JDTLS_SHA256 = (
-  'b4b14a30ac4b513b69f2d0a6297e7a8766d65bcdccadf3c26ef08c4385e31f87'
+  'df9c9b497ce86b1d57756b2292ad0f7bfaa76aed8a4b63a31c589e85018b7993'
 )
 
-RUST_TOOLCHAIN = 'nightly-2020-10-05'
+RUST_TOOLCHAIN = 'nightly-2021-07-29'
 RUST_ANALYZER_DIR = p.join( DIR_OF_THIRD_PARTY, 'rust-analyzer' )
 
 BUILD_ERROR_MESSAGE = (
@@ -90,7 +92,7 @@ BUILD_ERROR_MESSAGE = (
   'issue tracker, including the entire output of this script\n'
   'and the invocation line used to run it.' )
 
-CLANGD_VERSION = '11.0.0'
+CLANGD_VERSION = '12.0.0'
 CLANGD_BINARIES_ERROR_MESSAGE = (
   'No prebuilt Clang {version} binaries for {platform}. '
   'You\'ll have to compile Clangd {version} from source '
@@ -225,9 +227,7 @@ def CheckCall( args, **kwargs ):
 
 def _CheckCallQuiet( args, status_message, **kwargs ):
   if status_message:
-    # __future__ not appear to support flush= on print_function
-    sys.stdout.write( status_message + '...' )
-    sys.stdout.flush()
+    print( status_message + '...', flush = True, end = '' )
 
   with tempfile.NamedTemporaryFile() as temp_file:
     _CheckCall( args, stdout=temp_file, stderr=subprocess.STDOUT, **kwargs )
@@ -265,7 +265,7 @@ def GetGlobalPythonPrefix():
 def GetPossiblePythonLibraryDirectories():
   prefix = GetGlobalPythonPrefix()
 
-  if OnWindows():
+  if OnWindows() and not IS_MSYS:
     return [ p.join( prefix, 'libs' ) ]
   # On pyenv and some distributions, there is no Python dynamic library in the
   # directory returned by the LIBPL variable. Such library can be found in the
@@ -354,7 +354,7 @@ def CustomPythonCmakeArgs( args ):
 def GetGenerator( args ):
   if args.ninja:
     return 'Ninja'
-  if OnWindows():
+  if OnWindows() and not IS_MSYS:
     # The architecture must be specified through the -A option for the Visual
     # Studio 16 generator.
     if args.msvc == 16:
@@ -382,9 +382,6 @@ def ParseArguments():
   parser.add_argument( '--ts-completer', action = 'store_true',
                        help = 'Enable JavaScript and TypeScript semantic '
                               'completion engine.' ),
-  parser.add_argument( '--system-boost', action = 'store_true',
-                       help = 'Use the system boost instead of bundled one. '
-                       'NOT RECOMMENDED OR SUPPORTED!' )
   parser.add_argument( '--system-libclang', action = 'store_true',
                        help = 'Use system libclang instead of downloading one '
                        'from llvm.org. NOT RECOMMENDED OR SUPPORTED!' )
@@ -435,6 +432,10 @@ def ParseArguments():
                        help = 'For developers: specify the cmake executable. '
                               'Useful for testing with specific versions, or '
                               'if the system is unable to find cmake.' )
+  parser.add_argument( '--force-sudo',
+                       action = 'store_true',
+                       help = 'Compiling with sudo causes problems. If you'
+                              ' know what you are doing, proceed.' )
 
   # These options are deprecated.
   parser.add_argument( '--omnisharp-completer', action = 'store_true',
@@ -488,7 +489,7 @@ def GetCmakeCommonArgs( args ):
   cmake_args = [ '-G', GetGenerator( args ) ]
 
   # Set the architecture for the Visual Studio 16 generator.
-  if OnWindows() and args.msvc == 16 and not args.ninja:
+  if OnWindows() and args.msvc == 16 and not args.ninja and not IS_MSYS:
     arch = 'x64' if IS_64BIT else 'Win32'
     cmake_args.extend( [ '-A', arch ] )
 
@@ -507,9 +508,6 @@ def GetCmakeArgs( parsed_args ):
 
   if parsed_args.system_libclang:
     cmake_args.append( '-DUSE_SYSTEM_LIBCLANG=ON' )
-
-  if parsed_args.system_boost:
-    cmake_args.append( '-DUSE_SYSTEM_BOOST=ON' )
 
   if parsed_args.enable_debug:
     cmake_args.append( '-DCMAKE_BUILD_TYPE=Debug' )
@@ -541,26 +539,23 @@ def RunYcmdTests( args, build_dir ):
   else:
     new_env[ 'LD_LIBRARY_PATH' ] = LIBCLANG_DIR
 
-  tests_cmd = [ p.join( tests_dir, 'ycm_core_tests' ) ]
+  tests_cmd = [ p.join( tests_dir, 'ycm_core_tests' ), '--gtest_brief' ]
   if args.core_tests != '*':
     tests_cmd.append( f'--gtest_filter={ args.core_tests }' )
-  if not args.valgrind:
-    CheckCall( tests_cmd,
-               env = new_env,
-               quiet = args.quiet,
-               status_message = 'Running ycmd tests' )
-  else:
+  if args.valgrind:
     new_env[ 'PYTHONMALLOC' ] = 'malloc'
-    cmd = [ 'valgrind',
+    tests_cmd = [ 'valgrind',
             '--gen-suppressions=all',
             '--error-exitcode=1',
             '--leak-check=full',
             '--show-leak-kinds=definite,indirect',
             '--errors-for-leak-kinds=definite,indirect',
             '--suppressions=' + p.join( DIR_OF_THIS_SCRIPT,
-                                        'valgrind.suppressions' ),
-            p.join( tests_dir, 'ycm_core_tests' ) ]
-    CheckCall( cmd, env = new_env )
+                                        'valgrind.suppressions' ) ] + tests_cmd
+  CheckCall( tests_cmd,
+      env = new_env,
+      quiet = args.quiet,
+      status_message = 'Running ycmd tests' )
 
 
 def RunYcmdBenchmarks( args, build_dir ):
@@ -1026,32 +1021,32 @@ def GetClangdTarget():
   if OnWindows():
     return [
       ( 'clangd-{version}-win64',
-        '6c9ac8abc7b7597f92268624d200326f8681eecb387c875d319b7fdc9f400102' ),
+        'c9e4f11822a60b49b9cd0be0673302c7595df09ce2eed4c030559b4102589c54' ),
       ( 'clangd-{version}-win32',
-        '67dba0988e55d472ebef78d1b0c7227261818809a4dd66d45cf8ed2cdc92825c' ) ]
+        'f7cbd73e99783687898a7370b8ae8875ac25e97ef2b1a9fc7c7e3c4b2fc8e5c5' ) ]
   if OnMac():
     return [
       ( 'clangd-{version}-x86_64-apple-darwin',
-        '04be91e7812328c3262963a3206c1ebc87e0e46892323a1b8eea980ffbf2d16f' ) ]
+        '4982c5e56274102ce0c830aad4cdbe21efd51883e5fc2cbe05ef29e4b820e6ec' ) ]
   if OnFreeBSD():
     return [
       ( 'clangd-{version}-amd64-unknown-freebsd11',
-        '2532850e2269d533d5b4bf9cb676587fd3e80914b0dbee13b694d9f3eb4b45b1' ),
+        '0aaf368d65d03299c593a5a2eac9eeb6b7a15f6348096b225b6428dc254e7d25' ),
       ( 'clangd-{version}-i386-unknown-freebsd11',
-        '542d2012da260df76e4747abeef2a90dfb8f7923bf781dab296eaf484bfec4f6' ) ]
+        'b0e5b88fb628a9b21e50c92136b184326f48d6b5f99d779694dfc361614f641e' ) ]
   if OnAArch64():
     return [
       ( 'clangd-{version}-aarch64-linux-gnu',
-        '4a62bb2ca1b60ef0be0617c9caa1f297edf1a60f81c48c366625a715f9563e8e' ) ]
+        '5057ef4fafd5aaf7aefb0916603314e58658a166e76a33ea5c3810dabe2b2480' ) ]
   if OnArm():
     return [
       None, # First list index is for 64bit archives. ARMv7 is 32bit only.
       ( 'clangd-{version}-armv7a-linux-gnueabihf',
-        'fd00fc69c49ff397a38cf4ba5ded3ccd2e6c5c955b9e3a9d7b26fce8a1465b05' ) ]
+        '31588fef3fcab8c5859a6372406921029ea16d80e2119ca532ee384330b177ce' ) ]
   if OnX86_64():
     return [
       ( 'clangd-{version}-x86_64-unknown-linux-gnu',
-        '6288eb10e24d50227415e787bdc9392c3fe6917ceb25cc1c41f9843b8d9f9461' ) ]
+        '0bb712b8d2a2d6861ea28b11167fc01c21336e5bce8682caab60257e32d9bba1' ) ]
   sys.exit( CLANGD_BINARIES_ERROR_MESSAGE.format( version = CLANGD_VERSION,
                                                   platform = 'this system' ) )
 
@@ -1065,7 +1060,8 @@ def DownloadClangd( printer ):
   target_name, check_sum = target[ not IS_64BIT ]
   target_name = target_name.format( version = CLANGD_VERSION )
   file_name = f'{ target_name }.tar.bz2'
-  download_url = f'https://dl.bintray.com/ycm-core/clangd/{ file_name }'
+  download_url = ( 'https://github.com/ycm-core/llvm/releases/download/'
+                   f'{ CLANGD_VERSION }/{ file_name }' )
 
   file_name = p.join( CLANGD_CACHE_DIR, file_name )
 
@@ -1164,8 +1160,14 @@ def DoCmakeBuilds( args ):
   BuildWatchdogModule( args )
 
 
-def Main():
+def Main(): # noqa: C901
   args = ParseArguments()
+
+  if 'SUDO_COMMAND' in os.environ:
+    if args.force_sudo:
+      print( 'Forcing build with sudo. If it breaks, keep the pieces.' )
+    else:
+      sys.exit( 'This script should not be run with sudo.' )
 
   if not args.skip_build:
     DoCmakeBuilds( args )

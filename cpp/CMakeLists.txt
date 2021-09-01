@@ -182,17 +182,29 @@ if ( MSVC )
   set( CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /MP /bigobj /utf-8" )
 endif()
 
+# Makes MSVC conform to the standard
+if ( MSVC )
+  set( CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /permissive- /Zc:__cplusplus /Zc:externConstexpr /Zc:inline /Zc:throwingNew" )
+endif()
+
 # Enables Python compilation for 64-bit Windows. Already defined by Python
 # headers when compiling with MSVC.
 if( WIN32 OR CYGWIN OR MSYS AND NOT MSVC AND 64_BIT_PLATFORM )
   add_definitions( -DMS_WIN64 )
 endif()
 
+# CYGWIN needs handholding...
+if( CYGWIN )
+  set( NEEDS_EXTENSIONS ON )
+else()
+  set( NEEDS_EXTENSIONS OFF )
+endif()
+
 #############################################################################
 
 set( CMAKE_CXX_STANDARD 17 )
 set( CMAKE_CXX_STANDARD_REQUIRED ON )
-set( CMAKE_CXX_EXTENSIONS OFF )
+set( CMAKE_CXX_EXTENSIONS ${NEEDS_EXTENSIONS} )
 if ( NOT CPP17_AVAILABLE )
   # Platform-specific advice goes here. In particular, we have plenty of users
   # in corporate environments on RHEL/CentOS, where the default system compiler
@@ -223,5 +235,23 @@ endif()
 find_package( Python3 3.6...3.10 REQUIRED COMPONENTS Interpreter Development )
 
 #############################################################################
+
+set( CMAKE_POSITION_INDEPENDENT_CODE ON )
+if ( USE_SYSTEM_ABSEIL )
+  find_package( absl REQUIRED )
+else()
+  include( FetchContent )
+  FetchContent_Declare(
+    absl
+    GIT_REPOSITORY https://github.com/abseil/abseil-cpp
+    GIT_TAG 3b4a16abad2c2ddc494371cc39a2946e36d35d11
+    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/absl
+  )
+  FetchContent_GetProperties( absl )
+  if ( NOT absl_POPULATED )
+    FetchContent_Populate( absl )
+  endif()
+  add_subdirectory( absl )
+endif()
 
 add_subdirectory( ycm )

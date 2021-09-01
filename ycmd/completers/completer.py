@@ -324,7 +324,8 @@ class Completer( metaclass = abc.ABCMeta ):
 
   def ResolveCompletionItem( self, request_data ):
     candidates = self._completions_cache.GetCompletionsIfCacheValid(
-      request_data )
+      request_data,
+      ignore_incomplete = True )
 
     if not candidates:
       raise CompletionsChanged( 'Resolve request must not change request data' )
@@ -477,7 +478,7 @@ class Completer( metaclass = abc.ABCMeta ):
     pass # pragma: no cover
 
 
-  def Langauge( self ):
+  def Language( self ):
     pass # pragma: no cover
 
 
@@ -614,7 +615,7 @@ class CompletionsCache:
 
 
   # start_column is a byte offset.
-  def GetCompletionsIfCacheValid( self, request_data ):
+  def GetCompletionsIfCacheValid( self, request_data, **kwargs ):
     with self._access_lock:
       return self.GetCompletionsIfCacheValidNoLock( request_data )
 

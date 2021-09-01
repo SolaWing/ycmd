@@ -17,7 +17,7 @@
 
 #include "PythonSupport.h"
 #include "Candidate.h"
-#include "CandidateRepository.h"
+#include "Repository.h"
 #include "Result.h"
 #include "Utils.h"
 
@@ -32,23 +32,22 @@ std::vector< const Candidate * > CandidatesFromObjectList(
   const pybind11::list& candidates,
   pybind11::str candidate_property,
   size_t num_candidates ) {
-  std::vector< std::string > candidate_strings;
-  candidate_strings.reserve( num_candidates );
+  std::vector< std::string > candidate_strings( num_candidates );
+  auto it = candidate_strings.begin();
 
   if ( !PyUnicode_GET_LENGTH( candidate_property.ptr() ) ) {
     for ( size_t i = 0; i < num_candidates; ++i ) {
-        candidate_strings.emplace_back(
-            GetUtf8String( PyList_GET_ITEM( candidates.ptr(), i ) ) );
+      *it++ = GetUtf8String( PyList_GET_ITEM( candidates.ptr(), i ) );
     }
   } else {
     for ( size_t i = 0; i < num_candidates; ++i ) {
         auto element = PyDict_GetItem( PyList_GET_ITEM( candidates.ptr(), i ),
                                        candidate_property.ptr() );
-        candidate_strings.emplace_back( GetUtf8String( element ) );
+        *it++ = GetUtf8String( element );
     }
   }
 
-  return CandidateRepository::Instance().GetCandidatesForStrings(
+  return Repository< Candidate >::Instance().GetElements(
            std::move( candidate_strings ) );
 }
 
@@ -61,9 +60,11 @@ pybind11::list FilterAndSortCandidates(
   std::string& query,
   const size_t max_candidates ) {
 
-  size_t num_candidates = PyList_GET_SIZE( candidates.ptr() );
+  auto num_candidates = size_t( PyList_GET_SIZE( candidates.ptr() ) );
   std::vector< const Candidate * > repository_candidates =
-    CandidatesFromObjectList( candidates, std::move( candidate_property ), num_candidates );
+    CandidatesFromObjectList( candidates,
+                              std::move( candidate_property ),
+                              num_candidates );
 
   std::vector< ResultAnd< size_t > > result_and_objects;
   {
@@ -89,8 +90,9 @@ pybind11::list FilterAndSortCandidates(
 
   pybind11::list filtered_candidates( result_and_objects.size() );
   for ( size_t i = 0; i < result_and_objects.size(); ++i ) {
-    auto new_candidate = 
-        PyList_GET_ITEM( candidates.ptr(), result_and_objects[ i ].extra_object_ );
+    auto new_candidate = PyList_GET_ITEM(
+        candidates.ptr(),
+        result_and_objects[ i ].extra_object_ );
     Py_INCREF( new_candidate );
     PyList_SET_ITEM( filtered_candidates.ptr(), i, new_candidate );
   }
@@ -107,13 +109,13 @@ std::string GetUtf8String( pybind11::handle value ) {
     ssize_t size = 0;
     const char* buffer = nullptr;
     buffer = PyUnicode_AsUTF8AndSize( value.ptr(), &size );
-    return { buffer, (size_t)size };
+    return { buffer, static_cast< size_t >( size ) };
   }
   if ( PyBytes_CheckExact( value.ptr() ) ) {
     ssize_t size = 0;
     char* buffer = nullptr;
     PyBytes_AsStringAndSize( value.ptr(), &buffer, &size );
-    return { buffer, (size_t)size };
+    return { buffer, static_cast< size_t >( size ) };
   }
 
   // Otherwise go through Python's built-in `str`.
@@ -121,7 +123,7 @@ std::string GetUtf8String( pybind11::handle value ) {
   ssize_t size = 0;
   const char* buffer =
       PyUnicode_AsUTF8AndSize( keep_alive.ptr(), &size );
-  return { buffer, (size_t)size };
+  return { buffer, static_cast< size_t >( size ) };
 }
 
 // 比对两个字符串，输出开始变化字节offset, 删除length, 和新加字符串. 相等时输出(0,0, "")

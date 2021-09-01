@@ -1,4 +1,4 @@
-# Copyright (C) 2011-2019 ycmd contributors
+# Copyright (C) 2011-2021 ycmd contributors
 #
 # This file is part of YouCompleteMe.
 #
@@ -30,47 +30,47 @@ if ( USE_CLANG_COMPLETER AND
      NOT PATH_TO_LLVM_ROOT AND
      NOT EXTERNAL_LIBCLANG_PATH )
 
-  set( CLANG_VERSION 11.0.0 )
+  set( CLANG_VERSION 12.0.0 )
 
   if ( APPLE )
     set( LIBCLANG_DIRNAME "libclang-${CLANG_VERSION}-x86_64-apple-darwin" )
     set( LIBCLANG_SHA256
-         "6ac0caea93177c2d260c5e31d2e4ddaf734bfe68d0f002b2eecc61de081b116f" )
+         "e3a703b97a01c2a35cbd25498609ec0db5a0e7025077c09efb2f1af273d13fbe" )
   elseif ( WIN32 )
     if( 64_BIT_PLATFORM )
       set( LIBCLANG_DIRNAME "libclang-${CLANG_VERSION}-win64" )
       set( LIBCLANG_SHA256
-           "8648dfff108e1860c4dd39c30f324badbc5a902dd7b66b5fe8433c31b8b14629" )
+           "3d34f5df6270ed69731eb6d9f8e077b6efae3eed39df70a5616007dc29acf5f6" )
     else()
       set( LIBCLANG_DIRNAME "libclang-${CLANG_VERSION}-win32" )
       set( LIBCLANG_SHA256
-           "5ae3e89f8024ec0eebd4f32ca86cb0793ecdb3bf0dd6625acd73e5c2f62d22f6" )
+           "3823025d32ff03f6d010e84f1727f63119f49bcf56309f3e29d8dd08cb7f42ea" )
     endif()
   elseif ( SYSTEM_IS_FREEBSD )
     if ( 64_BIT_PLATFORM )
       set( LIBCLANG_DIRNAME
            "libclang-${CLANG_VERSION}-amd64-unknown-freebsd11" )
       set( LIBCLANG_SHA256
-           "d98eb1b9265f2753d7d91ed78ad0cbcf06a60a9aa0d131e796fbb68e2b53ca8a" )
+           "00e4aceec213dc17b82485ee46edce1c2fb5b4742d234ca79fce33ebbff31d93" )
     else()
       set( LIBCLANG_DIRNAME
            "libclang-${CLANG_VERSION}-i386-unknown-freebsd11" )
       set( LIBCLANG_SHA256
-           "976b400a433b6031631d0ea2ee529d7835ec4a0ae2192990c45f0669a6c2ac17" )
+           "e94fd35b48dac10e04846fc4a6d1a8b5b2392c20618b9b36b1f6b11f7ec6b64b" )
     endif()
   elseif ( CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64.*|AARCH64.*)" )
     set( LIBCLANG_DIRNAME "libclang-${CLANG_VERSION}-aarch64-linux-gnu" )
     set( LIBCLANG_SHA256
-         "abe7907760eb2bfb144ede03ab9861974e2c781a976b3ad360d279397cc254cf" )
+         "5a8007c70b617109c2816543fe8fc9baf0a250a0054063ef624763a97db88808" )
   elseif ( CMAKE_SYSTEM_PROCESSOR MATCHES "^(arm.*|ARM.*)" )
     set( LIBCLANG_DIRNAME "libclang-${CLANG_VERSION}-armv7a-linux-gnueabihf" )
     set( LIBCLANG_SHA256
-         "8c77b15c91ca3199f76c266e1df5ab73111b5158b5bf5169c37998c7660ffbfa" )
+         "38b3ac02ae89907a75da159d72567481d2a705c56d41d4fc6e699ab6db13010f" )
   elseif ( CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64)" )
     set( LIBCLANG_DIRNAME
          "libclang-${CLANG_VERSION}-x86_64-unknown-linux-gnu" )
     set( LIBCLANG_SHA256
-         "069992f137eeb5d40008ac6a69b448b236de0ea8d119b9f8a2f92cb4d9962917" )
+         "dc7b08d63fcf504fdbcfc5b96c446beee8ee79dc96e8d315666b20030c41e29a" )
   else()
     message( FATAL_ERROR
       "No prebuilt Clang ${CLANG_VERSION} binaries for this system. "
@@ -83,7 +83,7 @@ if ( USE_CLANG_COMPLETER AND
 
   set( LIBCLANG_DOWNLOAD ON )
   set( LIBCLANG_URL
-       "https://dl.bintray.com/ycm-core/libclang/${LIBCLANG_FILENAME}" )
+       "https://github.com/ycm-core/llvm/releases/download/${CLANG_VERSION}/${LIBCLANG_FILENAME}" )
 
   # Check if the Clang archive is already downloaded and its checksum is
   # correct.  If this is not the case, remove it if needed and download it.
@@ -280,20 +280,20 @@ endif()
 file( WRITE ${CMAKE_CURRENT_BINARY_DIR}/main.cpp "#include <filesystem>\nint main( int argc, char ** argv ) {\n  std::filesystem::path p( argv[ 0 ] );\n  return p.string().length();\n}" )
 try_compile( STD_FS_NO_LIB_NEEDED ${CMAKE_CURRENT_BINARY_DIR}
              SOURCES ${CMAKE_CURRENT_BINARY_DIR}/main.cpp
-	     CXX_STANDARD 17
-	     CXX_STANDARD_REQUIRED TRUE
-	     CXX_EXTENSIONS FALSE )
+             CXX_STANDARD 17
+             CXX_STANDARD_REQUIRED TRUE
+             CXX_EXTENSIONS ${NEEDS_EXTENSIONS} )
 try_compile( STD_FS_NEEDS_STDCXXFS ${CMAKE_CURRENT_BINARY_DIR}
              SOURCES ${CMAKE_CURRENT_BINARY_DIR}/main.cpp
-	     CXX_STANDARD 17
-	     CXX_STANDARD_REQUIRED TRUE
-	     CXX_EXTENSIONS FALSE
+             CXX_STANDARD 17
+             CXX_STANDARD_REQUIRED TRUE
+             CXX_EXTENSIONS ${NEEDS_EXTENSIONS}
              LINK_LIBRARIES stdc++fs )
 try_compile( STD_FS_NEEDS_CXXFS ${CMAKE_CURRENT_BINARY_DIR}
              SOURCES ${CMAKE_CURRENT_BINARY_DIR}/main.cpp
-	     CXX_STANDARD 17
-	     CXX_STANDARD_REQUIRED TRUE
-	     CXX_EXTENSIONS FALSE
+             CXX_STANDARD 17
+             CXX_STANDARD_REQUIRED TRUE
+             CXX_EXTENSIONS ${NEEDS_EXTENSIONS}
              LINK_LIBRARIES c++fs )
 file( REMOVE ${CMAKE_CURRENT_BINARY_DIR}/main.cpp )
 
@@ -307,15 +307,29 @@ else()
   message( FATAL_ERROR "Unknown compiler - C++17 filesystem library missing" )
 endif()
 
+# Check if Abseil supports this environment
+file( WRITE ${CMAKE_CURRENT_BINARY_DIR}/main.cpp "#include <absl/base/policy_checks.h>\nint main() {}" )
+try_compile( ABSL_SUPPORTED ${CMAKE_CURRENT_BINARY_DIR}
+             SOURCES ${CMAKE_CURRENT_BINARY_DIR}/main.cpp
+             CMAKE_FLAGS -DINCLUDE_DIRECTORIES=${CMAKE_SOURCE_DIR}/absl
+             CXX_STANDARD 17
+             CXX_STANDARD_REQUIRED TRUE
+             CXX_EXTENSIONS ${NEEDS_EXTENSIONS} )
+file( REMOVE ${CMAKE_CURRENT_BINARY_DIR}/main.cpp )
+
+if( ${ABSL_SUPPORTED} )
+  message( STATUS "Using Abseil hash tables" )
+  set( EXTRA_LIBS ${EXTRA_LIBS} absl::flat_hash_map absl::flat_hash_set )
+else()
+  message( STATUS "Using STL hash tables" )
+endif()
+
 #############################################################################
 
-add_library( ${PROJECT_NAME} SHARED
-             ${SERVER_SOURCES}
-           )
+add_library( ${PROJECT_NAME} SHARED ${SERVER_SOURCES})
 
-# Makes MSVC conform to the standard
-if ( MSVC )
-  target_compile_options( ${PROJECT_NAME} PRIVATE "/permissive-" )
+if ( ${ABSL_SUPPORTED} )
+  target_compile_definitions( ${PROJECT_NAME} PUBLIC YCM_ABSEIL_SUPPORTED )
 endif()
 
 target_include_directories(
@@ -324,6 +338,7 @@ target_include_directories(
   PUBLIC ${PYBIND11_INCLUDES_DIR}
   PUBLIC ${Python3_INCLUDE_DIRS}
   PUBLIC ${CLANG_INCLUDES_DIR}
+  PUBLIC ${CMAKE_SOURCE_DIR}/absl
   )
 
 if ( USE_CLANG_COMPLETER AND NOT LIBCLANG_TARGET )

@@ -69,7 +69,7 @@ def ShouldEnableRustCompleter( user_options ):
     else:
       return True
   else:
-    return bool( utils.FindExecutable( RA_EXECUTABLE ) )
+    return bool( RA_EXECUTABLE )
 
 
 class RustCompleter( language_server_completer.LanguageServerCompleter ):
@@ -138,9 +138,14 @@ class RustCompleter( language_server_completer.LanguageServerCompleter ):
 
 
   def HandleNotificationInPollThread( self, notification ):
-    if notification[ 'method' ] == 'rust-analyzer/status':
-      if self._server_progress not in [ 'invalid', 'ready' ]:
-        self._server_progress = notification[ 'params' ][ 'status' ]
+    if notification[ 'method' ] == 'experimental/serverStatus':
+      params = notification[ 'params' ]
+      # NOTE: status == 'warning' not handled.
+      if params[ 'quiescent' ]:
+        if params[ 'health' ] == 'error':
+          self._server_progress = 'invalid'
+        else:
+          self._server_progress = 'ready'
     if notification[ 'method' ] == 'window/showMessage':
       if ( notification[ 'params' ][ 'message' ] ==
            'rust-analyzer failed to discover workspace' ):
@@ -150,6 +155,13 @@ class RustCompleter( language_server_completer.LanguageServerCompleter ):
 
 
   def ConvertNotificationToMessage( self, request_data, notification ):
+    if notification[ 'method' ] == 'experimental/serverStatus':
+      message = notification[ 'params' ][ 'health' ]
+      if message != 'ok' and notification[ 'params' ][ 'message' ] is not None:
+        message += ' - ' + notification[ 'params' ][ 'message' ]
+      return responses.BuildDisplayMessageResponse(
+        f'Initializing Rust completer: { message }' )
+    # TODO: Once rustup catches up, we should drop this notification.
     if notification[ 'method' ] == 'rust-analyzer/status':
       message = notification[ 'params' ]
       if message != 'invalid': # RA produces a better message for `invalid`
@@ -202,7 +214,8 @@ class RustCompleter( language_server_completer.LanguageServerCompleter ):
 
   def ExtraCapabilities( self ):
     return {
-      'experimental': { 'statusNotification': True },
+      'experimental': { 'statusNotification': True,
+                        'serverStatusNotification': True },
       'workspace': { 'configuration': True }
     }
 

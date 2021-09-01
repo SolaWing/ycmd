@@ -79,6 +79,7 @@ docs/package-lock.json
 
 # jdt.ls
 third_party/eclipse.jdt.ls
+third_party/lombok
 
 # Rust
 ycmd/tests/rust/testdata/common/target
@@ -107,3 +108,8 @@ third_party/generic_server/package-lock.json
 third_party/go
 
 third_party/regex-build
+
+# CMake FetchContent output directories
+cpp/ycm/benchmarks/benchmark/
+cpp/ycm/tests/gmock/
+cpp/absl

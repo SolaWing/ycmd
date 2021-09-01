@@ -110,6 +110,8 @@ private:
 };
 
 
+YCM_EXPORT std::string NormalizeInput( std::string_view text );
+
 using CharacterSequence = std::vector< const Character * >;
 
 } // namespace YouCompleteMe
