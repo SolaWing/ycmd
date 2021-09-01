@@ -20,6 +20,7 @@
 [submodule "third_party/SourceKitten"]
 	path = third_party/SourceKitten
 	url = https://github.com/SolaWing/SourceKitten
+	ignore = untracked
 [submodule "third_party/solargraph"]
 	path = third_party/solargraph
 	url = https://github.com/SolaWing/solargraph
