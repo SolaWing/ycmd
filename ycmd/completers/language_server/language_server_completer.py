@@ -1591,7 +1591,10 @@ class LanguageServerCompleter( Completer ):
     return None
 
   def PopenKwargs( self ):
-      return { 'env': self.GetServerEnvironment }
+      kw = {}
+      env = self.GetServerEnvironment()
+      if env is not None: kw['env'] = env
+      return kw
 
   @abc.abstractmethod
   def GetCommandLine( self ):
