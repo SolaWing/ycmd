@@ -150,6 +150,10 @@ FILETYPE_TO_IDENTIFIER_REGEX = {
                           r"(?:->|(?:\\x[0-9A-Fa-f]+;|[!$%&*/:<=>?~^]|[^\W\d]))"
                           r"(?:\\x[0-9A-Fa-f]+;|[-+.@!$%&*/:<=>?~^\w])*",
                           re.UNICODE ),
+    # 'fennel': re.compile(
+    #     r"[-\*\+!_\?:\.a-zA-Z][-\*\+!_\?:\w]*/?[-\*\+!_\?:\.\w]*",
+    #     re.UNICODE
+    # )
 }
 
 FILETYPE_TO_IDENTIFIER_REGEX[ 'racket' ] = FILETYPE_TO_IDENTIFIER_REGEX[ 'scheme' ]
@@ -161,6 +165,9 @@ FILETYPE_TO_IDENTIFIER_REGEX[ 'less' ] = FILETYPE_TO_IDENTIFIER_REGEX[ 'css' ]
 FILETYPE_TO_IDENTIFIER_REGEX[ 'elisp' ] = (
   FILETYPE_TO_IDENTIFIER_REGEX[ 'clojure' ] )
 FILETYPE_TO_IDENTIFIER_REGEX[ 'lisp' ] = (
+  FILETYPE_TO_IDENTIFIER_REGEX[ 'clojure' ] )
+# 还有些问题，.:这些算是特殊的应该重新补全（否则被缓存）,但是如果分隔开算query，conjure又是一起考虑的..
+FILETYPE_TO_IDENTIFIER_REGEX[ 'fennel' ] = (
   FILETYPE_TO_IDENTIFIER_REGEX[ 'clojure' ] )
 
 
