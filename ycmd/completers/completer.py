@@ -225,6 +225,9 @@ class Completer( metaclass = abc.ABCMeta ):
       self._completions_cache.Invalidate()
       return False
 
+    if request_data['manual']:
+      self._completions_cache.Invalidate()
+      return True
     # We have to do the cache valid check and get the completions as part of one
     # call because we have to ensure a different thread doesn't change the cache
     # data.
