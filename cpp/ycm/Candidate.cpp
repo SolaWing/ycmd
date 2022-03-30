@@ -295,12 +295,16 @@ calculate_score:
             // unmatch word_boundary数量多的, 排在相对后面一点
             - (word_boundary_chars_.size() - word_boundary_count);
     }
+    long unmatch_word_count = query_chars.size() - word_boundary_count;
     for (auto it = match_pairs.begin() + 1, e = match_pairs.end(); it != e; ++it) {
+        // query连续数，3个连续字符，有2个连续分. 单字符不算连续分
         auto c = it->first - (it-1)->first - 1;
         if ( c < 1 ) { continue; }
         // 大概连续3个字符，等于1个word_boundary的分, 之后每个连续的都多于一个word_boundary.
         // 字符匹配大概为0.4, 0.7, 1, 1.3的等差数列. 积累分为: 0.4, 1.1, 2.1, 3.4
-        word_boundary_score += BASIC_SCORE * (0.4 + 0.3 * c + 0.1) * c / 2;
+        // 另外只有不匹配wordboundary的输入才尝试用连续, 比其他不连续不命中边界的显得分多一点
+        auto max_continue_count = std::min(unmatch_word_count, c);
+        word_boundary_score += BASIC_SCORE * (0.4 + 0.3 * max_continue_count + 0.1) * max_continue_count / 2;
         // 只算连续的分，按连续数给大量分, 并按匹配数忽略相应的WB数量
         // (wbc也有少量连续分，所以差值需要多于WBC匹配的, 现在4个字符连续大概忽略2个WB, 5个基本可以算完全忽略了)
         // 期望4个连续字符稍胜2个WB+连续. 低于时不过。最好初值能大于0, 不然少量连续还减分..
