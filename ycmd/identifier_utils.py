@@ -156,7 +156,6 @@ FILETYPE_TO_IDENTIFIER_REGEX = {
     # )
 }
 
-FILETYPE_TO_IDENTIFIER_REGEX[ 'racket' ] = FILETYPE_TO_IDENTIFIER_REGEX[ 'scheme' ]
 FILETYPE_TO_IDENTIFIER_REGEX[ 'typescript' ] = (
   FILETYPE_TO_IDENTIFIER_REGEX[ 'javascript' ] )
 FILETYPE_TO_IDENTIFIER_REGEX[ 'scss' ] = FILETYPE_TO_IDENTIFIER_REGEX[ 'css' ]
@@ -169,6 +168,8 @@ FILETYPE_TO_IDENTIFIER_REGEX[ 'lisp' ] = (
 # 还有些问题，.:这些算是特殊的应该重新补全（否则被缓存）,但是如果分隔开算query，conjure又是一起考虑的..
 FILETYPE_TO_IDENTIFIER_REGEX[ 'fennel' ] = (
   FILETYPE_TO_IDENTIFIER_REGEX[ 'clojure' ] )
+FILETYPE_TO_IDENTIFIER_REGEX[ 'racket' ] = (
+  FILETYPE_TO_IDENTIFIER_REGEX[ 'scheme' ] )
 
 
 def CommentAndStringRegexForFiletype( filetype ):

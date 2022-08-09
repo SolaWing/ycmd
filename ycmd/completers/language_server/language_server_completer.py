@@ -50,7 +50,7 @@ MAX_QUEUED_MESSAGES = 250
 
 PROVIDERS_MAP = {
   'codeActionProvider': (
-    lambda self, request_data, args: self.GetCodeActions( request_data, args )
+    lambda self, request_data, args: self.GetCodeActions( request_data )
   ),
   'declarationProvider': (
     lambda self, request_data, args: self.GoTo( request_data,
@@ -137,7 +137,11 @@ class ResponseAbortedException( Exception ):
 
 class ResponseFailedException( Exception ):
   """Raised by LanguageServerConnection if a request returns an error"""
-  pass # pragma: no cover
+  def __init__( self, error ):
+    self.error_code = error.get( 'code' ) or 0
+    self.error_message = error.get( 'message' ) or "No message"
+    super().__init__( f'Request failed: { self.error_code }: '
+                      f'{ self.error_message }' )
 
 
 class IncompatibleCompletionException( Exception ):
@@ -212,11 +216,7 @@ class Response:
 
     if 'error' in self._message:
       error = self._message[ 'error' ]
-      raise ResponseFailedException(
-        'Request failed: '
-        f'{ error.get( "code" ) or 0 }'
-        ': '
-        f'{ error.get( "message" ) or "No message" }' )
+      raise ResponseFailedException( error )
 
     return self._message
 
@@ -617,6 +617,10 @@ class LanguageServerConnection( threading.Thread ):
           if reg[ 'method' ] == 'workspace/didChangeWatchedFiles':
             self._CancelWatchdogThreads()
         self.SendResponse( lsp.Void( request ) )
+      elif method == 'workspace/workspaceFolders':
+        self.SendResponse(
+          lsp.Accept( request,
+                      lsp.WorkspaceFolders( self._project_directory ) ) )
       else: # method unknown - reject
         self.SendResponse( lsp.Reject( request, lsp.Errors.MethodNotFound ) )
       return
@@ -808,7 +812,7 @@ class TCPSingleStreamConnection( LanguageServerConnection ):
 
 
   def WriteData( self, data ):
-    assert self._connection_event.isSet()
+    assert self._connection_event.is_set()
     assert self._client_socket
 
     total_sent = 0
@@ -825,7 +829,7 @@ class TCPSingleStreamConnection( LanguageServerConnection ):
 
 
   def ReadData( self, size=-1 ):
-    assert self._connection_event.isSet()
+    assert self._connection_event.is_set()
     assert self._client_socket
 
     chunks = []
@@ -1043,6 +1047,7 @@ class LanguageServerCompleter( Completer ):
     self._project_directory = None
     self._settings = {}
     self._extra_conf_dir = None
+    self._semantic_token_atlas = None
 
 
   def GetCompleterName( self ):
@@ -1282,7 +1287,7 @@ class LanguageServerCompleter( Completer ):
     if not self._is_completion_provider:
       return None, False
 
-    self._UpdateServerWithFileContents( request_data )
+    self._UpdateServerWithCurrentFileContents( request_data )
 
     request_id = self.GetConnection().NextRequestId()
 
@@ -1500,6 +1505,7 @@ class LanguageServerCompleter( Completer ):
     else:
       return responses.SignatureHelpAvailalability.NOT_AVAILABLE
 
+
   def ComputeSignaturesInner( self, request_data ):
     if not self.ServerIsReady():
       return {}
@@ -1507,11 +1513,10 @@ class LanguageServerCompleter( Completer ):
     if not self._server_capabilities.get( 'signatureHelpProvider' ):
       return {}
 
-    self._UpdateServerWithFileContents( request_data )
+    self._UpdateServerWithCurrentFileContents( request_data )
 
     request_id = self.GetConnection().NextRequestId()
     msg = lsp.SignatureHelp( request_id, request_data )
-
     response = self.GetConnection().GetResponse( request_id,
                                                  msg,
                                                  REQUEST_TIMEOUT_COMPLETION )
@@ -1538,6 +1543,43 @@ class LanguageServerCompleter( Completer ):
     result.setdefault( 'activeParameter', 0 )
     result.setdefault( 'activeSignature', 0 )
     return result
+
+
+  def ComputeSemanticTokens( self, request_data ):
+    if not self._initialize_event.wait( REQUEST_TIMEOUT_COMPLETION ):
+      return {}
+
+    if not self._ServerIsInitialized():
+      return {}
+
+    if not self._semantic_token_atlas:
+      return {}
+
+    self._UpdateServerWithCurrentFileContents( request_data )
+
+    request_id = self.GetConnection().NextRequestId()
+    body = lsp.SemanticTokens( request_id, request_data )
+
+    for _ in RetryOnFailure( [ lsp.Errors.ContentModified ] ):
+      response = self._connection.GetResponse(
+        request_id,
+        body,
+        3 * REQUEST_TIMEOUT_COMPLETION )
+
+    if response is None:
+      return {}
+
+    filename = request_data[ 'filepath' ]
+    contents = GetFileLines( request_data, filename )
+    result = response.get( 'result' ) or {}
+    tokens = _DecodeSemanticTokens( self._semantic_token_atlas,
+                                    result.get( 'data' ) or [],
+                                    filename,
+                                    contents )
+
+    return {
+      'tokens': tokens
+    }
 
 
   def GetDetailedDiagnostic( self, request_data ):
@@ -1664,6 +1706,7 @@ class LanguageServerCompleter( Completer ):
         lambda self, request_data, args: self._RestartServer( request_data )
       ),
     } )
+
     if hasattr( self, 'GetDoc' ):
       commands[ 'GetDoc' ] = (
         lambda self, request_data, args: self.GetDoc( request_data )
@@ -1672,6 +1715,18 @@ class LanguageServerCompleter( Completer ):
       commands[ 'GetType' ] = (
         lambda self, request_data, args: self.GetType( request_data )
       )
+
+    if ( self._server_capabilities and
+         'callHierarchyProvider' in self._server_capabilities ):
+      commands[ 'GoToCallees' ] = (
+        lambda self, request_data, args:
+            self.CallHierarchy( request_data, [ 'outgoing' ] )
+      )
+      commands[ 'GoToCallers' ] = (
+        lambda self, request_data, args:
+            self.CallHierarchy( request_data, [ 'incoming' ] )
+      )
+
     commands.update( self.GetCustomSubcommands() )
 
     return self._DiscoverSubcommandSupport( commands )
@@ -1922,7 +1977,7 @@ class LanguageServerCompleter( Completer ):
         uri = lsp.FilePathToUri( lsp.UriToFilePath( params[ 'uri' ] ) )
       except lsp.InvalidUriException:
         # Ignore diagnostics for URIs we don't recognise
-        LOGGER.exception( 'Ignoring diagnostics for unrecognized URI' )
+        LOGGER.debug( f'Ignoring diagnostics for unrecognized URI: { uri }' )
         return
       with self._latest_diagnostics_mutex:
         self._latest_diagnostics[ uri ] = params[ 'diagnostics' ]
@@ -1987,6 +2042,14 @@ class LanguageServerCompleter( Completer ):
     return False
 
 
+  def _UpdateServerWithCurrentFileContents( self, request_data ):
+    file_name = request_data[ 'filepath' ]
+    contents = GetFileContents( request_data, file_name )
+    filetypes = request_data[ 'filetypes' ]
+    with self._server_info_mutex:
+      self._RefreshFileContentsUnderLock( file_name, contents, filetypes )
+
+
   def _UpdateServerWithFileContents( self, request_data ):
     """Update the server with the current contents of all open buffers, and
     close any buffers no longer open.
@@ -1999,6 +2062,30 @@ class LanguageServerCompleter( Completer ):
       self._PurgeMissingFilesUnderLock( files_to_purge )
 
 
+  def _RefreshFileContentsUnderLock( self, file_name, contents, file_types ):
+    file_state = self._server_file_state[ file_name ]
+    action, changes, ranges = file_state.ChangeContents( contents )
+
+    LOGGER.debug( 'Refreshing file %s: State is %s/action %s',
+                  file_name,
+                  file_state.state,
+                  action )
+
+    if action == lsp.ServerFileState.OPEN_FILE:
+      msg = lsp.DidOpenTextDocument( file_state,
+                                     file_types,
+                                     contents )
+
+      self.GetConnection().SendNotification( msg )
+    elif action == lsp.ServerFileState.CHANGE_FILE:
+      if self._sync_type == "Incremental":
+        msg = lsp.DidChangeTextDocument( file_state, changes, ranges )
+      else:
+        msg = lsp.DidChangeTextDocument( file_state, contents )
+
+      self.GetConnection().SendNotification( msg )
+
+
   def _UpdateDirtyFilesUnderLock( self, request_data ):
     for file_name, file_data in request_data[ 'file_data' ].items():
       if not self._AnySupportedFileType( file_data[ 'filetypes' ] ):
@@ -2009,27 +2096,10 @@ class LanguageServerCompleter( Completer ):
                        self.SupportedFiletypes() )
         continue
 
-      file_state = self._server_file_state[ file_name ]
-      action, changes, ranges = file_state.ChangeContents( file_data[ 'contents' ] )
+      self._RefreshFileContentsUnderLock( file_name,
+                                          file_data[ 'contents' ],
+                                          file_data[ 'filetypes' ] )
 
-      LOGGER.debug( 'Refreshing file %s: State is %s/action %s',
-                    file_name,
-                    file_state.state,
-                    action )
-
-      if action == lsp.ServerFileState.OPEN_FILE:
-        msg = lsp.DidOpenTextDocument( file_state,
-                                       file_data[ 'filetypes' ],
-                                       file_data[ 'contents' ] )
-
-        self.GetConnection().SendNotification( msg )
-      elif action == lsp.ServerFileState.CHANGE_FILE:
-        if self._sync_type == "Incremental":
-          msg = lsp.DidChangeTextDocument( file_state, changes, ranges )
-        else:
-          msg = lsp.DidChangeTextDocument( file_state, file_data[ 'contents' ] )
-
-        self.GetConnection().SendNotification( msg )
 
 
   def _UpdateSavedFilesUnderLock( self, request_data ):
@@ -2226,6 +2296,21 @@ class LanguageServerCompleter( Completer ):
     return server_trigger_characters
 
 
+  def _SetUpSemanticTokenAtlas( self, capabilities: dict ):
+    server_config = capabilities.get( 'semanticTokensProvider' )
+    if server_config is None:
+      return
+
+    server_full_support = server_config.get( 'full' )
+    if server_full_support == {}:
+      server_full_support = True
+
+    if not server_full_support:
+      return
+
+    self._semantic_token_atlas = TokenAtlas( server_config[ 'legend' ] )
+
+
   def _HandleInitializeInPollThread( self, response ):
     """Called within the context of the LanguageServerConnection's message pump
     when the initialize request receives a response."""
@@ -2242,6 +2327,8 @@ class LanguageServerCompleter( Completer ):
 
       self._is_completion_provider = (
           'completionProvider' in self._server_capabilities )
+
+      self._SetUpSemanticTokenAtlas( self._server_capabilities )
 
       if 'textDocumentSync' in self._server_capabilities:
         sync = self._server_capabilities[ 'textDocumentSync' ]
@@ -2369,10 +2456,15 @@ class LanguageServerCompleter( Completer ):
 
   def _GoToRequest( self, request_data, handler ):
     request_id = self.GetConnection().NextRequestId()
-    result = self.GetConnection().GetResponse(
-      request_id,
-      getattr( lsp, handler )( request_id, request_data ),
-      REQUEST_TIMEOUT_COMMAND )[ 'result' ]
+
+    try:
+      result = self.GetConnection().GetResponse(
+        request_id,
+        getattr( lsp, handler )( request_id, request_data ),
+        REQUEST_TIMEOUT_COMMAND )[ 'result' ]
+    except ResponseFailedException:
+      result = None
+
     if not result:
       raise RuntimeError( 'Cannot jump to location' )
     if not isinstance( result, list ):
@@ -2446,7 +2538,61 @@ class LanguageServerCompleter( Completer ):
 
 
 
-  def GetCodeActions( self, request_data, args ):
+  def CallHierarchy( self, request_data, args ):
+    if not self.ServerIsReady():
+      raise RuntimeError( 'Server is initializing. Please wait.' )
+
+    self._UpdateServerWithFileContents( request_data )
+    request_id = self.GetConnection().NextRequestId()
+    message = lsp.PrepareCallHierarchy( request_id, request_data )
+    prepare_response = self.GetConnection().GetResponse(
+        request_id,
+        message,
+        REQUEST_TIMEOUT_COMMAND )
+    preparation_item = prepare_response.get( 'result' ) or []
+    if not preparation_item:
+      raise RuntimeError( f'No { args[ 0 ] } calls found.' )
+
+    assert len( preparation_item ) == 1, (
+             'Not available: Multiple hierarchies were received, '
+             'this is not currently supported.' )
+
+    preparation_item = preparation_item[ 0 ]
+
+    request_id = self.GetConnection().NextRequestId()
+    message = lsp.CallHierarchy( request_id, args[ 0 ], preparation_item )
+    response = self.GetConnection().GetResponse( request_id,
+                                                 message,
+                                                 REQUEST_TIMEOUT_COMMAND )
+
+    result = response.get( 'result' ) or []
+    goto_response = []
+    for hierarchy_item in result:
+      description = hierarchy_item.get( 'from', hierarchy_item.get( 'to' ) )
+      filepath = lsp.UriToFilePath( description[ 'uri' ] )
+      start_position = hierarchy_item[ 'fromRanges' ][ 0 ][ 'start' ]
+      goto_line = start_position[ 'line' ]
+      try:
+        line_value = GetFileLines( request_data, filepath )[ goto_line ]
+      except IndexError:
+        continue
+      goto_column = utils.CodepointOffsetToByteOffset(
+        line_value,
+        lsp.UTF16CodeUnitsToCodepoints(
+          line_value,
+          start_position[ 'character' ] ) )
+      goto_response.append( responses.BuildGoToResponse(
+        filepath,
+        goto_line + 1,
+        goto_column + 1,
+        description[ 'name' ] ) )
+
+    if goto_response:
+      return goto_response
+    raise RuntimeError( f'No { args[ 0 ] } calls found.' )
+
+
+  def GetCodeActions( self, request_data ):
     """Performs the codeAction request and returns the result as a FixIt
     response."""
     if not self.ServerIsReady():
@@ -3271,3 +3417,91 @@ class WatchdogHandler( PatternMatchingEventHandler ):
       with self._server._server_info_mutex:
         msg = lsp.DidChangeWatchedFiles( event.src_path, 'delete' )
         self._server.GetConnection().SendNotification( msg )
+
+
+class TokenAtlas:
+  def __init__( self, legend ):
+    self.tokenTypes = legend[ 'tokenTypes' ]
+    self.tokenModifiers = legend[ 'tokenModifiers' ]
+
+
+def _DecodeSemanticTokens( atlas, token_data, filename, contents ):
+  # We decode the tokens on the server because that's not blocking the user,
+  # whereas decoding in the client would be.
+  assert len( token_data ) % 5 == 0
+
+  class Token:
+    line = 0
+    start_character = 0
+    num_characters = 0
+    token_type = 0
+    token_modifiers = 0
+
+    def DecodeModifiers( self, tokenModifiers ):
+      modifiers = []
+      bit_index = 0
+      while True:
+        bit_value = pow( 2, bit_index )
+
+        if bit_value > self.token_modifiers:
+          break
+
+        if self.token_modifiers & bit_value:
+          modifiers.append( tokenModifiers[ bit_index ] )
+
+        bit_index += 1
+
+      return modifiers
+
+
+  last_token = Token()
+  tokens = []
+
+  for token_index in range( 0, len( token_data ), 5 ):
+    token = Token()
+
+    token.line = last_token.line + token_data[ token_index ]
+
+    token.start_character = token_data[ token_index + 1 ]
+    if token.line == last_token.line:
+      token.start_character += last_token.start_character
+
+    token.num_characters = token_data[ token_index + 2 ]
+
+    token.token_type = token_data[ token_index + 3 ]
+    token.token_modifiers = token_data[ token_index + 4 ]
+
+    tokens.append( {
+      'range': responses.BuildRangeData( _BuildRange(
+        contents,
+        filename,
+        {
+          'start': {
+            'line': token.line,
+            'character': token.start_character,
+          },
+          'end': {
+            'line': token.line,
+            'character': token.start_character + token.num_characters,
+          }
+        }
+      ) ),
+      'type': atlas.tokenTypes[ token.token_type ],
+      'modifiers': token.DecodeModifiers( atlas.tokenModifiers )
+    } )
+
+    last_token = token
+
+  return tokens
+
+
+def RetryOnFailure( expected_error_codes, num_retries = 3 ):
+  for i in range( num_retries ):
+    try:
+      yield
+      break
+    except ResponseFailedException as e:
+      if i < ( num_retries - 1 ) and e.error_code in expected_error_codes:
+        continue
+      else:
+        raise
