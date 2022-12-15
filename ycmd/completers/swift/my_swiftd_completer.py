@@ -89,6 +89,9 @@ class SwiftCompleter(Completer):
         """Just swift"""
         return ["swift"]
 
+    def Shutdown(self):
+        self._StopServer()
+
     def _StartServer(self, request_data=None):
         with self._server_state_mutex:
             if self._server_handle:

@@ -17,6 +17,7 @@
 
 import sys
 import os
+import time
 
 if sys.version_info[ 0 ] < 3:
   sys.exit( 8 )
@@ -75,11 +76,14 @@ def SetUpSignalHandler():
 
 
 def CleanUpLogfiles( stdout, stderr, keep_logfiles ):
+  from ycmd.utils import LOGGER
+  LOGGER.info("cleanup Logfiles")
   # We reset stderr & stdout, just in case something tries to use them
   if stderr:
     tmp = sys.stderr
     sys.stderr = sys.__stderr__
     tmp.close()
+  print("stderr closed")
   if stdout:
     tmp = sys.stdout
     sys.stdout = sys.__stdout__
@@ -205,9 +209,20 @@ def Main():
     print( f'serving on http://{ handlers.wsgi_server.server_name }:'
            f'{ handlers.wsgi_server.server_port }' )
   handlers.wsgi_server.serve_forever()
+  from ycmd.utils import LOGGER
   handlers.wsgi_server.server_close()
+  LOGGER.info("server_close")
   handlers.ServerCleanup()
+  LOGGER.info("server_cleanup")
 
+  # time.sleep(5)
+  # import traceback, threading
+  # thread_names = {t.ident: t.name for t in threading.enumerate()}
+  # for thread_id, frame in sys._current_frames().items():
+  #   print("Thread %s:" % thread_names.get(thread_id, thread_id), file=sys.stderr)
+  #   traceback.print_stack(frame, file=sys.stderr)
+  #   print("", file=sys.stderr)
+  # LOGGER.info("after sleep and print stack")
 
 if __name__ == "__main__":
   Main()

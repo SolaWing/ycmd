@@ -15,6 +15,8 @@
 # You should have received a copy of the GNU General Public License
 # along with ycmd.  If not, see <http://www.gnu.org/licenses/>.
 
+from typing import Optional
+from wsgiref.simple_server import WSGIServer
 import bottle
 import json
 import platform
@@ -46,7 +48,7 @@ bottle.Request.MEMFILE_MAX = 10 * 1024 * 1024
 _server_state = None
 _hmac_secret = bytes()
 app = bottle.Bottle()
-wsgi_server = None
+wsgi_server: Optional[WSGIServer] = None
 
 
 @app.post( '/event_notification' )
@@ -380,6 +382,9 @@ def ServerShutdown():
   def Terminator():
     if wsgi_server:
       wsgi_server.shutdown()
+      sys.exit(0)
+    else:
+        sys.exit(0)
 
   # Use a separate thread to let the server send the response before shutting
   # down.
