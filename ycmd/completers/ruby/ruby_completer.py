@@ -120,7 +120,8 @@ class RubyCompleter( language_server_completer.LanguageServerCompleter ):
 
   def PopenKwargs( self ):
     env = os.environ.copy()
-    env['RUBYOPT'] = '--jit'
+    env['RUBYOPT'] = '--yjit'
+    env['solargraph'] = '1'
     return {
       'cwd': self._project_directory,
       'env': env

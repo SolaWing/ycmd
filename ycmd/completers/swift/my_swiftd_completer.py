@@ -36,667 +36,794 @@ from queue import SimpleQueue, Empty
 
 import re
 import time
-header_pattern = re.compile(rb'(\S+)\s*:\s*(\S+)')
+
+header_pattern = re.compile(rb"(\S+)\s*:\s*(\S+)")
 
 # BINARY_NOT_FOUND_MESSAGE = ( 'The specified sourceKitten {0} ' +
 #                              'was not found. Did you specify it correctly?' )
 # LOGFILE_FORMAT = 'swift_{port}_{std}_'
 
 # see: https://github.com/apple/swift/blob/master/tools/SourceKit/docs/Protocol.md
-PATH_TO_SOURCEKITTEN = os.path.abspath( os.path.join(
-    os.path.dirname(__file__),
-    '../../..',
-    'third_party/SourceKitten',
-    '.build/release',
-    "sourcekitten"))
+PATH_TO_SOURCEKITTEN = os.path.abspath(
+    os.path.join(
+        os.path.dirname(__file__),
+        "../../..",
+        "third_party/SourceKitten",
+        ".build/release",
+        "sourcekitten",
+    )
+)
+
 
 def ShouldEnableSwiftCompleter():
     return os.path.exists(PATH_TO_SOURCEKITTEN)
 
+
 # TODO: goto Type #
-class SwiftCompleter( Completer ):
-  """
-  A Completer that uses the SourceKitten.
-  https://github.com/jpsim/SourceKitten
-  """
+class SwiftCompleter(Completer):
+    """
+    A Completer that uses the SourceKitten.
+    https://github.com/jpsim/SourceKitten
+    """
 
-  def __init__( self, user_options ):
-    super().__init__( user_options )
-    self.max_diagnostics_to_display = user_options[ 'max_diagnostics_to_display' ]
-    self._big_cache = []
+    def __init__(self, user_options):
+        super().__init__(user_options)
+        self.max_diagnostics_to_display = user_options["max_diagnostics_to_display"]
+        self._big_cache = []
 
-    self._flags_for_file = {}
-    self._extra_conf_storage = {}
-    self._source_repository = {} # open files
-    self._complete_session = None
-    self._open_modules = {}
-    self._request_id = 0
-    self._counter = FastReadCounter()
-    # Used to ensure that starting/stopping of the server is synchronized
-    self._server_state_mutex = threading.RLock()
-    self._server_handle = None # type: subprocess.Popen
-    self._sourcekitten_binary_path = PATH_TO_SOURCEKITTEN
+        self._flags_for_file = {}
+        self._extra_conf_storage = {}
+        self._source_repository = {}  # open files
+        self._complete_session = None
+        self._open_modules = {}
+        self._request_id = 0
+        self._counter = FastReadCounter()
+        # Used to ensure that starting/stopping of the server is synchronized
+        self._server_state_mutex = threading.RLock()
+        self._server_handle = None  # type: subprocess.Popen
+        self._sourcekitten_binary_path = PATH_TO_SOURCEKITTEN
 
-    self._StartServer()
+        self._StartServer()
 
-  def SupportedFiletypes( self ):
-    """ Just swift """
-    return [ 'swift' ]
+    def SupportedFiletypes(self):
+        """Just swift"""
+        return ["swift"]
 
-  def _StartServer(self, request_data = None):
-      with self._server_state_mutex:
-          if self._server_handle: return
-          LOGGER.info( 'Starting SwiftLSP Language Server...' )
-          self._flags_for_file = {}
-          self._extra_conf_storage = {}
-          self._source_repository = {}
-          self._complete_session = None
-          self._open_modules = {}
+    def _StartServer(self, request_data=None):
+        with self._server_state_mutex:
+            if self._server_handle:
+                return
+            LOGGER.info("Starting SwiftLSP Language Server...")
+            self._flags_for_file = {}
+            self._extra_conf_storage = {}
+            self._source_repository = {}
+            self._complete_session = None
+            self._open_modules = {}
 
-          self._responses = {} # { id: response }
+            self._responses = {}  # { id: response }
 
-          self._server_stderr = utils.CreateLogfile( 'SwiftD_stderr_' )
-          with utils.OpenForStdHandle( self._server_stderr ) as stderr:
-              cmd = [self._sourcekitten_binary_path, "daemon", "--enable-notification"]
-              env = None
-              if LOGGER.isEnabledFor( logging.DEBUG ):
-                  cmd.append("--verbose")
-                  env = {"SOURCEKIT_LOGGING": "3"}
-              self._server_handle = utils.SafePopen(
-                  cmd, env = env,
-                  stdin = PIPE, stdout = PIPE, stderr = stderr) # type: subprocess.Popen
-              self.notification("source.request.enable-compile-notifications", {
-                  "key.value": 1
-              })
-          self._connection = SwiftCompleterConnection(self._server_handle.stdout)
-          self._connection.Start()
+            self._server_stderr = utils.CreateLogfile("SwiftD_stderr_")
+            with utils.OpenForStdHandle(self._server_stderr) as stderr:
+                cmd = [
+                    self._sourcekitten_binary_path,
+                    "daemon",
+                    "--enable-notification",
+                ]
+                env = None
+                if LOGGER.isEnabledFor(logging.DEBUG):
+                    cmd.append("--verbose")
+                    env = {"SOURCEKIT_LOGGING": "3"}
+                self._server_handle = utils.SafePopen(
+                    cmd, env=env, stdin=PIPE, stdout=PIPE, stderr=stderr
+                )  # type: subprocess.Popen
+                self.notification(
+                    "source.request.enable-compile-notifications", {"key.value": 1}
+                )
+            self._connection = SwiftCompleterConnection(self._server_handle.stdout)
+            self._connection.Start()
 
-  def _StopServer(self):
-      with self._server_state_mutex:
-          LOGGER.info( 'Shutting down SwiftLSP...' )
-          if not self._ServerIsRunning():
-              LOGGER.info( 'SwiftLSP Language server not running' )
-              return
-          LOGGER.info( 'Stopping Swift server with PID {0}'.format(
-              self._server_handle.pid ) )
+    def _StopServer(self):
+        with self._server_state_mutex:
+            LOGGER.info("Shutting down SwiftLSP...")
+            if not self._ServerIsRunning():
+                LOGGER.info("SwiftLSP Language server not running")
+                return
+            LOGGER.info(
+                "Stopping Swift server with PID {0}".format(self._server_handle.pid)
+            )
 
-          try:
-              self._StopCompleteSession()
-              for filename, file_state in self._source_repository.items():
-                file_state['parse_id'] += 1 # cancel waiting parsing
-                self.request("source.request.editor.close", {
-                    "key.sourcefile": filename,
-                    "key.name": filename,
-                })
+            try:
+                self._StopCompleteSession()
+                for filename, file_state in self._source_repository.items():
+                    file_state["parse_id"] += 1  # cancel waiting parsing
+                    self.request(
+                        "source.request.editor.close",
+                        {
+                            "key.sourcefile": filename,
+                            "key.name": filename,
+                        },
+                    )
 
-              self._connection.Stop()
-              self._SendNotification("end")
-              self._server_handle.communicate()
-          except Exception:
-              LOGGER.exception( 'Error while stopping SwiftLSP server' )
-          else:
-              self._server_handle = None
+                self._connection.Stop()
+                self._SendNotification("end")
+                self._server_handle.communicate()
+            except Exception:
+                LOGGER.exception("Error while stopping SwiftLSP server")
+            else:
+                self._server_handle = None
 
-  def _ServerIsRunning(self):
-      return self._server_handle is not None
+    def _ServerIsRunning(self):
+        return self._server_handle is not None
 
-  def _RestartServer( self, request_data ):
-    with self._server_state_mutex:
-      self._StopServer()
-      self._StartServer( request_data )
+    def _RestartServer(self, request_data):
+        with self._server_state_mutex:
+            self._StopServer()
+            self._StartServer(request_data)
 
-  def _SendNotification(self, method, params=None):
-      with self._server_state_mutex:
-          r = {"method": method}
-          if params: r["params"] = params
+    def _SendNotification(self, method, params=None):
+        with self._server_state_mutex:
+            r = {"method": method}
+            if params:
+                r["params"] = params
 
-          d = json.dumps(r).encode()
-          LOGGER.info(f"send notification len({len(d)}): {method}")
-          self._writePackage(d)
+            d = json.dumps(r).encode()
+            LOGGER.info(f"send notification len({len(d)}): {method}")
+            self._writePackage(d)
 
-  def _SendRequest(self, method, params=None):
-      with self._server_state_mutex:
-          self._request_id += 1
-          request_id = self._request_id
-          r = {"id": request_id, "method": method}
-          if params: r["params"] = params
+    def _SendRequest(self, method, params=None):
+        with self._server_state_mutex:
+            self._request_id += 1
+            request_id = self._request_id
+            r = {"id": request_id, "method": method}
+            if params:
+                r["params"] = params
 
-          d = json.dumps(r).encode()
-          LOGGER.debug(f"send request len({len(d)}): {d}")
-          self._writePackage(d)
+            d = json.dumps(r).encode()
+            LOGGER.debug(f"send request len({len(d)}): {d}")
+            self._writePackage(d)
 
-          #  TODO: 先同步串行, 以后可能改成根据id串行, 且需要比对id
-          return self.__GetResponse(request_id)
+            #  TODO: 先同步串行, 以后可能改成根据id串行, 且需要比对id
+            return self.__GetResponse(request_id)
 
-  def _writePackage(self, data):
-      self._server_handle.stdin.write(b'Content-Length:%d\r\n\r\n'%(len(data)))
-      self._server_handle.stdin.write(data)
-      self._server_handle.stdin.flush()
+    def _writePackage(self, data):
+        self._server_handle.stdin.write(b"Content-Length:%d\r\n\r\n" % (len(data)))
+        self._server_handle.stdin.write(data)
+        self._server_handle.stdin.flush()
 
-  def __GetResponse(self, request_id):
-      with self._server_state_mutex:
-          response = self._responses.pop(request_id, None)
-          if response is not None:
-              return response
+    def __GetResponse(self, request_id):
+        with self._server_state_mutex:
+            response = self._responses.pop(request_id, None)
+            if response is not None:
+                return response
 
-          while True:
-              response = self._connection.response_queue.get()
-              response_id = response["id"]
-              if response_id == request_id:
-                  return response
+            while True:
+                response = self._connection.response_queue.get()
+                response_id = response["id"]
+                if response_id == request_id:
+                    return response
 
-              self._responses[response_id] = response
+                self._responses[response_id] = response
 
-
-  def DebugInfo( self, request_data ):
-    items = []
-    filename = request_data[ 'filepath' ]
-    if filename:
-        flags = self.FlagsForFile(filename)
-        flags_item = responses.DebugInfoItem(
-          key = 'flags', value = '{0}'.format( list( flags ) ) )
-        filename_item = responses.DebugInfoItem(
-          key = 'translation unit', value = filename )
-        items.append(flags_item)
-        items.append(filename_item)
-    return responses.BuildDebugInfoResponse(
-      name = "Swift",
-      servers = [
-        responses.DebugInfoServer(
-          name = "Swift Language Server",
-          handle = self._server_handle,
-          executable = self._sourcekitten_binary_path,
-          logfiles = [
-            self._server_stderr,
-          ],
+    def DebugInfo(self, request_data):
+        items = []
+        filename = request_data["filepath"]
+        if filename:
+            flags = self.FlagsForFile(filename)
+            flags_item = responses.DebugInfoItem(
+                key="flags", value="{0}".format(list(flags))
+            )
+            filename_item = responses.DebugInfoItem(
+                key="translation unit", value=filename
+            )
+            items.append(flags_item)
+            items.append(filename_item)
+        return responses.BuildDebugInfoResponse(
+            name="Swift",
+            servers=[
+                responses.DebugInfoServer(
+                    name="Swift Language Server",
+                    handle=self._server_handle,
+                    executable=self._sourcekitten_binary_path,
+                    logfiles=[
+                        self._server_stderr,
+                    ],
+                )
+            ],
+            items=items,
         )
-      ],
-      items = items,
-    )
 
-  def FlagsForFile(self, filename):
-    try:
-      return self._flags_for_file[ filename ]
-    except KeyError:
-        pass
+    def FlagsForFile(self, filename):
+        try:
+            return self._flags_for_file[filename]
+        except KeyError:
+            pass
 
-    module = extra_conf_store.ModuleForSourceFile( filename )
-    if not module or not hasattr(module, 'FlagsForSwift'):
-        return [filename]
+        module = extra_conf_store.ModuleForSourceFile(filename)
+        if not module or not hasattr(module, "FlagsForSwift"):
+            return [filename]
 
-    response = module.FlagsForSwift(filename,
-                                    store = self._extra_conf_storage )
-    flags = response['flags']
-    if response.get('do_cache', True):
-        self._flags_for_file[filename] = flags
-    return flags
+        response = module.FlagsForSwift(filename, store=self._extra_conf_storage)
+        flags = response["flags"]
+        if response.get("do_cache", True):
+            self._flags_for_file[filename] = flags
+        return flags
 
-  def RequestDataExtract(self, request_data, current=False):
-      filename = request_data[ 'filepath' ]
-      if not filename: return
-
-      contents = GetFileContents( request_data, filename )
-      # 1 based line and column
-      line = request_data[ 'line_num' ]
-      if current:
-          column = request_data['column_num']
-      else:
-          column = request_data[ 'start_column' ]
-      additional_flags = self.FlagsForFile(filename)
-
-      offset = len(utils.ToBytes(contents[:LineOffsetInStr(contents, line)])) + column - 1
-      return (filename, contents, offset, additional_flags)
-
-  def _GetFileState(self, request_data, contents, update=False):
-    filename = request_data[ 'filepath' ]
-    if not filename: return
-    with self._server_state_mutex:
-        file_state = self._source_repository.get(filename)
-        if file_state is None:
-            if filename in self._open_modules:
-                return # module file 不需要编译, rare cause delay in rare execute branch
-            file_state = {'parse_id': 0, 'last_contents': contents}
-
-            output = self.request("source.request.editor.open", {
-                "key.sourcefile": filename,
-                "key.name": filename,
-                "key.sourcetext": contents,
-                "key.compilerargs": self.FlagsForFile(filename),
-                "key.enablesyntaxmap": 0,
-                "key.enablesubstructure": 0
-            }) # type: dict
-            if output is None: LOGGER.warn("editor open error!"); return
-
-            self._source_repository[filename] = file_state
-        elif update:
-            diff = DiffString(file_state['last_contents'], contents)
-            file_state['last_contents'] = contents
-            file_state['parse_id'] += 1
-            file_state.pop('last_diag', None)
-            output = self.request("source.request.editor.replacetext", {
-                "key.sourcefile": filename,
-                "key.name": filename,
-                "key.offset": diff[0],
-                "key.length": diff[1],
-                "key.sourcetext": diff[2],
-            })
-            if output is None: LOGGER.warn("editor open error!"); return
-        parse_id = file_state['parse_id']
-        return (file_state, parse_id, output)
-
-
-  # TODO: keep last diag, or diag will disappare when change one, and compile is slow #
-  # TODO: can cancel cursor, goto cmd #
-  def OnFileReadyToParse( self, request_data ):
-    self._StopCompleteSession()
-    filename = request_data[ 'filepath' ]
-    if not filename: return
-    # 限制不要重复编译
-    v = self._GetFileState(request_data, GetFileContents( request_data, filename ), update=True)
-    if v is None: return
-    file_state, parse_id, output = v
-
-    diag = output.get("key.diagnostics")
-    c = 0
-    while not diag and output.get("key.diagnostic_stage") == "source.diagnostic.stage.swift.parse":
-        if c > 5: LOGGER.warn("get diag timeout!"); return
-        time.sleep(1)
-        c += 1
-        if file_state['parse_id'] != parse_id: # new request, ignore old loop query
+    def RequestDataExtract(self, request_data, current=False):
+        filename = request_data["filepath"]
+        if not filename:
             return
 
-        output = self.request("source.request.editor.replacetext", {
-            "key.sourcefile": filename,
-            "key.name": filename,
-            "key.offset": 0,
-            "key.length": 0,
-            "key.sourcetext": "",
-        })
-        if output is None: LOGGER.warn("get diag error!"); return
+        contents = GetFileContents(request_data, filename)
+        # 1 based line and column
+        line = request_data["line_num"]
+        if current:
+            column = request_data["column_num"]
+        else:
+            column = request_data["start_column"]
+        additional_flags = self.FlagsForFile(filename)
+
+        offset = (
+            len(utils.ToBytes(contents[: LineOffsetInStr(contents, line)])) + column - 1
+        )
+        return (filename, contents, offset, additional_flags)
+
+    def _GetFileState(self, request_data, contents, update=False):
+        filename = request_data["filepath"]
+        if not filename:
+            return
+        with self._server_state_mutex:
+            file_state = self._source_repository.get(filename)
+            if file_state is None:
+                if filename in self._open_modules:
+                    return  # module file 不需要编译, rare cause delay in rare execute branch
+                file_state = {"parse_id": 0, "last_contents": contents}
+
+                output = self.request(
+                    "source.request.editor.open",
+                    {
+                        "key.sourcefile": filename,
+                        "key.name": filename,
+                        "key.sourcetext": contents,
+                        "key.compilerargs": self.FlagsForFile(filename),
+                        "key.enablesyntaxmap": 0,
+                        "key.enablesubstructure": 0,
+                    },
+                )  # type: dict
+                if output is None:
+                    LOGGER.warn("editor open error!")
+                    return
+
+                self._source_repository[filename] = file_state
+            elif update:
+                diff = DiffString(file_state["last_contents"], contents)
+                file_state["last_contents"] = contents
+                file_state["parse_id"] += 1
+                file_state.pop("last_diag", None)
+                output = self.request(
+                    "source.request.editor.replacetext",
+                    {
+                        "key.sourcefile": filename,
+                        "key.name": filename,
+                        "key.offset": diff[0],
+                        "key.length": diff[1],
+                        "key.sourcetext": diff[2],
+                    },
+                )
+                if output is None:
+                    LOGGER.warn("editor open error!")
+                    return
+            parse_id = file_state["parse_id"]
+            return (file_state, parse_id, output)
+
+    # TODO: keep last diag, or diag will disappare when change one, and compile is slow #
+    # TODO: can cancel cursor, goto cmd #
+    def OnFileReadyToParse(self, request_data):
+        self._StopCompleteSession()
+        filename = request_data["filepath"]
+        if not filename:
+            return
+        # 限制不要重复编译
+        v = self._GetFileState(
+            request_data, GetFileContents(request_data, filename), update=True
+        )
+        if v is None:
+            return
+        file_state, parse_id, output = v
+
         diag = output.get("key.diagnostics")
+        c = 0
+        while (
+            not diag
+            and output.get("key.diagnostic_stage")
+            == "source.diagnostic.stage.swift.parse"
+        ):
+            if c > 5:
+                LOGGER.warn("get diag timeout!")
+                return
+            time.sleep(1)
+            c += 1
+            if file_state["parse_id"] != parse_id:  # new request, ignore old loop query
+                return
 
-    if not diag: return
-    ycmd_diags = []
-    for d in diag:
-        ConvertToYCMDDiag(d, ycmd_diags)
-    LOGGER.debug("%d diags", len(ycmd_diags))
-    with self._server_state_mutex:
-        if file_state['parse_id'] == parse_id: # no changes, save last diag
-            file_state['last_diag'] = ycmd_diags
+            output = self.request(
+                "source.request.editor.replacetext",
+                {
+                    "key.sourcefile": filename,
+                    "key.name": filename,
+                    "key.offset": 0,
+                    "key.length": 0,
+                    "key.sourcetext": "",
+                },
+            )
+            if output is None:
+                LOGGER.warn("get diag error!")
+                return
+            diag = output.get("key.diagnostics")
 
-    return responses.BuildDiagnosticResponse(ycmd_diags, filename, self.max_diagnostics_to_display)
+        if not diag:
+            return
+        ycmd_diags = []
+        for d in diag:
+            ConvertToYCMDDiag(d, ycmd_diags)
+        LOGGER.debug("%d diags", len(ycmd_diags))
+        with self._server_state_mutex:
+            if file_state["parse_id"] == parse_id:  # no changes, save last diag
+                file_state["last_diag"] = ycmd_diags
 
-  def OnBufferUnload( self, request_data ):
-    filename = request_data[ 'filepath' ]
-    if not filename: return
-    with self._server_state_mutex:
-        if filename in self._open_modules: return
-        file_state = self._source_repository.pop(filename, None)
-        if file_state: file_state['parse_id'] += 1 # cancel waiting parsing
-        self.request("source.request.editor.close", {
-            "key.sourcefile": filename,
-            "key.name": filename,
-        })
+        return responses.BuildDiagnosticResponse(
+            ycmd_diags, filename, self.max_diagnostics_to_display
+        )
 
-  def PollForMessagesInner( self, request_data, timeout ):
-      notifications = []
-      while True:
-          try:
-              notifications.append(self._connection.notification_queue.get_nowait())
-          except Empty:
-              break
+    def OnBufferUnload(self, request_data):
+        filename = request_data["filepath"]
+        if not filename:
+            return
+        with self._server_state_mutex:
+            if filename in self._open_modules:
+                return
+            file_state = self._source_repository.pop(filename, None)
+            if file_state:
+                file_state["parse_id"] += 1  # cancel waiting parsing
+            self.request(
+                "source.request.editor.close",
+                {
+                    "key.sourcefile": filename,
+                    "key.name": filename,
+                },
+            )
 
-      messages = []
-      for n in notifications:
-          self.ConvertNotificationToMessages(request_data, n, messages)
-      if messages:
-          return messages
-
-      try:
+    def PollForMessagesInner(self, request_data, timeout):
+        notifications = []
         while True:
-          notification = self._connection.notification_queue.get(timeout = timeout)
-          self.ConvertNotificationToMessages(request_data, notification, messages)
-          if messages:
-              return messages
-      except Empty:
-          return True
+            try:
+                notifications.append(self._connection.notification_queue.get_nowait())
+            except Empty:
+                break
 
-  def ConvertNotificationToMessages(self, request_data, notification, output):
-      """
-      :type output: list
-      """
-      result = notification.get("result")
-      if result:
-          key = result.get("key.notification")
-          if key == "source.notification.compile-will-start":
-              output.append({
-                  'statusline': f"Compiling {os.path.basename(result['key.filepath'])} ..."
-              })
-          if key == "source.notification.compile-did-finish":
-              output.append({ 'statusline': "" })
-              # TODO: handle diag, but currently offset not convert to fixit #
-              # diag = result.get("key.diagnostics")
-              # if not diag: return
-              # ycmd_diags = []
-              # for d in diag:
-              #     ConvertToYCMDDiag(d, ycmd_diags)
+        messages = []
+        for n in notifications:
+            self.ConvertNotificationToMessages(request_data, n, messages)
+        if messages:
+            return messages
 
-  def _StopCompleteSession(self):
-    with self._server_state_mutex:
-      if self._complete_session is None: return
+        try:
+            while True:
+                notification = self._connection.notification_queue.get(timeout=timeout)
+                self.ConvertNotificationToMessages(request_data, notification, messages)
+                if messages:
+                    return messages
+        except Empty:
+            return True
 
-      self.notification("source.request.codecomplete.close", {
-          "key.sourcefile" : self._complete_session[1],
-          "key.name": self._complete_session[1],
-          "key.offset" : self._complete_session[2],
-      })
-      self._complete_session = None
+    def ConvertNotificationToMessages(self, request_data, notification, output):
+        """
+        :type output: list
+        """
+        result = notification.get("result")
+        if result:
+            key = result.get("key.notification")
+            if key == "source.notification.compile-will-start":
+                output.append(
+                    {
+                        "statusline": f"Compiling {os.path.basename(result['key.filepath'])} ..."
+                    }
+                )
+            if key == "source.notification.compile-did-finish":
+                output.append({"statusline": ""})
+                # TODO: handle diag, but currently offset not convert to fixit #
+                # diag = result.get("key.diagnostics")
+                # if not diag: return
+                # ycmd_diags = []
+                # for d in diag:
+                #     ConvertToYCMDDiag(d, ycmd_diags)
 
-  def ComputeCandidates(self, request_data):
-      if ( not request_data[ 'force_semantic' ] and not self.ShouldUseNow( request_data ) ):
-          return []
+    def _StopCompleteSession(self):
+        with self._server_state_mutex:
+            if self._complete_session is None:
+                return
 
-      c = self._counter.increment()
+            self.notification(
+                "source.request.codecomplete.close",
+                {
+                    "key.sourcefile": self._complete_session[1],
+                    "key.name": self._complete_session[1],
+                    "key.offset": self._complete_session[2],
+                },
+            )
+            self._complete_session = None
 
-      with self._server_state_mutex:
-          if c != self._counter.value: return [] # 有新请求，cancel中间的旧请求
+    def ComputeCandidates(self, request_data):
+        if not request_data["force_semantic"] and not self.ShouldUseNow(request_data):
+            return []
 
-          if last_req := self._complete_session:
-              if last_req[0] == request_data: # reuse, update
-                  name, params = "source.request.codecomplete.update", {
-                      "key.sourcefile" : last_req[1],
-                      "key.name": last_req[1],
-                      "key.offset" : last_req[2],
-                      "key.codecomplete.options": {
-                          "key.codecomplete.filtertext": request_data['query'],
-                      }
-                  }
-              else:
-                  self._StopCompleteSession() # clear _complete_session, following request new
+        c = self._counter.increment()
 
-          if self._complete_session is None:
-              data = self.RequestDataExtract(request_data)
-              name, params = "source.request.codecomplete.open", {
-                  "key.sourcefile" : data[0],
-                  "key.name": data[0],
-                  "key.sourcetext" : data[1],
-                  "key.offset" : data[2],
-                  "key.compilerargs" : data[3],
-                  "key.codecomplete.options": {
-                      "key.codecomplete.filtertext": request_data['query'],
-                      # "key.codecomplete.requeststart": 0
-                  }
-              }
-              self._complete_session = (request_data, data[0], data[2])
+        with self._server_state_mutex:
+            if c != self._counter.value:
+                return []  # 有新请求，cancel中间的旧请求
 
-          if self._max_candidates > 0:
-              params['key.codecomplete.options']['key.codecomplete.requestlimit'] = self._max_candidates
+            if last_req := self._complete_session:
+                if last_req[0] == request_data:  # reuse, update
+                    name, params = "source.request.codecomplete.update", {
+                        "key.sourcefile": last_req[1],
+                        "key.name": last_req[1],
+                        "key.offset": last_req[2],
+                        "key.codecomplete.options": {
+                            "key.codecomplete.filtertext": request_data["query"],
+                        },
+                    }
+                else:
+                    self._StopCompleteSession()  # clear _complete_session, following request new
 
-          # get response
-          output = self.request(name, params)
-          if output is None: return []
+            if self._complete_session is None:
+                data = self.RequestDataExtract(request_data)
+                name, params = "source.request.codecomplete.open", {
+                    "key.sourcefile": data[0],
+                    "key.name": data[0],
+                    "key.sourcetext": data[1],
+                    "key.offset": data[2],
+                    "key.compilerargs": data[3],
+                    "key.codecomplete.options": {
+                        "key.codecomplete.filtertext": request_data["query"],
+                        # "key.codecomplete.requeststart": 0
+                    },
+                }
+                self._complete_session = (request_data, data[0], data[2])
 
-          completions = [ responses.BuildCompletionData(
-              completion['key.name'],
-              completion.get('key.typename'),
-              detailed_info = completion.get('key.doc.brief'),
-              menu_text     = completion.get('key.description'),
-              kind          = KindFromKittenKind(completion.get('key.kind')),
-              extra_data    = { 'template' : completion.get('key.sourcetext') }
-          ) for completion in output["key.results"] ]
-          return completions
+            if self._max_candidates > 0:
+                params["key.codecomplete.options"][
+                    "key.codecomplete.requestlimit"
+                ] = self._max_candidates
 
+            # get response
+            output = self.request(name, params)
+            if output is None:
+                return []
 
-  def QuickCandidates(self, request_data):
-      if request_data['force_semantic'] and request_data[ 'query' ]:
-          return self._big_cache
-      return []
+            completions = [
+                responses.BuildCompletionData(
+                    completion["key.name"],
+                    completion.get("key.typename"),
+                    detailed_info=completion.get("key.doc.brief"),
+                    menu_text=completion.get("key.description"),
+                    kind=KindFromKittenKind(completion.get("key.kind")),
+                    extra_data={"template": completion.get("key.sourcetext")},
+                )
+                for completion in output["key.results"]
+            ]
+            return completions
 
-  def ComputeCandidatesInner( self, request_data ):
-      # SourceKit codecomplete no completion when have query..., can't pass query to it..
-      data = self.RequestDataExtract(request_data)
-      if data is None: return []
+    def QuickCandidates(self, request_data):
+        if request_data["force_semantic"] and request_data["query"]:
+            return self._big_cache
+        return []
 
-      output = self.request("source.request.codecomplete", {
-          "key.sourcefile" : data[0],
-          "key.sourcetext" : data[1],
-          "key.offset" : data[2],
-          "key.compilerargs" : data[3],
-      } )
-      if output is None: return []
+    def ComputeCandidatesInner(self, request_data):
+        # SourceKit codecomplete no completion when have query..., can't pass query to it..
+        data = self.RequestDataExtract(request_data)
+        if data is None:
+            return []
 
-      completions = [ responses.BuildCompletionData(
-        completion['key.name'],
-        completion.get('key.typename'),
-        detailed_info = completion.get('key.doc.brief'),
-        menu_text     = completion.get('key.description'),
-        kind          = KindFromKittenKind(completion.get('key.kind')),
-        extra_data    = { 'template' : completion.get('key.sourcetext') }
-      ) for completion in output["key.results"] ]
-      # cache for QuickCandidates when big than 1M
-      if len(output) > 1e6 :
-          LOGGER.debug("swift cache %d", len(output))
-          self._big_cache = completions
-      return completions
+        output = self.request(
+            "source.request.codecomplete",
+            {
+                "key.sourcefile": data[0],
+                "key.sourcetext": data[1],
+                "key.offset": data[2],
+                "key.compilerargs": data[3],
+            },
+        )
+        if output is None:
+            return []
 
-  def request(self, name, requestObject):
-      request  = json.dumps(requestObject, ensure_ascii=False)
-      # sourcekitd only support direct name, can't ecode as json string
-      request = "{key.request: " + name + "," + request[1:]
-      return self._SendRequest("yaml", request).get("result")
+        completions = [
+            responses.BuildCompletionData(
+                completion["key.name"],
+                completion.get("key.typename"),
+                detailed_info=completion.get("key.doc.brief"),
+                menu_text=completion.get("key.description"),
+                kind=KindFromKittenKind(completion.get("key.kind")),
+                extra_data={"template": completion.get("key.sourcetext")},
+            )
+            for completion in output["key.results"]
+        ]
+        # cache for QuickCandidates when big than 1M
+        if len(output) > 1e6:
+            LOGGER.debug("swift cache %d", len(output))
+            self._big_cache = completions
+        return completions
 
-  def notification(self, name, requestObject):
-      request  = json.dumps(requestObject, ensure_ascii=False)
-      # sourcekitd only support direct name, can't ecode as json string
-      request = "{key.request: " + name + "," + request[1:]
-      return self._SendNotification("yaml", request)
+    def request(self, name, requestObject):
+        request = json.dumps(requestObject, ensure_ascii=False)
+        # sourcekitd only support direct name, can't ecode as json string
+        request = "{key.request: " + name + "," + request[1:]
+        return self._SendRequest("yaml", request).get("result")
 
-  def GetSubcommandsMap( self ):
-    return {
-        'GetType' : SwiftCompleter.GetType,
-        'GetDoc'  : SwiftCompleter.GetDoc,
-        'GoTo'    : SwiftCompleter.GoTo,
-        'RestartServer': (
-            lambda self, request_data, args: self._RestartServer( request_data )
-        ),
-        'FixIt' : SwiftCompleter.Fixit,
-        'DocComment': SwiftCompleter.DocComment,
-    }
+    def notification(self, name, requestObject):
+        request = json.dumps(requestObject, ensure_ascii=False)
+        # sourcekitd only support direct name, can't ecode as json string
+        request = "{key.request: " + name + "," + request[1:]
+        return self._SendNotification("yaml", request)
 
-  def CursorRequest(self, request_data):
-      return self._CursorRequest( self.RequestDataExtract(request_data, current=True) )
+    def GetSubcommandsMap(self):
+        return {
+            "GetType": SwiftCompleter.GetType,
+            "GetDoc": SwiftCompleter.GetDoc,
+            "GoTo": SwiftCompleter.GoTo,
+            "RestartServer": (
+                lambda self, request_data, args: self._RestartServer(request_data)
+            ),
+            "FixIt": SwiftCompleter.Fixit,
+            "DocComment": SwiftCompleter.DocComment,
+        }
 
-  def _CursorRequest(self, data):
-      if data is None: return
+    def CursorRequest(self, request_data):
+        return self._CursorRequest(self.RequestDataExtract(request_data, current=True))
 
-      return self.request("source.request.cursorinfo", {
-          "key.sourcefile" : data[0],
-          "key.sourcetext" : data[1],
-          "key.offset" : data[2],
-          "key.compilerargs" : data[3],
-      } )
+    def _CursorRequest(self, data):
+        if data is None:
+            return
 
-  def _InterfacePath(self, moduleName):
-      return os.path.realpath(os.path.join( tempfile.gettempdir(), moduleName + ".swift"))
+        return self.request(
+            "source.request.cursorinfo",
+            {
+                "key.sourcefile": data[0],
+                "key.sourcetext": data[1],
+                "key.offset": data[2],
+                "key.compilerargs": data[3],
+            },
+        )
 
-  def _ModuleVirtualName(self, moduleName):
-      return self._InterfacePath(moduleName)
+    def _InterfacePath(self, moduleName):
+        return os.path.realpath(
+            os.path.join(tempfile.gettempdir(), moduleName + ".swift")
+        )
 
-  def _OpenInterface(self, data, moduleName):
-      """
-      :return bool: 是否打开成功
-      """
-      if not moduleName or data is None: return
-      filename = self._InterfacePath(moduleName)
-      if filename in self._open_modules: return True # already open, don't need to reopen
+    def _ModuleVirtualName(self, moduleName):
+        return self._InterfacePath(moduleName)
 
-      interface = self.request("source.request.editor.open.interface", {
-          "key.name": self._ModuleVirtualName(moduleName),
-          "key.modulename": moduleName,
-          "key.compilerargs": data[3],
-      })
-      if interface is None: return
-      source = interface.get("key.sourcetext")
-      if source:
-          with open(filename, "w") as f:
-              f.write(source)
-          # with open(filename+"raw", "w") as f:
-          #     f.write(output) # cache the openInterface output, since recall open interface is slow
-          self._open_modules[filename] = data[3]
-          self._flags_for_file[filename] = data[3] # use same compile flags as open args
-      return interface
+    def _OpenInterface(self, data, moduleName):
+        """
+        :return bool: 是否打开成功
+        """
+        if not moduleName or data is None:
+            return
+        filename = self._InterfacePath(moduleName)
+        if filename in self._open_modules:
+            return True  # already open, don't need to reopen
 
-  def GetType(self, request_data, args):
-      cursorInfo = self.CursorRequest(request_data)
-      if not cursorInfo: return
+        interface = self.request(
+            "source.request.editor.open.interface",
+            {
+                "key.name": self._ModuleVirtualName(moduleName),
+                "key.modulename": moduleName,
+                "key.compilerargs": data[3],
+            },
+        )
+        if interface is None:
+            return
+        source = interface.get("key.sourcetext")
+        if source:
+            with open(filename, "w") as f:
+                f.write(source)
+            # with open(filename+"raw", "w") as f:
+            #     f.write(output) # cache the openInterface output, since recall open interface is slow
+            self._open_modules[filename] = data[3]
+            self._flags_for_file[filename] = data[
+                3
+            ]  # use same compile flags as open args
+        return interface
 
-      typename = ToUnicode(cursorInfo.get("key.typename", "UNKNOWN"))
-      return responses.BuildDisplayMessageResponse( typename )
+    def GetType(self, request_data, args):
+        cursorInfo = self.CursorRequest(request_data)
+        if not cursorInfo:
+            return
 
-  def GetDoc(self, request_data, args):
-      cursorInfo = self.CursorRequest(request_data)
-      if not cursorInfo: return
+        typename = ToUnicode(cursorInfo.get("key.typename", "UNKNOWN"))
+        return responses.BuildDisplayMessageResponse(typename)
 
-      from xml.etree import ElementTree
-      def textInTag(root, t):
-          if root is None: return ""
-          declaration = root.find( t ) if root.tag != t else root
-          return "".join(declaration.itertext()) if declaration is not None else ""
+    def GetDoc(self, request_data, args):
+        cursorInfo = self.CursorRequest(request_data)
+        if not cursorInfo:
+            return
 
-      def XMLFrom(key):
-          try: return ElementTree.fromstring( cursorInfo[key] )
-          except: return None
+        from xml.etree import ElementTree
 
-      v = {}
-      v['Declaration'] = textInTag(XMLFrom('key.annotated_decl'), 'Declaration')
-      doc = XMLFrom('key.doc.full_as_xml')
-      if doc:
-          CommentParts = doc.find('CommentParts') or doc
-          if CommentParts:
-              v['Abstract'] = textInTag(CommentParts, 'Abstract')
-              v['Discussion'] = textInTag(CommentParts, 'Discussion')
-              v['Parameters'] = CommentParts.find('Parameters')
-              v['ResultDiscussion'] = textInTag(CommentParts, 'ResultDiscussion')
+        def textInTag(root, t):
+            if root is None:
+                return ""
+            declaration = root.find(t) if root.tag != t else root
+            return "".join(declaration.itertext()) if declaration is not None else ""
 
-      lines = ['{filepath}:+{offset}'.format(
-          filepath = cursorInfo.get("key.filepath", "module"),
-          offset = cursorInfo.get("key.offset", 0)
-      ), v['Declaration']]
+        def XMLFrom(key):
+            try:
+                return ElementTree.fromstring(cursorInfo[key])
+            except:
+                return None
 
-      t = v.get('Abstract')
-      if t: lines.append(''); lines.append(t)
-      t = v.get('Discussion')
-      if t: lines.append(''); lines.append(t)
-      t = v.get('Parameters')
-      if t:
-          lines.append(''); lines.append("Parameters:")
-          for p in t.findall('Parameter'):
-              lines.append("- {name}: {desc}".format(name=textInTag(p, 'Name'), desc=textInTag(p, 'Discussion')))
-      t = v.get('ResultDiscussion')
-      if t: lines.append(''); lines.append("Returns: " + t)
+        v = {}
+        v["Declaration"] = textInTag(XMLFrom("key.annotated_decl"), "Declaration")
+        doc = XMLFrom("key.doc.full_as_xml")
+        if doc:
+            CommentParts = doc.find("CommentParts") or doc
+            if CommentParts:
+                v["Abstract"] = textInTag(CommentParts, "Abstract")
+                v["Discussion"] = textInTag(CommentParts, "Discussion")
+                v["Parameters"] = CommentParts.find("Parameters")
+                v["ResultDiscussion"] = textInTag(CommentParts, "ResultDiscussion")
 
-      return responses.BuildDetailedInfoResponse( os.linesep.join(lines) )
+        lines = [
+            "{filepath}:+{offset}".format(
+                filepath=cursorInfo.get("key.filepath", "module"),
+                offset=cursorInfo.get("key.offset", 0),
+            ),
+            v["Declaration"],
+        ]
 
-  def GoTo(self, request_data, args):
-      data = self.RequestDataExtract(request_data, current=True)
-      cursorInfo = self._CursorRequest(data)
-      if not cursorInfo: return
+        t = v.get("Abstract")
+        if t:
+            lines.append("")
+            lines.append(t)
+        t = v.get("Discussion")
+        if t:
+            lines.append("")
+            lines.append(t)
+        t = v.get("Parameters")
+        if t:
+            lines.append("")
+            lines.append("Parameters:")
+            for p in t.findall("Parameter"):
+                lines.append(
+                    "- {name}: {desc}".format(
+                        name=textInTag(p, "Name"), desc=textInTag(p, "Discussion")
+                    )
+                )
+        t = v.get("ResultDiscussion")
+        if t:
+            lines.append("")
+            lines.append("Returns: " + t)
 
-      if 'key.filepath' not in cursorInfo:
-          moduleName = cursorInfo.get('key.modulename')
-          # open module and goto
-          opened = self._OpenInterface(data, moduleName)
-          if opened:
-              filepath = self._InterfacePath(moduleName)
-              offset = 0
+        return responses.BuildDetailedInfoResponse(os.linesep.join(lines))
 
-              usr = cursorInfo.get('key.usr')
-              if usr:
-                  output = self.request("source.request.editor.find_usr", {
-                      "key.usr": usr,
-                      "key.sourcefile": self._ModuleVirtualName(moduleName)
-                  })
-                  if output is not None:
-                      offset = output.get("key.offset", 0)
-              return {
-                  'filepath': filepath,
-                  'byte_offset': offset
-              }
-          return responses.BuildDisplayMessageResponse("error in goto symbol, please see logs for detail")
+    def GoTo(self, request_data, args):
+        data = self.RequestDataExtract(request_data, current=True)
+        cursorInfo = self._CursorRequest(data)
+        if not cursorInfo:
+            return
 
-      return {
-          'filepath': cursorInfo['key.filepath'],
-          'byte_offset': cursorInfo['key.offset']
-      }
+        if "key.filepath" not in cursorInfo:
+            moduleName = cursorInfo.get("key.modulename")
+            # open module and goto
+            opened = self._OpenInterface(data, moduleName)
+            if opened:
+                filepath = self._InterfacePath(moduleName)
+                offset = 0
 
-  def DocComment(self, request_data, args):
-      cursorInfo = self.CursorRequest(request_data)
-      if not cursorInfo: return
-      line = request_data[ 'line_num' ]
-      filename = request_data[ 'filepath' ]
-      line_value = request_data['line_value'] # type: str
-      indent = len(line_value) - len(line_value.lstrip())
-      prefix = indent * " " + "///"
+                usr = cursorInfo.get("key.usr")
+                if usr:
+                    output = self.request(
+                        "source.request.editor.find_usr",
+                        {
+                            "key.usr": usr,
+                            "key.sourcefile": self._ModuleVirtualName(moduleName),
+                        },
+                    )
+                    if output is not None:
+                        offset = output.get("key.offset", 0)
+                return {"filepath": filepath, "byte_offset": offset}
+            return responses.BuildDisplayMessageResponse(
+                "error in goto symbol, please see logs for detail"
+            )
 
-      from xml.etree import ElementTree
-      root = ElementTree.fromstring( cursorInfo['key.fully_annotated_decl'] )
-      if root.tag.startswith('decl.function'):
-          def yieldArgs():
-              for i in root.iterfind("decl.var.parameter"):
-                  name = i.find("decl.var.parameter.name")
-                  # bool(Element) return false for empty child
-                  if name is None: name = i.find("decl.var.parameter.argument_label")
-                  if name is None: continue
-                  yield "".join(name.itertext())
-          args = list(yieldArgs())
-          text = [" Description"]
-          if len(args) > 0:
-              text.append("")
-              text.append(" - Parameters:")
-              text.extend("   - %s: "%(i) for i in args)
-          text.append(' - Returns: ')
-          text = "".join("".join((prefix, i, os.linesep)) for i in text)
-      else:
-          text = prefix + os.linesep # simply add at top line
-      start = responses.Location(line, 1, filename)
-      return responses.BuildFixItResponse(
-          [responses.FixIt(
-              start,
-              [responses.FixItChunk(text, responses.Range(start, start))]
-          )]
-      )
+        return {
+            "filepath": cursorInfo["key.filepath"],
+            "byte_offset": cursorInfo["key.offset"],
+        }
 
-  def Fixit(self, request_data, args):
-    filename = request_data[ 'filepath' ]
-    contents = GetFileContents( request_data, filename )
+    def DocComment(self, request_data, args):
+        cursorInfo = self.CursorRequest(request_data)
+        if not cursorInfo:
+            return
+        line = request_data["line_num"]
+        filename = request_data["filepath"]
+        line_value = request_data["line_value"]  # type: str
+        indent = len(line_value) - len(line_value.lstrip())
+        prefix = indent * " " + "///"
 
-    line = request_data[ 'line_num' ]
-    column = request_data[ 'column_num' ]
-    location = responses.Location(line, column, filename)
+        from xml.etree import ElementTree
 
-    with self._server_state_mutex:
-        file_state = self._source_repository.get(filename)
-        if file_state is None: return
-        if file_state['last_contents'] != contents: # force reparse
-            self.OnFileReadyToParse(request_data)
-        diag = file_state.get('last_diag')
-        if diag is None: return
+        root = ElementTree.fromstring(cursorInfo["key.fully_annotated_decl"])
+        if root.tag.startswith("decl.function"):
 
-        bytes_contents = utils.ToBytes(contents)
-        fixits = [ConvertFixit(d.location_, d.text_, f, bytes_contents)
-                  for d in diag if d.fixits_ and LocationInRange(location, d.location_extent_)
-                  for f in d.fixits_]
-        if fixits:
-          return responses.BuildFixItResponse(fixits)
+            def yieldArgs():
+                for i in root.iterfind("decl.var.parameter"):
+                    name = i.find("decl.var.parameter.name")
+                    # bool(Element) return false for empty child
+                    if name is None:
+                        name = i.find("decl.var.parameter.argument_label")
+                    if name is None:
+                        continue
+                    yield "".join(name.itertext())
 
-        fixits = [ConvertFixit(d.location_, d.text_, f, bytes_contents)
-                  for d in diag if d.fixits_ and LocationLineInRange(location, d.location_extent_)
-                  for f in d.fixits_]
-        if fixits:
-          return responses.BuildFixItResponse(fixits)
+            args = list(yieldArgs())
+            text = [" Description"]
+            if len(args) > 0:
+                text.append("")
+                text.append(" - Parameters:")
+                text.extend("   - %s: " % (i) for i in args)
+            text.append(" - Returns: ")
+            text = "".join("".join((prefix, i, os.linesep)) for i in text)
+        else:
+            text = prefix + os.linesep  # simply add at top line
+        start = responses.Location(line, 1, filename)
+        return responses.BuildFixItResponse(
+            [
+                responses.FixIt(
+                    start, [responses.FixItChunk(text, responses.Range(start, start))]
+                )
+            ]
+        )
+
+    def Fixit(self, request_data, args):
+        filename = request_data["filepath"]
+        contents = GetFileContents(request_data, filename)
+
+        line = request_data["line_num"]
+        column = request_data["column_num"]
+        location = responses.Location(line, column, filename)
+
+        with self._server_state_mutex:
+            file_state = self._source_repository.get(filename)
+            if file_state is None:
+                return
+            if file_state["last_contents"] != contents:  # force reparse
+                self.OnFileReadyToParse(request_data)
+            diag = file_state.get("last_diag")
+            if diag is None:
+                return
+
+            bytes_contents = utils.ToBytes(contents)
+            fixits = [
+                ConvertFixit(d.location_, d.text_, f, bytes_contents)
+                for d in diag
+                if d.fixits_ and LocationInRange(location, d.location_extent_)
+                for f in d.fixits_
+            ]
+            if fixits:
+                return responses.BuildFixItResponse(fixits)
+
+            fixits = [
+                ConvertFixit(d.location_, d.text_, f, bytes_contents)
+                for d in diag
+                if d.fixits_ and LocationLineInRange(location, d.location_extent_)
+                for f in d.fixits_
+            ]
+            if fixits:
+                return responses.BuildFixItResponse(fixits)
+
 
 class SwiftCompleterConnection(threading.Thread):
-    def __init__( self, io ):
+    def __init__(self, io):
         """
         :type io: io.IOBase
         """
@@ -706,15 +833,15 @@ class SwiftCompleterConnection(threading.Thread):
         self.response_queue = SimpleQueue()
         self.notification_queue = SimpleQueue()
 
-    def Start( self ):
-          # Wraps the fact that this class inherits (privately, in a sense) from
+    def Start(self):
+        # Wraps the fact that this class inherits (privately, in a sense) from
         # Thread.
         self.start()
 
-    def Stop( self ):
+    def Stop(self):
         self._stop_event.set()
 
-    def run( self ):
+    def run(self):
         while not self._stop_event.is_set():
             response = self.__GetResponse()
             if response.get("id") is None:
@@ -726,92 +853,120 @@ class SwiftCompleterConnection(threading.Thread):
         headers = {}
         while True:
             line = self._io.readline()
-            if len(line) < 3: break
+            if len(line) < 3:
+                break
 
             m = header_pattern.search(line)
-            if m: headers[m.group(1)] = m.group(2)
+            if m:
+                headers[m.group(1)] = m.group(2)
 
         try:
-            content_length = int(headers[b'Content-Length'])
-            r = json.loads( self._io.read(content_length))
+            content_length = int(headers[b"Content-Length"])
+            r = json.loads(self._io.read(content_length))
             error = None
-            if isinstance(r, dict): error = r.get("error")
+            if isinstance(r, dict):
+                error = r.get("error")
             if error:
                 LOGGER.error(f"response error: {error}")
             else:
                 LOGGER.debug(f"get response: {r}")
             return r
         except (KeyError, ValueError) as e:
-            LOGGER.exception( 'Error while read package' )
+            LOGGER.exception("Error while read package")
             return {}
 
+
 def LocationInRange(location, location_range):
-    """ return true if location in location_range """
-    if location.filename_ != location_range.start_.filename_: return False
-    after_start = (location.line_number_ > location_range.start_.line_number_ or
-                   (location.line_number_ == location_range.start_.line_number_ and
-                    location.column_number_ >= location_range.start_.column_number_))
-    before_end = (location.line_number_ < location_range.end_.line_number_ or
-                  (location.line_number_ == location_range.end_.line_number_ and
-                   location.column_number_ < location_range.end_.column_number_))
+    """return true if location in location_range"""
+    if location.filename_ != location_range.start_.filename_:
+        return False
+    after_start = location.line_number_ > location_range.start_.line_number_ or (
+        location.line_number_ == location_range.start_.line_number_
+        and location.column_number_ >= location_range.start_.column_number_
+    )
+    before_end = location.line_number_ < location_range.end_.line_number_ or (
+        location.line_number_ == location_range.end_.line_number_
+        and location.column_number_ < location_range.end_.column_number_
+    )
     return after_start and before_end
+
 
 def LocationLineInRange(location, location_range):
     """return true is location's line no in location_range, column may not in location_range"""
-    if location.filename_ != location_range.start_.filename_: return False
+    if location.filename_ != location_range.start_.filename_:
+        return False
     after_start = location.line_number_ >= location_range.start_.line_number_
     before_end = location.line_number_ <= location_range.end_.line_number_
     return after_start and before_end
 
+
 def BuildRangeFromOffset(name, bytes_contents, offset, length):
     start = LineColumnFromByteOffset(bytes_contents, offset)
-    end = LineColumnFromByteOffset(bytes_contents[offset:], length) # don't recount lines
+    end = LineColumnFromByteOffset(
+        bytes_contents[offset:], length
+    )  # don't recount lines
     if end[0] == 1:
         end = (start[0], start[1] + end[1] - 1)
     else:
         end = (start[0] + end[0] - 1, end[1])
-    return responses.Range( responses.Location(*start, name),
-                            responses.Location(*end, name) )
+    return responses.Range(
+        responses.Location(*start, name), responses.Location(*end, name)
+    )
+
 
 def ConvertFixit(location, desc, chunks, bytes_contents):
-    if not chunks: return None
-    chunks = [responses.FixItChunk(c["key.sourcetext"],
-                                   BuildRangeFromOffset(location.filename_, bytes_contents,
-                                                        c["key.offset"], c["key.length"]))
-              for c in chunks]
-    return responses.FixIt( location, chunks, desc, kind="quickfix" )
+    if not chunks:
+        return None
+    chunks = [
+        responses.FixItChunk(
+            c["key.sourcetext"],
+            BuildRangeFromOffset(
+                location.filename_, bytes_contents, c["key.offset"], c["key.length"]
+            ),
+        )
+        for c in chunks
+    ]
+    return responses.FixIt(location, chunks, desc, kind="quickfix")
+
 
 def LocationFromDiag(sourcekit_diag):
     path = sourcekit_diag.get("key.filepath")
     line = sourcekit_diag.get("key.line")
-    if not path or not line: return None
+    if not path or not line:
+        return None
     column = sourcekit_diag.get("key.column", 1)
     return responses.Location(line, column, path)
 
 
 def ConvertToYCMDDiag(sourcekit_diag, output):
     start = LocationFromDiag(sourcekit_diag)
-    if start is None: return
+    if start is None:
+        return
     try:
         length = sourcekit_diag["key.ranges"][0]["key.length"]
     except Exception as e:
-        LOGGER.debug("get ranges error: %s", e) # 只有位置没有长度时，有可能进入这个异常分支
+        LOGGER.debug("get ranges error: %s", e)  # 只有位置没有长度时，有可能进入这个异常分支
         length = 1
-    end = responses.Location(start.line_number_, start.column_number_ + length, start.filename_)
+    end = responses.Location(
+        start.line_number_, start.column_number_ + length, start.filename_
+    )
     r = responses.Range(start, end)
 
     chunks = sourcekit_diag.get("key.fixits")
     fixits = []
-    if chunks: fixits.append(chunks)
+    if chunks:
+        fixits.append(chunks)
 
-    output.append(responses.Diagnostic(
-        ranges = [r],
-        location = r.start_,
-        location_extent = r,
-        text = sourcekit_diag.get("key.description"),
-        kind = DiagTypeFromKitten(sourcekit_diag.get("key.severity")),
-        fixits = fixits
-    ))
+    output.append(
+        responses.Diagnostic(
+            ranges=[r],
+            location=r.start_,
+            location_extent=r,
+            text=sourcekit_diag.get("key.description"),
+            kind=DiagTypeFromKitten(sourcekit_diag.get("key.severity")),
+            fixits=fixits,
+        )
+    )
 
     for subdiag in sourcekit_diag.get("key.diagnostics", []):
         ConvertToYCMDDiag(subdiag, output)
@@ -822,44 +977,48 @@ def LineOffsetInStr(file_contents, line):
     i = -1
     while line > 1:
         i = file_contents.find("\n", i + 1)
-        if i < 0: return 0
+        if i < 0:
+            return 0
         line -= 1
     return i + 1
 
+
 def KindFromKittenKind(sourcekind):
-      return {
-          "source.lang.swift.decl.class"                    : "CLASS",
-          "source.lang.swift.decl.enum"                     : "ENUM",    # enum type
-          "source.lang.swift.decl.enumelement"              : "ENUMELEMENT",    # enum element
-          "source.lang.swift.decl.function.free"            : "FUNCTION",
-          "source.lang.swift.decl.function.method.instance" : "METHOD",
-          "source.lang.swift.decl.function.method.class"    : "METHOD",
-          "source.lang.swift.decl.protocol"                 : "PROTOCOL",
-          "source.lang.swift.decl.struct"                   : "STRUCT",
-          "source.lang.swift.decl.typealias"                : "ALIAS",
-          "source.lang.swift.decl.var.global"               : "VARIABLE",
-          "source.lang.swift.decl.var.instance"             : "VARIABLE",
-          "source.lang.swift.decl.var.class"                : "VARIABLE",
-          "source.lang.swift.decl.var.local"                : "IDENTIFIER",
-          "source.lang.swift.keyword"                       : "KEYWORD",
-          "source.lang.swift.literal.color"                 : "LITERALCOLOR",
-          "source.lang.swift.literal.image"                 : "LITERALIMAGE",
-      }.get(sourcekind, 'UNKNOWN')
+    return {
+        "source.lang.swift.decl.class": "CLASS",
+        "source.lang.swift.decl.enum": "ENUM",  # enum type
+        "source.lang.swift.decl.enumelement": "ENUMELEMENT",  # enum element
+        "source.lang.swift.decl.function.free": "FUNCTION",
+        "source.lang.swift.decl.function.method.instance": "METHOD",
+        "source.lang.swift.decl.function.method.class": "METHOD",
+        "source.lang.swift.decl.protocol": "PROTOCOL",
+        "source.lang.swift.decl.struct": "STRUCT",
+        "source.lang.swift.decl.typealias": "ALIAS",
+        "source.lang.swift.decl.var.global": "VARIABLE",
+        "source.lang.swift.decl.var.instance": "VARIABLE",
+        "source.lang.swift.decl.var.class": "VARIABLE",
+        "source.lang.swift.decl.var.local": "IDENTIFIER",
+        "source.lang.swift.keyword": "KEYWORD",
+        "source.lang.swift.literal.color": "LITERALCOLOR",
+        "source.lang.swift.literal.image": "LITERALIMAGE",
+    }.get(sourcekind, "UNKNOWN")
+
 
 def DiagTypeFromKitten(sourcekind):
     return {
         "source.diagnostic.severity.note": "INFORMATION",
         "source.diagnostic.severity.warning": "WARNING",
-        "source.diagnostic.severity.error": "ERROR"
+        "source.diagnostic.severity.error": "ERROR",
     }.get(sourcekind)
+
 
 class FastReadCounter(object):
     def __init__(self):
         self.value = 0
         self._lock = threading.Lock()
-        
+
     def increment(self):
-        """ return new value """
+        """return new value"""
         with self._lock:
             self.value += 1
             return self.value

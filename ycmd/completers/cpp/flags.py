@@ -17,6 +17,7 @@
 
 import os
 import inspect
+from ycmd.utils import LOGGER
 from ycmd import extra_conf_store
 from ycmd.utils import ( AbsolutePath,
                          ImportCore,
@@ -223,11 +224,13 @@ class Flags:
 
       compile_commands = os.path.join( folder, 'compile_commands.json' )
       if os.path.exists( compile_commands ):
+        LOGGER.info(f"find compile comands at path { compile_commands }")
         database = ycm_core.CompilationDatabase( folder )
 
         if database.DatabaseSuccessfullyLoaded():
           self.compilation_database_dir_map[ folder ] = database
           return database
+        LOGGER.warn("invalid compile_commands.json")
 
     # Nothing was found. No compilation flags are available.
     # Note: we cache the fact that none was found for this folder to speed up
